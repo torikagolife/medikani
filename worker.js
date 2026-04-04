@@ -31,6 +31,17 @@ export default {
 
     // --- 1. Web画面の表示 (GETリクエスト) ---
     if (request.method === "GET") {
+      // === 新規追加: 掲示板データ取得 API (ここから) ===
+      if (url.pathname.includes("/api/board")) {
+        try {
+          const bHId = url.searchParams.get("h") || "";
+          if (!bHId) return new Response("[]", { headers: { "Content-Type": "application/json" } });
+          const boardData = await env.MEDI_KV.get(`${bHId}_board`);
+          return new Response(boardData || "[]", { headers: { "Content-Type": "application/json" } });
+        } catch(e) { return new Response("[]", { status: 500 }); }
+      }
+      // === 新規追加: 掲示板データ取得 API (ここまで) ===
+
       // 検索API (Web用)
       if (url.pathname.includes("/api/search")) {
         try {
@@ -100,7 +111,7 @@ export default {
           let cursor = "";
           do {
             const list = await env.MEDI_KV.list({ prefix: `${metaHId}_`, limit: 1000, cursor: cursor || undefined });
-            realCount += list.keys.filter(k => !k.name.endsWith("_meta") && !k.name.endsWith("_pwd") && !k.name.endsWith("_email") && !k.name.includes("COMP_")).length;
+            realCount += list.keys.filter(k => !k.name.endsWith("_meta") && !k.name.endsWith("_pwd") && !k.name.endsWith("_email") && !k.name.endsWith("_board") && !k.name.includes("COMP_")).length;
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
           meta.count = realCount;
@@ -120,7 +131,7 @@ export default {
           let cursor = "";
           do {
             const list = await env.MEDI_KV.list({ prefix: `${listHId}_`, limit: 1000, cursor: cursor || undefined });
-            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_email")));
+            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_email") && !n.endsWith("_board")));
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
           return new Response(JSON.stringify({ keys: keys }), { headers: { "Content-Type": "application/json" } });
@@ -138,7 +149,7 @@ export default {
           do {
             const list = await env.MEDI_KV.list({ prefix: `${dHId}_`, limit: 1000, cursor: cursor || undefined });
             // ダウンロード時は絶対に COMP_ ゴミデータを排除する
-            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_email") && !n.includes("COMP_")));
+            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("COMP_")));
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
 
@@ -184,6 +195,30 @@ export default {
       
       // メイン画面の表示
       return new Response(this.getAdminHTML(env, hospitalId), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+    }
+
+    // === 新規追加: 掲示板API (管理用) ===
+    if (request.method === "POST" && url.pathname.includes("/api/admin/board")) {
+      try {
+        const body = await request.json();
+        const bHId = url.searchParams.get("h") || "";
+        let currentBoard = await env.MEDI_KV.get(`${bHId}_board`);
+        let boardArr = currentBoard ? JSON.parse(currentBoard) : [];
+
+        if (body.action === "post") {
+          boardArr.unshift({
+            id: Date.now(),
+            date: new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' }) + ' ' + new Date().toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit', timeZone: 'Asia/Tokyo' }),
+            message: body.message
+          });
+          if (boardArr.length > 50) boardArr.pop(); // 最大50件保持
+        } else if (body.action === "delete") {
+          boardArr = boardArr.filter(b => b.id !== body.id);
+        }
+
+        await env.MEDI_KV.put(`${bHId}_board`, JSON.stringify(boardArr));
+        return new Response(JSON.stringify({success: true}), { headers: { "Content-Type": "application/json" } });
+      } catch (e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
     }
 
     // === 新規追加: CSVアップロード等の POST API (ここから) ===
@@ -709,6 +744,7 @@ export default {
             <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ">
             <div class="kani-bubble">${randomTip}</div>
           </div>
+          <div id="boardArea"></div>
         </div>
       </div>
       <div id="modalOverlay" onclick="closeModal(event)"><div class="modal" onclick="event.stopPropagation()">
@@ -849,6 +885,7 @@ export default {
           }
           if (currentCat === '[履歴]') { clearTimeout(timer); renderHistory(); return; }
           if (currentCat === '[お気に入り]') { clearTimeout(timer); renderFavorites(); return; }
+
           if (currentCat === '[デモ]') {
             clearTimeout(timer);
             document.getElementById('loading').style.display = 'none';
@@ -874,9 +911,9 @@ export default {
             return;
           }
           
-          // 検索文字が空になったらデフォルト表示（カニのつぶやき）に戻す
+          // 検索文字が空になったらデフォルト表示（カニのつぶやき ＋ お知らせ）に戻す
           if (q.length === 0) {
-            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div></div>';
+            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="boardArea">' + (window.boardHTML || '') + '</div></div>';
             return;
           }
           if (q.length < 2) { resDiv.innerHTML = ''; return; }
@@ -927,8 +964,19 @@ export default {
           }, 400);
         }
         
-        // 初回ロード時につぶやきを保持しておく
+        // === 新規追加: 掲示板データの初期取得と保持 ===
         window.currentKaniTip = \`${randomTip}\`;
+        window.boardHTML = "";
+        fetch('/api/board?h=' + hId).then(r=>r.json()).then(data => {
+          if (data && data.length > 0) {
+            window.boardHTML = '<div style="margin-top:15px; font-weight:bold; color:var(--main-orange);">📢 薬剤部からのお知らせ</div>' + 
+              data.map(b => \`<div class="card" style="border-left-color:var(--main-orange); margin-top:10px;"><div style="font-size:12px; color:#888; margin-bottom:5px;">🕒 \${b.date}</div><div style="font-size:14px; line-height:1.6; white-space:pre-wrap;">\${b.message}</div></div>\`).join('');
+          }
+          // 初期表示時（検索欄が空の時）に流し込む
+          if (document.getElementById('q').value.trim().length === 0 && document.getElementById('boardArea')) {
+            document.getElementById('boardArea').innerHTML = window.boardHTML;
+          }
+        }).catch(e => {});
 
         // === 新規追加: 詳細画面用AI呼び出し処理 (ここから) ===
         async function fetchAIAdvice(drugName) {
@@ -1136,6 +1184,17 @@ export default {
             <div id="uploadMsg"></div>
           </div>
         </div>
+        
+        <div class="card" style="border-top: 4px solid #28a745;">
+          <h2>📢 掲示板（お知らせ）管理</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:10px;">検索画面のトップに表示されるお知らせを投稿できますカニ🦀</p>
+          <textarea id="boardMessage" placeholder="お知らせ内容を入力してください..." style="width:100%; height:80px; padding:10px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box; font-family:sans-serif; margin-bottom:10px;"></textarea>
+          <button onclick="postBoard()" style="width:100%; padding:12px; background:#28a745; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer; margin-bottom:20px; transition: transform 0.1s;">📢 投稿する</button>
+          
+          <h3 style="font-size:14px; color:#444; margin-top:0; border-bottom:1px dashed #ccc; padding-bottom:5px;">📋 過去のお知らせ</h3>
+          <div id="boardList" class="admin-item-list" style="max-height:300px; overflow-y:auto;"></div>
+        </div>
+
         <div class="card" style="border-top: 4px solid #ff9d00;">
           <h2>🔑 パスワード変更</h2>
           <input type="password" id="changePwd" placeholder="新しいパスワードを入力カニ🦀" style="width:100%; padding:12px; border:1px solid #ccc; border-radius:8px; margin-bottom:15px; box-sizing:border-box; font-size:14px;">
@@ -1300,6 +1359,44 @@ export default {
           btn.disabled = false;
           location.reload();
         };
+
+        // --- 新規追加: 掲示板機能 (ここから) ---
+        function loadBoard() {
+          fetch('/api/board?h=' + hId).then(r=>r.json()).then(data => {
+            const list = document.getElementById('boardList');
+            if(!data || data.length===0) { list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">お知らせはまだありませんカニ🦀</p>'; return; }
+            list.innerHTML = data.map(b => \`
+              <div class="admin-item" style="flex-direction:column; align-items:flex-start;">
+                <div style="font-size:11px; color:#888; margin-bottom:4px;">\${b.date}</div>
+                <div style="font-size:13px; margin-bottom:8px; white-space:pre-wrap; width:100%;">\${b.message}</div>
+                <button class="btn-small btn-delete" onclick="deleteBoard(\${b.id})">削除</button>
+              </div>
+            \`).join('');
+          });
+        }
+        async function postBoard() {
+          const message = document.getElementById('boardMessage').value.trim();
+          if(!message) return;
+          const res = await fetch('/api/admin/board?h=' + hId, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ action: 'post', message })
+          });
+          if((await res.json()).success) {
+            alert('投稿しましたカニ！🦀');
+            document.getElementById('boardMessage').value = '';
+            loadBoard();
+          }
+        }
+        async function deleteBoard(id) {
+          if(!confirm('削除しますか？')) return;
+          const res = await fetch('/api/admin/board?h=' + hId, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ action: 'delete', id })
+          });
+          if((await res.json()).success) { loadBoard(); }
+        }
+        loadBoard();
+        // --- 新規追加: 掲示板機能 (ここまで) ---
       </script></body></html>`;
   }
 };
