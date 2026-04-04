@@ -218,6 +218,40 @@ export default {
       }
     }
 
+    // --- 新機能: 個別コメント保存API (管理用) ---
+    if (request.method === "POST" && url.pathname.includes("/api/admin/save-comment")) {
+      try {
+        const body = await request.json();
+        const { key, comment } = body;
+        if (!key) return new Response(JSON.stringify({error: "Key missing"}), { status: 400 });
+
+        const val = await env.MEDI_KV.get(key);
+        if (!val) return new Response(JSON.stringify({error: "Data not found"}), { status: 404 });
+
+        let parts = String(val).split(/[,\uFF0C]/);
+        const yj = getBestYJ(key, parts);
+        const yjIndex = parts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
+
+        if (yjIndex !== -1) {
+          const newVal = [...parts.slice(0, yjIndex + 1), comment].join(",");
+          await env.MEDI_KV.put(key, newVal);
+          return new Response(JSON.stringify({success: true}), { headers: { "Content-Type": "application/json" } });
+        }
+        return new Response(JSON.stringify({error: "Format error"}), { status: 500 });
+      } catch (e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
+    }
+
+    // --- 新機能: 個別削除API (管理用) ---
+    if (request.method === "POST" && url.pathname.includes("/api/admin/delete-item")) {
+      try {
+        const body = await request.json();
+        const { key } = body;
+        if (!key) return new Response(JSON.stringify({error: "Key missing"}), { status: 400 });
+        await env.MEDI_KV.delete(key);
+        return new Response(JSON.stringify({success: true}), { headers: { "Content-Type": "application/json" } });
+      } catch (e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
+    }
+
     // パスワード変更 (管理画面内から)
     if (request.method === "POST" && url.pathname.includes("/api/admin/changepwd")) {
       try {
@@ -967,7 +1001,7 @@ export default {
               \${commentHTML}
 
               <div style="margin-bottom:15px;">
-                <button id="btnAiAdvice" onclick="fetchAIAdvice('\${safeDrugName}')" style="width:100%; background:#fff3e0; color:#e65100; border:1px solid #ffcc80; padding:10px; border-radius:8px; font-weight:bold; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:8px; box-shadow:0 2px 4px rgba(255,157,0,0.1); transition:all 0.2s;">🤖 メディカニくんに薬効と注意点を聞く</button>
+                <button id="btnAiAdvice" onclick="fetchAIAdvice('\${safeDrugName}')" style="width:100%; background:#fff3e0; color:#e65100; border:1px solid #ffcc80; padding:10px; border-radius:8px; font-weight:bold; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:8px; box-shadow:0 2px 4px rgba(255,157,0,0.1); transition:all 0.2s;">🤖 メディカニくんに薬効 and 注意点を聞く</button>
                 <div id="aiAdviceArea" style="display:none; background:#fff9f0; border:1px solid #ffe0b2; border-radius:8px; padding:12px; margin-top:8px; font-size:13px; color:#444; line-height:1.6; white-space:pre-wrap;"></div>
               </div>
               <div class="btn-group"><a href="\${mUrl}" class="btn btn-medley" target="_blank">📘 メドレー</a><a href="\${gUrl}" class="btn btn-google" target="_blank">🔍 Google</a></div>
@@ -1028,6 +1062,15 @@ export default {
       .btn:active { transform: scale(0.98); }
       .btn:disabled { background: #ccc; cursor: not-allowed; box-shadow: none; }
       #uploadMsg { margin-top: 10px; font-size: 14px; font-weight: bold; text-align: center; display: none; }
+      
+      /* 新規: 管理画面用薬品リスト */
+      .admin-item-list { margin-top: 20px; border-top: 1px solid #eee; }
+      .admin-item { padding: 12px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+      .admin-item-info { flex: 1; }
+      .admin-item-actions { display: flex; gap: 8px; }
+      .btn-small { padding: 6px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; border: none; font-weight: bold; }
+      .btn-edit { background: #007bff; color: #fff; }
+      .btn-delete { background: #dc3545; color: #fff; }
     </style></head>
     <body>
       <div class="header">
@@ -1043,9 +1086,32 @@ export default {
           </div>
           <a href="/api/admin/download?h=${hospitalId}" class="btn" style="background:#17a2b8; margin-top:10px; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none;">⬇️ 現在の採用薬CSVをダウンロード</a>
         </div>
+
+        <div class="card">
+          <h2>✏️ 個別編集（簡易版）</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:10px;">修正したい薬品を検索してから編集してくださいカニ🦀</p>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="adminSearchQ" placeholder="薬品名で検索..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:8px;">
+            <button onclick="adminSearch()" style="padding:10px 20px; background:var(--main-blue); color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">検索</button>
+          </div>
+          <div id="adminSearchResults" class="admin-item-list"></div>
+        </div>
+
+        <div id="adminEditModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:2000; justify-content:center; align-items:center;">
+          <div style="background:#fff; width:90%; max-width:400px; padding:25px; border-radius:15px; position:relative;">
+            <h3 id="editTitle" style="margin-top:0; color:var(--main-blue);">院内メモの編集</h3>
+            <p id="editDrugName" style="font-size:13px; font-weight:bold; margin-bottom:15px; color:#555;"></p>
+            <textarea id="editMemo" style="width:100%; height:100px; padding:10px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box; font-family:sans-serif; margin-bottom:15px;"></textarea>
+            <div style="display:flex; gap:10px;">
+              <button onclick="saveAdminComment()" id="btnSaveAdmin" style="flex:1; padding:12px; background:#28a745; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">保存する</button>
+              <button onclick="closeAdminEdit()" style="flex:1; padding:12px; background:#eee; color:#333; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">キャンセル</button>
+            </div>
+          </div>
+        </div>
+
         <div class="card">
           <h2>📥 CSVデータのアップロード</h2>
-          <p style="font-size:12px; color:#666; margin-bottom:15px;">病院のシステムから出力した採用薬CSV（カンマ区切り）を選択してくださいカニ🦀</p>
+          <p style="font-size:12px; color:#666; margin-bottom:15px;">一括更新はこちら。既存データはすべて上書きされますカニ🦀</p>
           <label class="dropzone" id="dropzone">
             <div style="font-size:24px; margin-bottom:10px;">📄</div>
             <div style="font-size:14px; color:#555; font-weight:bold;">CSVファイルをタップして選択</div>
@@ -1087,8 +1153,7 @@ export default {
       </div>
       <script>
         const hId = "${hospitalId}";
-        let parsedData = []; let headers = [];
-        let existingKeyCount = 0; // 追加：既存のキー数を保持
+        let currentEditKey = "";
 
         fetch('/api/admin/meta?h=' + hId).then(r=>r.json()).then(d => {
           document.getElementById('metaCount').innerText = d.count || 0;
@@ -1098,6 +1163,63 @@ export default {
           } else { document.getElementById('metaDate').innerText = '未登録'; }
           document.getElementById('currentEmail').innerText = d.email || '未登録';
         });
+
+        // 管理画面用検索
+        async function adminSearch() {
+          const q = document.getElementById('adminSearchQ').value.trim();
+          if(!q) return;
+          const res = await fetch(\`/api/search?q=\${encodeURIComponent(q)}&h=\${hId}\`);
+          const data = await res.json();
+          const list = document.getElementById('adminSearchResults');
+          if(!data.length) { list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">見つかりませんでしたカニ🦀</p>'; return; }
+          list.innerHTML = data.filter(i => i.isAdopted).map(i => \`
+            <div class="admin-item">
+              <div class="admin-item-info">
+                <b>\${i.name}</b><br><small>\${i.spec}</small>
+              </div>
+              <div class="admin-item-actions">
+                <button class="btn-small btn-edit" onclick="openAdminEdit('\${i.key.replace(/'/g, "\\\\'")}', '\${i.name.replace(/'/g, "\\\\'")}')">編集</button>
+                <button class="btn-small btn-delete" onclick="adminDeleteItem('\${i.key.replace(/'/g, "\\\\'")}')">削除</button>
+              </div>
+            </div>
+          \`).join('');
+        }
+
+        function openAdminEdit(key, name) {
+          currentEditKey = key;
+          document.getElementById('editDrugName').innerText = name;
+          // 詳細を取得してメモをセット
+          fetch(\`/api/detail?key=\${encodeURIComponent(key)}&h=\${hId}\`).then(r=>r.json()).then(d => {
+            document.getElementById('editMemo').value = d.comment || "";
+            document.getElementById('adminEditModal').style.display = 'flex';
+          });
+        }
+
+        function closeAdminEdit() { document.getElementById('adminEditModal').style.display = 'none'; }
+
+        async function saveAdminComment() {
+          const comment = document.getElementById('editMemo').value.trim();
+          const btn = document.getElementById('btnSaveAdmin');
+          btn.disabled = true;
+          const res = await fetch(\`/api/admin/save-comment?h=\${hId}\`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ key: currentEditKey, comment })
+          });
+          if((await res.json()).success) { alert('保存しましたカニ！🦀'); closeAdminEdit(); adminSearch(); }
+          btn.disabled = false;
+        }
+
+        async function adminDeleteItem(key) {
+          if(!confirm('本当に削除しますか？')) return;
+          const res = await fetch(\`/api/admin/delete-item?h=\${hId}\`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ key })
+          });
+          if((await res.json()).success) { alert('削除しましたカニ🦀'); adminSearch(); }
+        }
+
+        // --- 既存のCSV処理 ---
+        let parsedData = []; let headers = [];
         document.getElementById('btnChangePwd').onclick = async () => {
           const newPwd = document.getElementById('changePwd').value.trim();
           if(!newPwd) return;
@@ -1142,56 +1264,41 @@ export default {
                 iS = parseInt(document.getElementById('mapSpec').value), 
                 iY = parseInt(document.getElementById('mapYJ').value), 
                 iC1 = parseInt(document.getElementById('mapC1').value);
-                
           if(iN===-1||iY===-1) return alert('必須列を選択してくださいカニ🦀');
           uploadPayload = []; const tbody = document.querySelector('#previewTable tbody'); tbody.innerHTML = ''; const csvKeys = new Set();
-          
           parsedData.forEach(row => {
             const yj = row[iY]; if(!yj||yj.length<7) return;
             let cat = "[内]"; if("SRV".includes(yj.charAt(7))) cat="[外]"; if("AH".includes(yj.charAt(7))) cat="[注]";
-            
-            // カンマが混入した際のパースエラー防止
             const cleanName = row[iN] ? row[iN].replace(/,/g, '，') : "";
             const cleanSpec = iS !== -1 && row[iS] ? row[iS].replace(/,/g, '，') : "";
             const cleanMemo = iC1 !== -1 && row[iC1] ? row[iC1].replace(/,/g, '，') : "";
-            
             const key = \`\${hId}_\${cat}\${cleanName}_\${yj}\`;
             const val = \`\${cleanName},\${cleanSpec},-,,\${yj},\${cleanMemo}\`;
-            
             if(!csvKeys.has(key)) { 
               csvKeys.add(key); 
               uploadPayload.push({key, val}); 
               if(uploadPayload.length<=5) tbody.innerHTML += \`<tr><td>\${yj}</td><td>\${cleanName}</td><td>\${cleanSpec}</td><td>\${cleanMemo}</td></tr>\`; 
             }
           });
-          
           const rK = await fetch('/api/admin/keys?h='+hId); const dK = await rK.json(); const eK = new Set(dK.keys || []);
-          existingKeyCount = eK.size; // 既存キー数を取得
-
           keysToRemove = []; 
-          const isFullSync = document.getElementById('chkFullSync').checked;
-
-          if(isFullSync) {
-            // フル同期：CSVにないものはすべて削除
+          if(document.getElementById('chkFullSync').checked) {
             eK.forEach(k => { if(!csvKeys.has(k)) keysToRemove.push(k); });
-            finalCount = csvKeys.size; // フル同期時はCSVの件数が最終件数
+            finalCount = csvKeys.size;
           } else {
-            // 追加更新：既存キーと新規追加分を合算（重複は上書きされるのでセットで計算）
             let finalKeys = new Set(eK);
             csvKeys.forEach(k => finalKeys.add(k));
-            finalCount = finalKeys.size; // 追加分を合わせた総数が最終件数
+            finalCount = finalKeys.size;
           }
-          
           document.getElementById('previewStats').innerHTML = \`新規/更新: \${uploadPayload.length}件 / 削除: \${keysToRemove.length}件 (更新後の総件数: \${finalCount}件)\`;
           document.getElementById('previewArea').style.display = 'block';
         };
-        
         document.getElementById('btnUpload').onclick = async () => {
           const btn = document.getElementById('btnUpload'); btn.disabled = true;
           const res = await fetch('/api/admin/upload?h='+hId, {method:'POST', body:JSON.stringify({items:uploadPayload, deletes:keysToRemove, finalCount})});
           if((await res.json()).success) alert('更新完了カニ！🦀');
           btn.disabled = false;
-          location.reload(); // リロードしてステータスを更新
+          location.reload();
         };
       </script></body></html>`;
   }
