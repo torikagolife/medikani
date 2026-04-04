@@ -66,6 +66,19 @@ export default {
         }
       }
 
+      // === 新規追加: 詳細画面用AI API (ここから) ===
+      if (url.pathname.includes("/api/detail-ai")) {
+        try {
+          const query = url.searchParams.get("q") || "";
+          if (!query) return new Response(JSON.stringify({ error: "薬品名がありません" }), { status: 400 });
+          const aiInfo = await this.askDetailAI(query, env.OPENAI_API_KEY);
+          return new Response(JSON.stringify({ info: aiInfo }), { headers: { "Content-Type": "application/json" } });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: e.message }), { status: 500 });
+        }
+      }
+      // === 新規追加: 詳細画面用AI API (ここまで) ===
+
       // === 新規追加: 認証とリセット関連画面 (ここから) ===
       if (isAdminResetPage) {
         return new Response(this.getResetHTML(env, hospitalId), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
@@ -340,6 +353,30 @@ export default {
     } catch (e) { return "通信エラーが発生しましたカニ🦀"; }
   },
 
+  // === 新規追加: 詳細画面用AIヘルパー (ここから) ===
+  async askDetailAI(drugName, apiKey) {
+    if (!apiKey) return "AIキーが設定されていませんカニ🦀";
+    try {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+        body: JSON.stringify({ 
+          model: "gpt-4o-mini", 
+          messages: [
+            { 
+              role: "system", 
+              content: "あなたは経験２０年の凄腕病院薬剤師です。提示された薬品名について、医療従事者（看護師・介護士）向けに以下の指定フォーマットで出力してください。推測や不確実な情報は絶対に書かないでください。\n\n薬効： （※この薬が何に使われるか、1文で）\n観察ポイント： （※服用後に注意すべき症状や副作用）\n注意： （※粉砕不可、食直後、水多めなど、与薬時の注意点、点滴は投与速度、混注不可、 遮光 など）\n\n※最後に改行して『※AIによる参考情報ですカニ🦀 必ず最新の添付文書・指示箋を確認してください。』と必ず記載すること。全体で200文字以内で。"
+            }, 
+            { role: "user", content: `薬品名：${drugName}` }
+          ], 
+          max_tokens: 250 
+        })
+      });
+      const d = await res.json();
+      return d.choices?.[0]?.message?.content || "情報を取得できませんでしたカニ🦀";
+    } catch (e) { return "通信エラーが発生しましたカニ🦀"; }
+  },
+  // === 新規追加: 詳細画面用AIヘルパー (ここまで) ===
+
   async handleWebSearch(query, category, hospitalId, env) {
     if (!query || query.length < 2) return [];
     const hiraQuery = hiraToKata(query);
@@ -590,7 +627,7 @@ export default {
             <p style="font-size:13px;color:#666;margin:5px 0 10px;">スマホでQRを読み取って、同僚や友人に教えてあげてね！🎁</p>
             <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/QR.png" alt="メディカニQRコード" class="promo-qr">
             <div class="promo-copy-area">
-              <textarea id="shareText" class="promo-text" readonly>🏥 病院採用薬が爆速でわかる「メディカニ」超便利だよ！🦀💊
+              <textarea id="shareText" class="promo-text" readonly>🏥 病院採用薬が爆速でわかる「メディカニ」超便利だよ！🦀
 今すぐチェックカニ〜！✨
 https://medikani.com/</textarea>
               <button class="btn-copy" onclick="copyShareText()">📝 コピペしてシェアする</button>
@@ -797,6 +834,38 @@ https://medikani.com/</textarea>
         // 初回ロード時につぶやきを保持しておく
         window.currentKaniTip = \`${randomTip}\`;
 
+        // === 新規追加: 詳細画面用AI呼び出し処理 (ここから) ===
+        async function fetchAIAdvice(drugName) {
+          const btn = document.getElementById('btnAiAdvice');
+          const area = document.getElementById('aiAdviceArea');
+          btn.disabled = true;
+          btn.innerHTML = '🦀 文献をあさっています... 💦';
+          area.style.display = 'block';
+          area.innerHTML = '<div style="text-align:center; color:#ff9d00;">少し待っててカニ...</div>';
+          
+          try {
+            const res = await fetch(\`/api/detail-ai?q=\${encodeURIComponent(drugName)}\`);
+            const d = await res.json();
+            if (d.info) {
+              btn.style.display = 'none';
+              let html = d.info;
+              html = html.replace(/薬効[：:]/g, '<span style="color:#d63384; font-weight:bold;">💊 薬効：</span>');
+              html = html.replace(/観察ポイント[：:]/g, '<span style="color:#0056b3; font-weight:bold;">👀 観察ポイント：</span>');
+              html = html.replace(/注意[：:]/g, '<span style="color:#e65100; font-weight:bold;">⚠️ 注意：</span>');
+              area.innerHTML = html;
+            } else {
+              btn.disabled = false;
+              btn.innerHTML = '🤖 メディカニくんに薬効と注意点を聞く';
+              area.innerHTML = '<span style="color:#dc3545;">エラーが発生しましたカニ🦀💦</span>';
+            }
+          } catch(e) {
+            btn.disabled = false;
+            btn.innerHTML = '🤖 メディカニくんに薬効と注意点を聞く';
+            area.innerHTML = '<span style="color:#dc3545;">通信エラーカニ🦀💦</span>';
+          }
+        }
+        // === 新規追加: 詳細画面用AI呼び出し処理 (ここまで) ===
+
         async function showDetail(key) {
           document.getElementById('modalContent').innerHTML = '<p style="text-align:center;padding:30px;font-weight:bold;color:#ff9d00;">🦀 メディカニくんが詳細を開いています... 💦</p>';
           document.getElementById('modalOverlay').style.display = 'flex';
@@ -819,6 +888,10 @@ https://medikani.com/</textarea>
                 <span style="font-size:14px; color:#444; font-weight:normal; display:block; margin-top:6px; line-height:1.5;">\${d.comment}</span>
               </div>
             \` : '';
+            
+            // 薬品名をエスケープ（シングルクォーテーション等でのJSエラー防止）
+            const safeDrugName = d.fullName.replace(/'/g, "\\'");
+
             document.getElementById('modalContent').innerHTML = \`
               <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
                 <h3 style="color:#0056b3; margin: 5px 15px 0 0; font-size:20px; flex:1; line-height:1.4; word-break: break-word;">\${getFormEmoji(d.yj, d.label)} \${d.fullName}</h3>
@@ -830,6 +903,11 @@ https://medikani.com/</textarea>
                 \${d.isAdopted?'🏥 当院採用のお薬ですカニ！🦀':'🏠 院外のお薬ですカニ🦀'}
               </p>
               \${commentHTML}
+
+              <div style="margin-bottom:15px;">
+                <button id="btnAiAdvice" onclick="fetchAIAdvice('\${safeDrugName}')" style="width:100%; background:#fff3e0; color:#e65100; border:1px solid #ffcc80; padding:10px; border-radius:8px; font-weight:bold; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:8px; box-shadow:0 2px 4px rgba(255,157,0,0.1); transition:all 0.2s;">🤖 メディカニくんに薬効と注意点を聞く</button>
+                <div id="aiAdviceArea" style="display:none; background:#fff9f0; border:1px solid #ffe0b2; border-radius:8px; padding:12px; margin-top:8px; font-size:13px; color:#444; line-height:1.6; white-space:pre-wrap;"></div>
+              </div>
               <div class="btn-group"><a href="\${mUrl}" class="btn btn-medley" target="_blank">📘 メドレー</a><a href="\${gUrl}" class="btn btn-google" target="_blank">🔍 Google</a></div>
               <hr style="border:none; border-top:1px dashed #ccc; margin:15px 0;">
               <p style="font-weight:bold; font-size:14px; margin-bottom:12px; color:#555;">🔄 同成分・切替候補カニ🦀</p>
