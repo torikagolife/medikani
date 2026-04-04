@@ -1,4 +1,4 @@
-// Webサービス: 医薬品検索（メディカニ・ハイブリッド検索＆院内コメント対応版）
+// Webサービス: 医薬品検索（メディカニ・ハイブリッド検索＆個別メモ対応版）
 // 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API)
 
 export default {
@@ -6,7 +6,7 @@ export default {
     const url = new URL(request.url);
     const pathParts = url.pathname.split('/').filter(p => p);
     
-    // パスの1番目を病院IDとして取得（apiパスは除外）
+    // パスの1番目を施設IDとして取得（apiパスは除外）
     const hospitalId = (pathParts[0] && !pathParts[0].startsWith('api')) ? pathParts[0] : "";
 
     // === 新規追加: Basic認証の判定ロジック (ここから) ===
@@ -153,7 +153,7 @@ export default {
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
 
-          let csv = "\uFEFFYJコード,薬品名,規格,院内メモ\n"; // BOMを追加してExcelで文字化けしないようにする
+          let csv = "\uFEFFYJコード,薬品名,規格,メモ\n"; // BOMを追加してExcelで文字化けしないようにする
           for (let i = 0; i < keys.length; i += 50) {
             const chunk = keys.slice(i, i + 50);
             const vals = await Promise.all(chunk.map(k => env.MEDI_KV.get(k)));
@@ -323,7 +323,7 @@ export default {
         }
 
         if (!expectedEmail) {
-          return new Response(JSON.stringify({success: false, error: "この病院IDにはメールアドレスが登録されていません"}), { headers: { "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({success: false, error: "この施設IDにはメールアドレスが登録されていません"}), { headers: { "Content-Type": "application/json" } });
         }
 
         if (rEmail !== expectedEmail) {
@@ -356,7 +356,7 @@ export default {
     if (!hId) return false;
     const authHeader = request.headers.get('Authorization');
     
-    // KVからパスワードを取得（未設定なら、HPTEST1は'12345'、その他は病院IDそのものを初期パスワードにする）
+    // KVからパスワードを取得（未設定なら、HPTEST1は'12345'、その他は施設IDそのものを初期パスワードにする）
     let pwd = await env.MEDI_KV.get(`${hId}_pwd`);
     if (!pwd) pwd = (hId === 'HPTEST1') ? '12345' : hId;
 
@@ -416,7 +416,7 @@ export default {
         登録されているメールアドレスを入力してください。新しい仮パスワードを発行しますカニ🦀
       </p>
       
-      <label>🏥 病院ID</label>
+      <label>🏥 施設ID</label>
       <input type="text" id="hId" value="${hId}" readonly style="background:#f0f0f0; color:#777;">
       
       <label>✉️ メールアドレス</label>
@@ -497,7 +497,7 @@ export default {
           messages: [
             { 
               role: "system", 
-              content: "あなたは経験２０年の凄腕病院薬剤師です。提示された薬品名について、医療従事者（看護師・介護士）向けに以下の指定フォーマットで出力してください。推測や不確実な情報は絶対に書かないでください。\n\n薬効： （※この薬が何に使われるか、1文で）\n観察ポイント： （※服用後に注意すべき症状や副作用）\n注意： （※粉砕不可、食直後、水多めなど、与薬時の注意点、点滴は投与速度、混注不可、 遮光 など）\n\n※最後に改行して『※AIによる参考情報ですカニ🦀 必ず最新の添付文書を確認してください。』と必ず記載すること。全体で200文字以内で。"
+              content: "あなたは経験２０年の凄腕薬剤師です。提示された薬品名について、医療従事者向けに以下の指定フォーマットで出力してください。推測や不確実な情報は絶対に書かないでください。\n\n薬効： （※この薬が何に使われるか、1文で）\n観察ポイント： （※服用後に注意すべき症状や副作用）\n注意： （※粉砕不可、食直後、水多めなど、与薬時の注意点、点滴は投与速度、混注不可、 遮光 など）\n\n※最後に改行して『※AIによる参考情報ですカニ🦀 必ず最新の添付文書を確認してください。』と必ず記載すること。全体で200文字以内で。"
             }, 
             { role: "user", content: `薬品名：${drugName}` }
           ], 
@@ -761,7 +761,7 @@ export default {
             <p style="font-size:13px;color:#666;margin:5px 0 10px;">スマホでQRを読み取って、同僚や友人に教えてあげてね！🎁</p>
             <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/QR.png" alt="メディカニQRコード" class="promo-qr">
             <div class="promo-copy-area">
-              <textarea id="shareText" class="promo-text" readonly>🏥 病院採用薬が爆速でわかる「メディカニ」超便利だよ！🦀\n今すぐチェックカニ〜！✨\nhttps://medikani.com/</textarea>
+              <textarea id="shareText" class="promo-text" readonly>🏥 採用薬が爆速でわかる「メディカニ」超便利だよ！🦀\n今すぐチェックカニ〜！✨\nhttps://medikani.com/</textarea>
               <button class="btn-copy" onclick="copyShareText()">📝 コピペしてシェアする</button>
               <span id="copyMsg" style="display:none;font-size:11px;color:#28a745;margin-left:8px;">✅ コピーしたカニ！🦀</span>
             </div>
@@ -816,7 +816,7 @@ export default {
                   <div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">
                     \${i.isBrand ? '<span class="tag blue">先</span>' : ''}
                     \${i.yj && i.yj.startsWith('8') ? '<span class="tag red">麻</span>' : ''}
-                    \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">院外</span>'}
+                    \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>'}
                   </div>
                 </div>
                 <div style="font-size:12px; color:#888; margin-top:8px;">🕒 さいきん見たお薬カニ🦀</div>
@@ -837,7 +837,7 @@ export default {
                   <div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">
                     \${i.isBrand ? '<span class="tag blue">先</span>' : ''}
                     \${i.yj && i.yj.startsWith('8') ? '<span class="tag red">麻</span>' : ''}
-                    \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">院外</span>'}
+                    \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>'}
                   </div>
                 </div>
                 <div style="font-size:12px; color:#ff9d00; margin-top:8px; font-weight:bold;">⭐️ お気に入りカニ🦀</div>
@@ -892,7 +892,7 @@ export default {
             if (hId) {
               resDiv.innerHTML = \`<div class="no-results" style="background:white; border-radius:20px; padding:30px; border:2px dashed var(--main-orange);">
                 <h3 style="color:var(--main-orange);">✅ プラスモード動作中カニ🦀</h3>
-                <p style="font-size:14px; color:#666; margin-top:10px;">現在、病院ID「\${hId}」の環境で動作しています。<br>院内採用薬や、薬剤部からの限定コメントが優先表示されますカニ🦀</p>
+                <p style="font-size:14px; color:#666; margin-top:10px;">現在、施設ID「\${hId}」の環境で動作しています。<br>採用薬や、限定メモが優先表示されますカニ🦀</p>
                 <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
                   <a href="/" style="background:#eee; color:#555; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🌍 一般モードに戻る</a>
                   <a href="/\${hId}/admin" style="background:#fff0f5; color:#d63384; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #ffcdd2;">⚙️ 管理画面を開く</a>
@@ -901,11 +901,11 @@ export default {
             } else {
               resDiv.innerHTML = \`<div class="no-results" style="background:white; border-radius:20px; padding:30px; border:2px dashed var(--main-orange);">
                 <h3 style="color:var(--main-orange);">✨ メディカニ・プラス体験版</h3>
-                <p style="font-size:14px; color:#666; margin-top:10px;">病院ごとの「採用薬」や「院内メモ」を表示できる法人向け機能のデモですカニ🦀</p>
+                <p style="font-size:14px; color:#666; margin-top:10px;">施設ごとの「採用薬」や「メモ」を表示できる法人向け機能のデモですカニ🦀</p>
                 <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
-                  <a href="/HPTEST1" style="background:var(--main-orange); color:white; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🏥 デモ病院（HPTEST1）を試す</a>
+                  <a href="/HPTEST1" style="background:var(--main-orange); color:white; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🏥 デモ施設（HPTEST1）を試す</a>
                 </div>
-                <p style="font-size:11px; color:#aaa; margin-top:15px;">※URLの末尾に病院IDを入れるだけで専用環境に切り替わりますカニ🦀</p>
+                <p style="font-size:11px; color:#aaa; margin-top:15px;">※URLの末尾に施設IDを入れるだけで専用環境に切り替わりますカニ🦀</p>
               </div>\`;
             }
             return;
@@ -951,7 +951,7 @@ export default {
                       <div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">
                         \${i.isBrand ? '<span class="tag blue">先</span>' : ''}
                         \${i.yj && i.yj.startsWith('8') ? '<span class="tag red">麻</span>' : ''}
-                        \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">院外</span>'}
+                        \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>'}
                       </div>
                     </div>
                     <div style="font-size:12px; color:#888; margin-top:8px;">📦 \${i.spec} \${i.type ? '/ ' + i.type : ''}</div>
@@ -969,7 +969,7 @@ export default {
         window.boardHTML = "";
         fetch('/api/board?h=' + hId).then(r=>r.json()).then(data => {
           if (data && data.length > 0) {
-            window.boardHTML = '<div style="margin-top:15px; font-weight:bold; color:var(--main-orange);">📢 薬剤部からのお知らせ</div>' + 
+            window.boardHTML = '<div style="margin-top:15px; font-weight:bold; color:var(--main-orange);">📢 お知らせ</div>' + 
               data.map(b => \`<div class="card" style="border-left-color:var(--main-orange); margin-top:10px;"><div style="font-size:12px; color:#888; margin-bottom:5px;">🕒 \${b.date}</div><div style="font-size:14px; line-height:1.6; white-space:pre-wrap;">\${b.message}</div></div>\`).join('');
           }
           // 初期表示時（検索欄が空の時）に流し込む
@@ -1028,7 +1028,7 @@ export default {
             const isFav = isFavorite(key);
             const commentHTML = d.comment ? \`
               <div style="background:#fff0f5; color:#d63384; padding:14px; border-radius:12px; margin-bottom:15px; font-weight:bold; border: 1px solid #ffcdd2; box-shadow: 0 2px 8px rgba(214,51,132,0.1);">
-                🏥 院内メモ
+                📝 メモ
                 <span style="font-size:14px; color:#444; font-weight:normal; display:block; margin-top:6px; line-height:1.5;">\${d.comment}</span>
               </div>
             \` : '';
@@ -1044,7 +1044,7 @@ export default {
               <p style="font-weight:bold; font-size:15px; margin-top:0; margin-bottom:15px; color:\${d.isAdopted?'#28a745':'#888'}">
                 \${d.isBrand ? '<span class="tag blue" style="margin-right:5px;">先</span>' : ''}
                 \${isNarcotic ? '<span class="tag red" style="margin-right:5px;">麻</span>' : ''}
-                \${d.isAdopted?'🏥 当院採用のお薬ですカニ！🦀':'🏠 院外のお薬ですカニ🦀'}
+                \${d.isAdopted?'🏥 採用薬ですカニ！🦀':'🏠 未採用のお薬ですカニ🦀'}
               </p>
               \${commentHTML}
 
@@ -1147,7 +1147,7 @@ export default {
 
         <div id="adminEditModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:2000; justify-content:center; align-items:center;">
           <div style="background:#fff; width:90%; max-width:400px; padding:25px; border-radius:15px; position:relative;">
-            <h3 id="editTitle" style="margin-top:0; color:var(--main-blue);">院内メモの編集</h3>
+            <h3 id="editTitle" style="margin-top:0; color:var(--main-blue);">メモの編集</h3>
             <p id="editDrugName" style="font-size:13px; font-weight:bold; margin-bottom:15px; color:#555;"></p>
             <textarea id="editMemo" style="width:100%; height:100px; padding:10px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box; font-family:sans-serif; margin-bottom:15px;"></textarea>
             <div style="display:flex; gap:10px;">
@@ -1170,7 +1170,7 @@ export default {
             <div class="map-row"><label>💊 薬品名 (必須)</label><select id="mapName"></select></div>
             <div class="map-row"><label>📦 規格</label><select id="mapSpec"></select></div>
             <div class="map-row"><label>🔑 YJコード (必須)</label><select id="mapYJ"></select></div>
-            <div class="map-row"><label>💬 院内メモ</label><select id="mapC1"></select></div>
+            <div class="map-row"><label>💬 メモ</label><select id="mapC1"></select></div>
             <div class="map-row" style="background:#fff3cd; padding:10px; border-radius:6px; border:1px solid #ffe69c; border-bottom:none; margin-top:15px;">
               <label style="color:#856404; margin-bottom:0; cursor:pointer;"><input type="checkbox" id="chkFullSync" checked> 🗑️ フル同期カニ🦀</label>
             </div>
@@ -1179,7 +1179,7 @@ export default {
           <div class="preview-area" id="previewArea">
             <h3 style="font-size:14px; color:#28a745; border-bottom:1px solid #eee; padding-bottom:5px;">✅ プレビューカニ🦀</h3>
             <div id="previewStats"></div>
-            <div style="overflow-x: auto;"><table class="preview-table" id="previewTable"><thead><tr><th>YJコード</th><th>薬品名</th><th>規格</th><th>院内メモ</th></tr></thead><tbody></tbody></table></div>
+            <div style="overflow-x: auto;"><table class="preview-table" id="previewTable"><thead><tr><th>YJコード</th><th>薬品名</th><th>規格</th><th>メモ</th></tr></thead><tbody></tbody></table></div>
             <button class="btn" id="btnUpload">☁️ メディカニを更新する</button>
             <div id="uploadMsg"></div>
           </div>
@@ -1397,13 +1397,4 @@ export default {
         }
         loadBoard();
         // --- 新規追加: 掲示板機能 (ここまで) ---
-      </script></body></html>`;
-  }
-};
-
-function hiraToKata(str) { return str.replace(/[\u3041-\u3096]/g, m => String.fromCharCode(m.charCodeAt(0) + 0x60)); }
-function getBestYJ(key, parts) {
-  if (key && key.includes("_")) { const yj = key.split("_").pop(); if (/^[0-9a-zA-Z]{7,12}$/.test(yj)) return yj; }
-  for (let p of parts) { const m = String(p).match(/[0-9]{5,7}[a-zA-Z][0-9]{3,4}/); if (m) return m[0]; }
-  return String(parts[2] || "").replace(/[^a-zA-Z0-9]/g, "");
-}
+      </script></body></html>
