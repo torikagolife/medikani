@@ -100,6 +100,7 @@ export default {
       }
 
       // 管理用API: 既存キーの取得 (差分分析用)
+      // ※ここでは意図的に COMP_ も取得させ、フル同期時にゴミデータを削除できるようにします
       if (url.pathname.includes("/api/admin/keys")) {
         try {
           const listHId = url.searchParams.get("h") || "";
@@ -113,6 +114,56 @@ export default {
           return new Response(JSON.stringify({ keys: keys }), { headers: { "Content-Type": "application/json" } });
         } catch(e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 }); }
       }
+
+      // === 新規追加: CSVダウンロード API (ここから) ===
+      if (url.pathname.includes("/api/admin/download")) {
+        try {
+          const dHId = url.searchParams.get("h") || "";
+          if (!dHId) return new Response("Error", { status: 400 });
+
+          let keys = [];
+          let cursor = "";
+          do {
+            const list = await env.MEDI_KV.list({ prefix: `${dHId}_`, limit: 1000, cursor: cursor || undefined });
+            // ダウンロード時は絶対に COMP_ ゴミデータを排除する
+            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_email") && !n.includes("COMP_")));
+            cursor = list.list_complete ? "" : list.cursor;
+          } while (cursor);
+
+          let csv = "\uFEFFYJコード,薬品名,規格,院内メモ\n"; // BOMを追加してExcelで文字化けしないようにする
+          for (let i = 0; i < keys.length; i += 50) {
+            const chunk = keys.slice(i, i + 50);
+            const vals = await Promise.all(chunk.map(k => env.MEDI_KV.get(k)));
+            chunk.forEach((k, idx) => {
+              if (vals[idx]) {
+                let valStr = String(vals[idx]);
+                // 古いCOMPデータ（配列文字）が万が一混ざっていたらスキップ
+                if (valStr.trim().startsWith("[")) return;
+                
+                let p = valStr.split(/[,\uFF0C]/);
+                const yj = getBestYJ(k, p);
+                const name = (p[0] || "").replace(/"/g, '""');
+                const spec = (p[1] || "").replace(/"/g, '""');
+                let comment = "";
+                const yjIndex = p.findIndex(x => x.replace(/[^a-zA-Z0-9]/g, "") === yj);
+                if (yjIndex !== -1 && yjIndex < p.length - 1) {
+                  comment = p.slice(yjIndex + 1).join(",").trim().replace(/"/g, '""');
+                }
+                csv += `"${yj}","${name}","${spec}","${comment}"\n`;
+              }
+            });
+          }
+          return new Response(csv, { 
+            headers: { 
+              "Content-Type": "text/csv; charset=utf-8", 
+              "Content-Disposition": `attachment; filename="adopted_${dHId}.csv"` 
+            } 
+          });
+        } catch(e) { 
+          return new Response(JSON.stringify({ error: e.message }), { status: 500 }); 
+        }
+      }
+      // === 新規追加: CSVダウンロード API (ここまで) ===
       
       if (isAdminPage) {
         return new Response(this.getDashboardHTML(env, hospitalId), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
@@ -980,6 +1031,7 @@ https://medikani.com/</textarea>
             <div class="stat-box"><div class="label">採用薬 登録件数</div><div class="num" id="metaCount">--</div></div>
             <div class="stat-box"><div class="label">最終更新日時</div><div class="num" id="metaDate" style="font-size:16px; margin-top:12px;">確認中...</div></div>
           </div>
+          <a href="/api/admin/download?h=${hospitalId}" class="btn" style="background:#17a2b8; margin-top:10px; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none;">⬇️ 現在の採用薬CSVをダウンロード</a>
         </div>
         <div class="card">
           <h2>📥 CSVデータのアップロード</h2>
@@ -994,8 +1046,7 @@ https://medikani.com/</textarea>
             <div class="map-row"><label>💊 薬品名 (必須)</label><select id="mapName"></select></div>
             <div class="map-row"><label>📦 規格</label><select id="mapSpec"></select></div>
             <div class="map-row"><label>🔑 YJコード (必須)</label><select id="mapYJ"></select></div>
-            <div class="map-row"><label>💬 院内メモ①</label><select id="mapC1"></select></div>
-            <div class="map-row"><label>💬 院内メモ②</label><select id="mapC2"></select></div>
+            <div class="map-row"><label>💬 院内メモ</label><select id="mapC1"></select></div>
             <div class="map-row" style="background:#fff3cd; padding:10px; border-radius:6px; border:1px solid #ffe69c; border-bottom:none; margin-top:15px;">
               <label style="color:#856404; margin-bottom:0; cursor:pointer;"><input type="checkbox" id="chkFullSync" checked> 🗑️ フル同期カニ🦀</label>
             </div>
@@ -1027,6 +1078,8 @@ https://medikani.com/</textarea>
       <script>
         const hId = "${hospitalId}";
         let parsedData = []; let headers = [];
+        let existingKeyCount = 0; // 追加：既存のキー数を保持
+
         fetch('/api/admin/meta?h=' + hId).then(r=>r.json()).then(d => {
           document.getElementById('metaCount').innerText = d.count || 0;
           if(d.lastUpdated) {
@@ -1063,10 +1116,10 @@ https://medikani.com/</textarea>
           reader.onload = (evt) => {
             const rows = parseCSV(evt.target.result);
             headers = rows[0]; parsedData = rows.slice(1);
-            ['mapName', 'mapSpec', 'mapYJ', 'mapC1', 'mapC2'].forEach((sid, idx) => {
+            ['mapName', 'mapSpec', 'mapYJ', 'mapC1'].forEach((sid, idx) => {
               const sel = document.getElementById(sid);
               sel.innerHTML = '<option value="-1">なし</option>' + headers.map((h, i) => \`<option value="\${i}">\${h}</option>\`).join('');
-              const mIdx = headers.findIndex(h => h.includes(['名', '規格', 'YJ', 'コメント', '備考'][idx]));
+              const mIdx = headers.findIndex(h => h.includes(['名', '規格', 'YJ', 'メモ'][idx]));
               if(mIdx !== -1) sel.value = mIdx;
             });
             document.getElementById('mappingArea').style.display = 'block';
@@ -1075,27 +1128,60 @@ https://medikani.com/</textarea>
         };
         let uploadPayload = []; let keysToRemove = []; let finalCount = 0;
         document.getElementById('btnPreview').onclick = async () => {
-          const iN = parseInt(document.getElementById('mapName').value), iS = parseInt(document.getElementById('mapSpec').value), iY = parseInt(document.getElementById('mapYJ').value), iC1 = parseInt(document.getElementById('mapC1').value), iC2 = parseInt(document.getElementById('mapC2').value);
+          const iN = parseInt(document.getElementById('mapName').value), 
+                iS = parseInt(document.getElementById('mapSpec').value), 
+                iY = parseInt(document.getElementById('mapYJ').value), 
+                iC1 = parseInt(document.getElementById('mapC1').value);
+                
           if(iN===-1||iY===-1) return alert('必須列を選択してくださいカニ🦀');
           uploadPayload = []; const tbody = document.querySelector('#previewTable tbody'); tbody.innerHTML = ''; const csvKeys = new Set();
+          
           parsedData.forEach(row => {
             const yj = row[iY]; if(!yj||yj.length<7) return;
             let cat = "[内]"; if("SRV".includes(yj.charAt(7))) cat="[外]"; if("AH".includes(yj.charAt(7))) cat="[注]";
-            const key = \`\${hId}_\${cat}\${row[iN]} \${iS!==-1?row[iS]:""}\`.trim();
-            const val = \`\${row[iN]},\${iS!==-1?row[iS]:""},-,,\${yj},\${[row[iC1],row[iC2]].filter(c=>c).join(' / ')}\`;
-            if(!csvKeys.has(key)) { csvKeys.add(key); uploadPayload.push({key, val}); if(uploadPayload.length<=5) tbody.innerHTML += \`<tr><td>\${yj}</td><td>\${row[iN]}</td><td>\${row[iS]||""}</td><td>\${[row[iC1],row[iC2]].filter(c=>c).join(' / ')}</td></tr>\`; }
+            
+            // カンマが混入した際のパースエラー防止
+            const cleanName = row[iN] ? row[iN].replace(/,/g, '，') : "";
+            const cleanSpec = iS !== -1 && row[iS] ? row[iS].replace(/,/g, '，') : "";
+            const cleanMemo = iC1 !== -1 && row[iC1] ? row[iC1].replace(/,/g, '，') : "";
+            
+            const key = \`\${hId}_\${cat}\${cleanName}_\${yj}\`;
+            const val = \`\${cleanName},\${cleanSpec},-,,\${yj},\${cleanMemo}\`;
+            
+            if(!csvKeys.has(key)) { 
+              csvKeys.add(key); 
+              uploadPayload.push({key, val}); 
+              if(uploadPayload.length<=5) tbody.innerHTML += \`<tr><td>\${yj}</td><td>\${cleanName}</td><td>\${cleanSpec}</td><td>\${cleanMemo}</td></tr>\`; 
+            }
           });
+          
           const rK = await fetch('/api/admin/keys?h='+hId); const dK = await rK.json(); const eK = new Set(dK.keys || []);
-          keysToRemove = []; if(document.getElementById('chkFullSync').checked) eK.forEach(k => { if(!csvKeys.has(k)) keysToRemove.push(k); });
-          finalCount = csvKeys.size;
-          document.getElementById('previewStats').innerHTML = \`新規/更新: \${uploadPayload.length}件 / 削除: \${keysToRemove.length}件\`;
+          existingKeyCount = eK.size; // 既存キー数を取得
+
+          keysToRemove = []; 
+          const isFullSync = document.getElementById('chkFullSync').checked;
+
+          if(isFullSync) {
+            // フル同期：CSVにないものはすべて削除
+            eK.forEach(k => { if(!csvKeys.has(k)) keysToRemove.push(k); });
+            finalCount = csvKeys.size; // フル同期時はCSVの件数が最終件数
+          } else {
+            // 追加更新：既存キーと新規追加分を合算（重複は上書きされるのでセットで計算）
+            let finalKeys = new Set(eK);
+            csvKeys.forEach(k => finalKeys.add(k));
+            finalCount = finalKeys.size; // 追加分を合わせた総数が最終件数
+          }
+          
+          document.getElementById('previewStats').innerHTML = \`新規/更新: \${uploadPayload.length}件 / 削除: \${keysToRemove.length}件 (更新後の総件数: \${finalCount}件)\`;
           document.getElementById('previewArea').style.display = 'block';
         };
+        
         document.getElementById('btnUpload').onclick = async () => {
           const btn = document.getElementById('btnUpload'); btn.disabled = true;
           const res = await fetch('/api/admin/upload?h='+hId, {method:'POST', body:JSON.stringify({items:uploadPayload, deletes:keysToRemove, finalCount})});
           if((await res.json()).success) alert('更新完了カニ！🦀');
           btn.disabled = false;
+          location.reload(); // リロードしてステータスを更新
         };
       </script></body></html>`;
   }
