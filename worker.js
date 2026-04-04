@@ -94,6 +94,18 @@ export default {
           let currentEmail = await env.MEDI_KV.get(`${metaHId}_email`);
           if (!currentEmail && metaHId === "HPTEST1") currentEmail = "toriweb+medi@gmail.com";
           const meta = metaStr ? JSON.parse(metaStr) : { count: 0, lastUpdated: null };
+
+          // === 修正: メタデータの数字を信じず、毎回リアルタイムで数え直す ===
+          let realCount = 0;
+          let cursor = "";
+          do {
+            const list = await env.MEDI_KV.list({ prefix: `${metaHId}_`, limit: 1000, cursor: cursor || undefined });
+            realCount += list.keys.filter(k => !k.name.endsWith("_meta") && !k.name.endsWith("_pwd") && !k.name.endsWith("_email") && !k.name.includes("COMP_")).length;
+            cursor = list.list_complete ? "" : list.cursor;
+          } while (cursor);
+          meta.count = realCount;
+          // ==============================================================
+
           meta.email = currentEmail || "未登録"; // 画面表示用にメアドも含めて返す
           return new Response(JSON.stringify(meta), { headers: { "Content-Type": "application/json" } });
         } catch(e) { return new Response("{}", { status: 500 }); }
@@ -393,7 +405,7 @@ export default {
           messages: [
             { 
               role: "system", 
-              content: "あなたは経験20年の凄腕薬剤師『メディカニくん』です。ユーザーの入力（不完全な名称やひらがなを含む）から、最も可能性の高い具体的な市販薬を推測・特定してください。回答の冒頭には必ず『対象：確定した製品名（例：アレグラFX）』を記載し、以下の形式で回答してください。\\n\\n主成分：\\n特徴：\\n切替候補：\\n\\n※「切替候補」には医療用医薬品の同等成分の一般名を1つだけ、括弧や補足なしで記載してください。\\n最後に改行して『※AIによる参考情報ですカニ🦀 詳細は最新の添付文書を確認してください。』と必ず記載すること。全体で150文字以内で。" 
+              content: "あなたは経験20年の凄腕薬剤師『メディカニくん』です。ユーザーの入力（不完全な名称やひらがなを含む）から、最も可能性の高い具体的な市販薬を推測・特定してください。回答の冒頭には必ず『対象：確定した製品名（例：アレグラFX）』を記載し、以下の形式で回答してください。\n\n主成分：\n特徴：\n切替候補：\n\n※「切替候補」には医療用医薬品の同等成分の一般名を1つだけ、括弧や補足なしで記載してください。\n最後に改行して『※AIによる参考情報ですカニ🦀 詳細は最新の添付文書を確認してください。』と必ず記載すること。全体で150文字以内で。" 
             }, 
             { role: "user", content: drugName }
           ], 
@@ -679,9 +691,7 @@ export default {
             <p style="font-size:13px;color:#666;margin:5px 0 10px;">スマホでQRを読み取って、同僚や友人に教えてあげてね！🎁</p>
             <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/QR.png" alt="メディカニQRコード" class="promo-qr">
             <div class="promo-copy-area">
-              <textarea id="shareText" class="promo-text" readonly>🏥 病院採用薬が爆速でわかる「メディカニ」超便利だよ！🦀
-今すぐチェックカニ〜！✨
-https://medikani.com/</textarea>
+              <textarea id="shareText" class="promo-text" readonly>🏥 病院採用薬が爆速でわかる「メディカニ」超便利だよ！🦀\n今すぐチェックカニ〜！✨\nhttps://medikani.com/</textarea>
               <button class="btn-copy" onclick="copyShareText()">📝 コピペしてシェアする</button>
               <span id="copyMsg" style="display:none;font-size:11px;color:#28a745;margin-left:8px;">✅ コピーしたカニ！🦀</span>
             </div>
