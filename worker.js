@@ -54,19 +54,8 @@ export default {
         }
       }
       
-      // 詳細API (Web用)
-      if (url.pathname.includes("/api/detail")) {
-        try {
-          const key = url.searchParams.get("key") || "";
-          const hId = url.searchParams.get("h") || "";
-          const result = await this.handleWebDetail(key, hId, env);
-          return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
-        } catch (e) {
-          return new Response(JSON.stringify({ error: e.message }), { status: 500 });
-        }
-      }
-
       // === 新規追加: 詳細画面用AI API (ここから) ===
+      // ※吸い込みバグ防止のため、必ず /api/detail より上に配置します
       if (url.pathname.includes("/api/detail-ai")) {
         try {
           const query = url.searchParams.get("q") || "";
@@ -78,6 +67,18 @@ export default {
         }
       }
       // === 新規追加: 詳細画面用AI API (ここまで) ===
+
+      // 詳細API (Web用)
+      if (url.pathname.includes("/api/detail")) {
+        try {
+          const key = url.searchParams.get("key") || "";
+          const hId = url.searchParams.get("h") || "";
+          const result = await this.handleWebDetail(key, hId, env);
+          return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: e.message }), { status: 500 });
+        }
+      }
 
       // === 新規追加: 認証とリセット関連画面 (ここから) ===
       if (isAdminResetPage) {
@@ -364,7 +365,7 @@ export default {
           messages: [
             { 
               role: "system", 
-              content: "あなたは経験２０年の凄腕病院薬剤師です。提示された薬品名について、医療従事者（看護師・介護士）向けに以下の指定フォーマットで出力してください。推測や不確実な情報は絶対に書かないでください。\n\n薬効： （※この薬が何に使われるか、1文で）\n観察ポイント： （※服用後に注意すべき症状や副作用）\n注意： （※粉砕不可、食直後、水多めなど、与薬時の注意点、点滴は投与速度、混注不可、 遮光 など）\n\n※最後に改行して『※AIによる参考情報ですカニ🦀 必ず最新の添付文書・指示箋を確認してください。』と必ず記載すること。全体で200文字以内で。"
+              content: "あなたは経験２０年の凄腕病院薬剤師です。提示された薬品名について、医療従事者（看護師・介護士）向けに以下の指定フォーマットで出力してください。推測や不確実な情報は絶対に書かないでください。\n\n薬効： （※この薬が何に使われるか、1文で）\n観察ポイント： （※服用後に注意すべき症状や副作用）\n注意： （※粉砕不可、食直後、水多めなど、与薬時の注意点、点滴は投与速度、混注不可、 遮光 など）\n\n※最後に改行して『※AIによる参考情報ですカニ🦀 必ず最新の添付文書を確認してください。』と必ず記載すること。全体で200文字以内で。"
             }, 
             { role: "user", content: `薬品名：${drugName}` }
           ], 
@@ -888,7 +889,7 @@ https://medikani.com/</textarea>
                 <span style="font-size:14px; color:#444; font-weight:normal; display:block; margin-top:6px; line-height:1.5;">\${d.comment}</span>
               </div>
             \` : '';
-            
+
             // 薬品名をエスケープ（シングルクォーテーション等でのJSエラー防止）
             const safeDrugName = d.fullName.replace(/'/g, "\\'");
 
