@@ -481,7 +481,7 @@ export default {
           messages: [
             { 
               role: "system", 
-              content: "あなたは経験20年の凄腕薬剤師『メディカニくん』です。ユーザーの入力（不完全な名称やひらがなを含む）から、最も可能性の高い具体的な市販薬を推測・特定してください。回答の冒頭には必ず『対象：確定した製品名（例：アレグラFX）』を記載し、以下の形式で回答してください。\n\n主成分：\n特徴：\n切替候補：\n\n※「切替候補」には医療用医薬品の同等成分の一般名を1つだけ、括弧や補足なしで記載してください。\n最後に改行して『※AIによる参考情報ですカニ🦀 詳細は最新の添付文書を確認してください。』と必ず記載すること。全体で150文字以内で。" 
+              content: "あなたは経験20年の凄腕薬剤師『メディカニくん』です。ユーザーの入力（不完全な名称やひらがなを含む）から、最も可能性の高い具体的な市販薬を推測・特定してください。回答の冒頭には必ず『薬品名：確定した製品名（例：アレグラFX）』を記載し、以下の形式で回答してください。\n\n主成分：\n特徴：\n切替候補：\n\n※「切替候補」には医療用医薬品の同等成分の一般名を1つだけ、括弧や補足なしで記載してください。\n最後に改行して『※AIによる参考情報ですカニ🦀 詳細は最新の添付文書を確認してください。』と必ず記載すること。全体で150文字以内で。" 
             }, 
             { role: "user", content: drugName }
           ], 
@@ -823,18 +823,23 @@ export default {
           if (hist.length === 0) {
             resDiv.innerHTML = '<div class="no-results">📭 まだメディカニくんが見たお薬はないみたいです 🦀<br><span style="font-size:12px;color:#aaa;">検索するとここに履歴が残ります✨</span></div>';
           } else {
-            resDiv.innerHTML = hist.map(i => \`
-              <div class="card \${i.isAdopted ? 'adopted' : ''}" onclick="showDetail('\${i.key}')">
+            resDiv.innerHTML = hist.map(i => {
+              const displayName = i.name || i.fullName || "名称不明";
+              return \`
+              <div class="card \${i.isAdopted ? 'adopted' : ''}" onclick="\${i.isOtc ? \`showOtcDetail('\${i.fullName.replace(/'/g, "\\\\'")}')\` : \`showDetail('\${i.key}')\`}">
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; gap:8px;">
-                  <div style="flex:1; line-height:1.4;">\${getFormEmoji(i.yj, i.key)} \${i.name}</div>
+                  <div style="flex:1; line-height:1.4;">\${i.isOtc ? '🛒' : getFormEmoji(i.yj, i.key)} \${displayName}</div>
                   <div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">
+                    \${i.isOtc ? '<span class="tag" style="background:#fff3e0;color:#e65100;border:1px solid #ffcc80;">市販薬</span>' : \`
                     \${i.isBrand ? '<span class="tag blue">先</span>' : ''}
                     \${i.yj && i.yj.startsWith('8') ? '<span class="tag red">麻</span>' : ''}
                     \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>'}
+                    \`}
                   </div>
                 </div>
                 <div style="font-size:12px; color:#888; margin-top:8px;">🕒 さいきん見たお薬カニ🦀</div>
-              </div>\`).join('');
+              </div>\`
+            }).join('');
           }
         }
         function renderFavorites() {
@@ -844,18 +849,23 @@ export default {
           if (favs.length === 0) {
             resDiv.innerHTML = '<div class="no-results">⭐️ お気に入りはまだありませんカニ🦀<br><span style="font-size:12px;color:#aaa;">お薬の詳細画面で「⭐」を押すと登録できるよ！</span></div>';
           } else {
-            resDiv.innerHTML = favs.map(i => \`
-              <div class="card \${i.isAdopted ? 'adopted' : ''}" onclick="showDetail('\${i.key}')">
+            resDiv.innerHTML = favs.map(i => {
+              const displayName = i.name || i.fullName || "名称不明";
+              return \`
+              <div class="card \${i.isAdopted ? 'adopted' : ''}" onclick="\${i.isOtc ? \`showOtcDetail('\${i.fullName.replace(/'/g, "\\\\'")}')\` : \`showDetail('\${i.key}')\`}">
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; gap:8px;">
-                  <div style="flex:1; line-height:1.4;">\${getFormEmoji(i.yj, i.key)} \${i.name}</div>
+                  <div style="flex:1; line-height:1.4;">\${i.isOtc ? '🛒' : getFormEmoji(i.yj, i.key)} \${displayName}</div>
                   <div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">
+                    \${i.isOtc ? '<span class="tag" style="background:#fff3e0;color:#e65100;border:1px solid #ffcc80;">市販薬</span>' : \`
                     \${i.isBrand ? '<span class="tag blue">先</span>' : ''}
                     \${i.yj && i.yj.startsWith('8') ? '<span class="tag red">麻</span>' : ''}
                     \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>'}
+                    \`}
                   </div>
                 </div>
                 <div style="font-size:12px; color:#ff9d00; margin-top:8px; font-weight:bold;">⭐️ お気に入りカニ🦀</div>
-              </div>\`).join('');
+              </div>\`
+            }).join('');
           }
         }
         function renderTopHistory(cat) {
@@ -873,8 +883,9 @@ export default {
             return;
           }
           let chipsHTML = filtered.map(h => {
-             let shortName = h.name.split(' ')[0];
-             return \`<div class="top-hist-chip" onclick="showDetail('\${h.key}')">\${getFormEmoji(h.yj, h.key)} \${shortName}</div>\`;
+             let n = h.name || h.fullName || "名称不明";
+             let shortName = n.split(' ')[0];
+             return \`<div class="top-hist-chip" onclick="\${h.isOtc ? \`showOtcDetail('\${h.fullName.replace(/'/g, "\\\\'")}')\` : \`showDetail('\${h.key}')\`}">\${h.isOtc ? '🛒' : getFormEmoji(h.yj, h.key)} \${shortName}</div>\`;
           }).join('');
           
           let catName = cat.replace(/\\[|\\]/g, '');
@@ -884,7 +895,11 @@ export default {
           try {
             let hist = JSON.parse(localStorage.getItem('yakumiru_history') || '[]');
             hist = hist.filter(h => h.key !== key);
-            hist.unshift({ key: key, name: d.fullName, yj: d.yj, isAdopted: d.isAdopted, isBrand: d.isBrand });
+            if (d.isOtc) {
+              hist.unshift({ key: key, isOtc: true, name: d.name || d.fullName, fullName: d.fullName, aiInfo: d.aiInfo, kataQuery: d.kataQuery });
+            } else {
+              hist.unshift({ key: key, name: d.fullName, yj: d.yj, isAdopted: d.isAdopted, isBrand: d.isBrand });
+            }
             if (hist.length > 50) hist.pop(); 
             localStorage.setItem('yakumiru_history', JSON.stringify(hist));
             if (currentCat === '[履歴]') renderHistory();
@@ -895,21 +910,36 @@ export default {
           let favs = JSON.parse(localStorage.getItem('yakumiru_favorites') || '[]');
           return favs.some(f => f.key === key);
         }
-        function toggleFav() {
+        
+        // === 修正: インラインでのお気に入り追加に対応、履歴への同時保存機能を追加 ===
+        function toggleFav(isInline = false) {
+          if (isInline && window.lastOtcResult) {
+            currentDetailData = window.lastOtcResult;
+          }
           if (!currentDetailData) return;
           let d = currentDetailData;
           let favs = JSON.parse(localStorage.getItem('yakumiru_favorites') || '[]');
           let idx = favs.findIndex(f => f.key === d.key);
+          const starEl = isInline ? document.getElementById('inlineFavStar') : document.getElementById('favStar');
+          
           if (idx >= 0) {
             favs.splice(idx, 1);
-            document.getElementById('favStar').innerText = '⭐';
+            if (starEl) starEl.innerText = '⭐';
           } else {
-            favs.unshift({ key: d.key, name: d.fullName, yj: d.yj, isAdopted: d.isAdopted, isBrand: d.isBrand });
-            document.getElementById('favStar').innerText = '🌟';
+            if (d.isOtc) {
+              favs.unshift({ key: d.key, isOtc: true, name: d.name || d.fullName, fullName: d.fullName, aiInfo: d.aiInfo, kataQuery: d.kataQuery });
+              // ★ お気に入りに入れたタイミングで履歴にも保存する
+              saveHistory(d.key, d);
+            } else {
+              favs.unshift({ key: d.key, name: d.fullName, yj: d.yj, isAdopted: d.isAdopted, isBrand: d.isBrand });
+            }
+            if (starEl) starEl.innerText = '🌟';
           }
           localStorage.setItem('yakumiru_favorites', JSON.stringify(favs));
           if (currentCat === '[お気に入り]') renderFavorites();
         }
+        // ==============================================================
+
         function search() {
           const q = document.getElementById('q').value.trim();
           const resDiv = document.getElementById('results');
@@ -966,19 +996,32 @@ export default {
               document.getElementById('loading').style.display = 'none';
               if (data.isOtc) {
                 let infoHtml = data.aiInfo || "";
-                infoHtml = infoHtml.replace(/対象[:：]\\s*([^\\n]+)/, function(match, name) {
-                   return "<div style='font-weight:bold; color:#d63384; margin-bottom:8px; border-bottom:1px dashed #ffd1dc; padding-bottom:4px;'>💊 薬品名： " + name.trim() + "</div>";
+                
+                let extractedName = q;
+                infoHtml = infoHtml.replace(/(?:対象|薬品名)[:：]\\s*([^\\n]+)/, function(match, name) {
+                   extractedName = name.trim();
+                   return '<div style="font-weight:bold; color:#d63384; margin-bottom:8px; border-bottom:1px dashed #ffd1dc; padding-bottom:4px;">薬品名： ' + extractedName + '</div>';
                 });
                 infoHtml = infoHtml.replace(/切替候補[:：]\\s*([^\\n]+)/, function(match, kw) {
                   var cleanKw = kw.trim().replace(/['"]/g, "");
-                  return "切替候補：<span style='font-weight:bold; color:#0056b3;'>" + cleanKw + "</span> <button onclick=\\"searchAlt('" + cleanKw + "')\\" style='background:var(--main-orange);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-left:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);font-weight:bold;vertical-align:middle;'>🔍 切替候補を探す</button>";
+                  return '切替候補：<span style="font-weight:bold; color:#0056b3;">' + cleanKw + '</span> <button onclick="searchAlt(\\'' + cleanKw + '\\')" style="background:var(--main-orange);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-left:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);font-weight:bold;vertical-align:middle;">🔍 切替候補を探す</button>';
                 });
                 const searchKw = data.kataQuery || q;
+
+                // === 修正箇所: fullNameとは別にnameにextractedNameを入れる ===
+                window.lastOtcResult = { key: '[市販]' + q, isOtc: true, name: extractedName, fullName: q, aiInfo: data.aiInfo, kataQuery: data.kataQuery };
+                const isFav = isFavorite('[市販]' + q);
+
                 resDiv.innerHTML = '<div class="card" style="border-left-color:#e83e8c;">' +
-                  '<div style="font-weight:bold; color:#e83e8c; margin-bottom:12px;">👩‍⚕️ メディカニくんの解説 🦀✨</div>' +
+                  '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">' +
+                    '<div style="font-weight:bold; color:#e83e8c;">👩‍⚕️ メディカニくんの解説 🦀✨</div>' +
+                    '<span id="inlineFavStar" onclick="toggleFav(true)" style="font-size:24px; cursor:pointer; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); line-height:1;" title="お気に入りに登録/解除">' + (isFav ? '🌟' : '⭐') + '</span>' +
+                  '</div>' +
                   '<div style="font-size:14px; background:#fff0f5; padding:12px; border-radius:10px; margin-bottom:12px; line-height:1.6; white-space:pre-wrap; border: 1px solid #ffd1dc;">' + infoHtml + '</div>' +
                   '<a href="https://www.google.com/search?q=' + encodeURIComponent(searchKw + ' 医療用 同成分') + '" class="btn btn-google" target="_blank" style="display:flex;">🔍 Googleで処方薬を探す</a>' +
                 '</div>';
+                // ==========================================================
+
               } else if (!data || data.length === 0) {
                 resDiv.innerHTML = '<div class="no-results">📭 アレ…？お薬が見つかりませんでしたカニ🦀💦<br><span style="font-size:12px;color:#aaa;">名前のスペルを変えて試してみてね！</span></div>';
               } else {
@@ -1054,6 +1097,44 @@ export default {
           }
         }
         // === 新規追加: 詳細画面用AI呼び出し処理 (ここまで) ===
+
+        // === 新規追加: 市販薬専用の履歴表示モーダル ===
+        function showOtcDetail(query) {
+          let hist = JSON.parse(localStorage.getItem('yakumiru_history') || '[]');
+          let favs = JSON.parse(localStorage.getItem('yakumiru_favorites') || '[]');
+          let item = hist.find(h => h.isOtc && h.fullName === query) || favs.find(f => f.isOtc && f.fullName === query);
+          if (!item) return;
+
+          const displayName = item.name || query;
+          currentDetailData = { key: '[市販]' + query, isOtc: true, name: displayName, fullName: query, aiInfo: item.aiInfo, kataQuery: item.kataQuery };
+          
+          let infoHtml = item.aiInfo || "";
+          
+          infoHtml = infoHtml.replace(/(?:対象|薬品名)[:：]\\s*([^\\n]+)/, function(match, name) {
+             return '<div style="font-weight:bold; color:#d63384; margin-bottom:8px; border-bottom:1px dashed #ffd1dc; padding-bottom:4px;">薬品名： ' + name.trim() + '</div>';
+          });
+          infoHtml = infoHtml.replace(/切替候補[:：]\\s*([^\\n]+)/, function(match, kw) {
+            var cleanKw = kw.trim().replace(/['"]/g, "");
+            return '切替候補：<span style="font-weight:bold; color:#0056b3;">' + cleanKw + '</span> <button onclick="closeModal(); searchAlt(\\'' + cleanKw + '\\')" style="background:var(--main-orange);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-left:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);font-weight:bold;vertical-align:middle;">🔍 切替候補を探す</button>';
+          });
+          
+          const searchKw = item.kataQuery || query;
+          const isFav = isFavorite('[市販]' + query);
+
+          document.getElementById('modalContent').innerHTML = \`
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
+              <h3 style="color:#e83e8c; margin: 5px 15px 0 0; font-size:20px; flex:1; line-height:1.4; word-break: break-word;">🛒 \${displayName}</h3>
+              <span id="favStar" onclick="toggleFav()" style="font-size:28px; cursor:pointer; padding:0; margin-right: 25px; margin-top: 2px; line-height:1; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); flex-shrink:0;" title="お気に入りに登録/解除">\${isFav ? '🌟' : '⭐'}</span>
+            </div>
+            <p style="font-weight:bold; font-size:15px; margin-top:0; margin-bottom:15px; color:#888">
+              市販薬のAI推測結果カニ🦀
+            </p>
+            <div style="font-size:14px; background:#fff0f5; padding:12px; border-radius:10px; margin-bottom:12px; line-height:1.6; white-space:pre-wrap; border: 1px solid #ffd1dc;">\${infoHtml}</div>
+            <div class="btn-group"><a href="https://www.google.com/search?q=\${encodeURIComponent(searchKw + ' 医療用 同成分')}" class="btn btn-google" target="_blank" style="display:flex;">🔍 Googleで処方薬を探す</a></div>
+            \${promoHTML}
+          \`;
+          document.getElementById('modalOverlay').style.display = 'flex';
+        }
 
         async function showDetail(key) {
           document.getElementById('modalContent').innerHTML = '<p style="text-align:center;padding:30px;font-weight:bold;color:#ff9d00;">🦀 メディカニくんが詳細を開いています... 💦</p>';
