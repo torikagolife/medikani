@@ -694,6 +694,12 @@ export default {
       .kani-bubble { position: relative; background: #fff3e0; padding: 12px 15px; border-radius: 15px; font-size: 14px; color: #e65100; font-weight: bold; line-height: 1.4; flex: 1; }
       .kani-bubble::before { content: ""; position: absolute; left: -10px; top: 20px; border-width: 5px 10px 5px 0; border-style: solid; border-color: transparent #fff3e0 transparent transparent; }
 
+      /* トップ画面履歴エリア */
+      .top-hist-scroll { display: flex; overflow-x: auto; gap: 8px; padding-bottom: 5px; scrollbar-width: none; }
+      .top-hist-scroll::-webkit-scrollbar { display: none; }
+      .top-hist-chip { background: #fff; border: 1px solid #ffcc80; border-radius: 20px; padding: 6px 12px; font-size: 12px; font-weight: bold; color: #e65100; box-shadow: 0 2px 4px rgba(255,157,0,0.1); cursor: pointer; white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; transition: transform 0.1s; }
+      .top-hist-chip:active { transform: scale(0.95); }
+
       .card { background: #fff; border-radius: 15px; padding: 16px; margin-bottom: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.03); cursor: pointer; border-left: 6px solid #ccc; transition: transform 0.1s; }
       .card:active { transform: scale(0.98); }
       .card.adopted { border-left-color: #28a745; }
@@ -751,6 +757,7 @@ export default {
             <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ">
             <div class="kani-bubble">${randomTip}</div>
           </div>
+          <div id="topHistoryArea" style="margin-top:10px;"></div>
           <div id="boardArea"></div>
         </div>
       </div>
@@ -851,14 +858,37 @@ export default {
               </div>\`).join('');
           }
         }
+        function renderTopHistory(cat) {
+          const area = document.getElementById('topHistoryArea');
+          if (!area) return;
+          if (cat === '[履歴]' || cat === '[お気に入り]' || cat === '[デモ]' || cat === '[ヘルプ]') {
+            area.innerHTML = '';
+            return;
+          }
+          let hist = [];
+          try { hist = JSON.parse(localStorage.getItem('yakumiru_history') || '[]'); } catch(e) {}
+          let filtered = hist.filter(h => h.key && h.key.includes(cat)).slice(0, 5);
+          if (filtered.length === 0) {
+            area.innerHTML = '';
+            return;
+          }
+          let chipsHTML = filtered.map(h => {
+             let shortName = h.name.split(' ')[0];
+             return \`<div class="top-hist-chip" onclick="showDetail('\${h.key}')">\${getFormEmoji(h.yj, h.key)} \${shortName}</div>\`;
+          }).join('');
+          
+          let catName = cat.replace(/\\[|\\]/g, '');
+          area.innerHTML = \`<div style="font-size:12px; color:#888; font-weight:bold; margin-bottom:6px; padding-left:4px;">🕒 最近見た\${catName}薬</div><div class="top-hist-scroll">\${chipsHTML}</div>\`;
+        }
         function saveHistory(key, d) {
           try {
             let hist = JSON.parse(localStorage.getItem('yakumiru_history') || '[]');
             hist = hist.filter(h => h.key !== key);
             hist.unshift({ key: key, name: d.fullName, yj: d.yj, isAdopted: d.isAdopted, isBrand: d.isBrand });
-            if (hist.length > 10) hist.pop();
+            if (hist.length > 50) hist.pop(); 
             localStorage.setItem('yakumiru_history', JSON.stringify(hist));
             if (currentCat === '[履歴]') renderHistory();
+            else if (document.getElementById('q').value.trim().length === 0) renderTopHistory(currentCat);
           } catch(e) {}
         }
         function isFavorite(key) {
@@ -920,7 +950,8 @@ export default {
           
           // 検索文字が空になったらデフォルト表示（カニのつぶやき ＋ お知らせ）に戻す
           if (q.length === 0) {
-            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="boardArea">' + (window.boardHTML || '') + '</div></div>';
+            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="topHistoryArea" style="margin-top:10px;"></div><div id="boardArea">' + (window.boardHTML || '') + '</div></div>';
+            renderTopHistory(currentCat);
             return;
           }
           if (q.length < 2) { resDiv.innerHTML = ''; return; }
@@ -974,6 +1005,12 @@ export default {
         // === 新規追加: 掲示板データの初期取得と保持 ===
         window.currentKaniTip = \`${randomTip}\`;
         window.boardHTML = "";
+        
+        // 初回表示の履歴レンダリング
+        if (document.getElementById('q').value.trim().length === 0) {
+           renderTopHistory(currentCat);
+        }
+
         fetch('/api/board?h=' + hId).then(r=>r.json()).then(data => {
           if (data && data.length > 0) {
             window.boardHTML = '<div style="margin-top:15px; font-weight:bold; color:var(--main-orange);">📢 お知らせ</div>' + 
@@ -982,6 +1019,7 @@ export default {
           // 初期表示時（検索欄が空の時）に流し込む
           if (document.getElementById('q').value.trim().length === 0 && document.getElementById('boardArea')) {
             document.getElementById('boardArea').innerHTML = window.boardHTML;
+            renderTopHistory(currentCat);
           }
         }).catch(e => {});
 
