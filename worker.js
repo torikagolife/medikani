@@ -1,3 +1,10 @@
+function hiraToKata(str) { return str.replace(/[\u3041-\u3096]/g, m => String.fromCharCode(m.charCodeAt(0) + 0x60)); }
+function getBestYJ(key, parts) {
+  if (key && key.includes("_")) { const yj = key.split("_").pop(); if (/^[0-9a-zA-Z]{7,12}$/.test(yj)) return yj; }
+  for (let p of parts) { const m = String(p).match(/[0-9]{5,7}[a-zA-Z][0-9]{3,4}/); if (m) return m[0]; }
+  return String(parts[2] || "").replace(/[^a-zA-Z0-9]/g, "");
+}
+
 // Webサービス: 医薬品検索（メディカニ・ハイブリッド検索＆個別メモ対応版）
 // 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API)
 
@@ -1397,4 +1404,6 @@ export default {
         }
         loadBoard();
         // --- 新規追加: 掲示板機能 (ここまで) ---
-      </script></body></html>
+      </script></body></html>`;
+  }
+};
