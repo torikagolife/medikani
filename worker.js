@@ -892,7 +892,7 @@ export default {
         
         <label style="font-size:12px; font-weight:bold; color:#666; margin-bottom:5px; display:block;">報告の種類</label>
         <div class="report-radio-group">
-          <label class="report-radio-label"><input type="radio" name="repType" value="📝 院内メモの修正・追加" checked> 📝 院内メモの修正・追加</label>
+          <label class="report-radio-label"><input type="radio" name="repType" value="📝 メモの修正・追加" checked> 📝 メモの修正・追加</label>
           <label class="report-radio-label"><input type="radio" name="repType" value="🏥 採用薬のはず（漏れ）"> 🏥 採用薬のはず（漏れ）</label>
           <label class="report-radio-label"><input type="radio" name="repType" value="💡 その他・要望"> 💡 その他・要望</label>
         </div>
@@ -901,7 +901,7 @@ export default {
         <textarea id="reportComment" style="width:100%; height:80px; padding:10px; border:1px solid #ccc; border-radius:8px; margin-bottom:15px; box-sizing:border-box; font-family:sans-serif;" placeholder="具体的な内容を教えてくださいカニ🦀"></textarea>
         
         <label style="font-size:12px; font-weight:bold; color:#666; margin-bottom:5px; display:block;">お名前（部署など）</label>
-        <input type="text" id="reportName" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:8px; margin-bottom:20px; box-sizing:border-box;" placeholder="例：3階病棟 山田">
+        <input type="text" id="reportName" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:8px; margin-bottom:20px; box-sizing:border-box;" placeholder="例：受付 山田">
         
         <button id="btnSubmitReport" onclick="submitReport()" style="width:100%; padding:12px; background:#dc3545; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer; transition: transform 0.1s;">🚀 報告を送信する</button>
       </div></div>
@@ -1314,7 +1314,7 @@ export default {
               body: JSON.stringify({ yj: currentReportYj, drugName: currentReportName, type, comment, name })
             });
             if ((await res.json()).success) {
-              alert("現場からの報告ありがとうございました！薬剤部に共有されるカニ🦀✨");
+              alert("現場からの報告ありがとうございました！🦀✨");
               closeReportModal();
             } else {
               alert("エラーが発生しましたカニ🦀💦");
@@ -1472,7 +1472,7 @@ export default {
         </div>
 
         <div class="card">
-          <h2>✏️ 個別編集（簡易版）</h2>
+          <h2>✏️ 個別編集</h2>
           <p style="font-size:12px; color:#666; margin-bottom:10px;">修正したい薬品を検索してから編集してくださいカニ🦀</p>
           <div style="display:flex; gap:8px;">
             <input type="text" id="adminSearchQ" placeholder="薬品名で検索..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:8px;">
