@@ -49,6 +49,28 @@ export default {
       }
       // === 新規追加: 掲示板データ取得 API (ここまで) ===
 
+      // === 新規追加: 報告一覧取得 API (ここから) ===
+      if (url.pathname.includes("/api/admin/reports")) {
+        try {
+          const rHId = url.searchParams.get("h") || "";
+          let keys = [];
+          let cursor = "";
+          do {
+            const list = await env.MEDI_KV.list({ prefix: `${rHId}_report_`, limit: 1000, cursor: cursor || undefined });
+            keys.push(...list.keys.map(k => k.name));
+            cursor = list.list_complete ? "" : list.cursor;
+          } while (cursor);
+          
+          let reports = await Promise.all(keys.map(async k => {
+            const val = await env.MEDI_KV.get(k);
+            return val ? JSON.parse(val) : null;
+          }));
+          reports = reports.filter(r => r).sort((a, b) => b.timestamp - a.timestamp);
+          return new Response(JSON.stringify(reports), { headers: { "Content-Type": "application/json" } });
+        } catch(e) { return new Response("[]", { status: 500 }); }
+      }
+      // === 新規追加: 報告一覧取得 API (ここまで) ===
+
       // 検索API (Web用)
       if (url.pathname.includes("/api/search")) {
         try {
@@ -118,7 +140,7 @@ export default {
           let cursor = "";
           do {
             const list = await env.MEDI_KV.list({ prefix: `${metaHId}_`, limit: 1000, cursor: cursor || undefined });
-            realCount += list.keys.filter(k => !k.name.endsWith("_meta") && !k.name.endsWith("_pwd") && !k.name.endsWith("_email") && !k.name.endsWith("_board") && !k.name.includes("COMP_")).length;
+            realCount += list.keys.filter(k => !k.name.endsWith("_meta") && !k.name.endsWith("_pwd") && !k.name.endsWith("_email") && !k.name.endsWith("_board") && !k.name.includes("_report_") && !k.name.includes("COMP_")).length;
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
           meta.count = realCount;
@@ -138,7 +160,7 @@ export default {
           let cursor = "";
           do {
             const list = await env.MEDI_KV.list({ prefix: `${listHId}_`, limit: 1000, cursor: cursor || undefined });
-            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_email") && !n.endsWith("_board")));
+            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("_report_")));
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
           return new Response(JSON.stringify({ keys: keys }), { headers: { "Content-Type": "application/json" } });
@@ -156,7 +178,7 @@ export default {
           do {
             const list = await env.MEDI_KV.list({ prefix: `${dHId}_`, limit: 1000, cursor: cursor || undefined });
             // ダウンロード時は絶対に COMP_ ゴミデータを排除する
-            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("COMP_")));
+            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("_report_") && !n.includes("COMP_")));
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
 
@@ -193,6 +215,45 @@ export default {
           return new Response(JSON.stringify({ error: e.message }), { status: 500 }); 
         }
       }
+      
+      // === 新規追加: 報告CSVダウンロード API ===
+      if (url.pathname.includes("/api/admin/download-reports")) {
+        try {
+          const dHId = url.searchParams.get("h") || "";
+          if (!dHId) return new Response("Error", { status: 400 });
+
+          let keys = [];
+          let cursor = "";
+          do {
+            const list = await env.MEDI_KV.list({ prefix: `${dHId}_report_`, limit: 1000, cursor: cursor || undefined });
+            keys.push(...list.keys.map(k => k.name));
+            cursor = list.list_complete ? "" : list.cursor;
+          } while (cursor);
+
+          let csv = "\uFEFF日時,状態,報告者,種類,薬品名,YJコード,コメント\n";
+          const reports = await Promise.all(keys.map(async k => {
+            const val = await env.MEDI_KV.get(k);
+            return val ? JSON.parse(val) : null;
+          }));
+          
+          reports.filter(r => r).sort((a,b) => b.timestamp - a.timestamp).forEach(r => {
+            const date = new Date(r.timestamp).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+            const status = r.isDone ? "済" : "未";
+            const type = r.type.replace(/"/g, '""');
+            const name = r.name.replace(/"/g, '""');
+            const drugName = r.drugName.replace(/"/g, '""');
+            const comment = r.comment.replace(/"/g, '""');
+            csv += `"${date}","${status}","${name}","${type}","${drugName}","${r.yj || ''}","${comment}"\n`;
+          });
+
+          return new Response(csv, { 
+            headers: { 
+              "Content-Type": "text/csv; charset=utf-8", 
+              "Content-Disposition": `attachment; filename="reports_${dHId}.csv"` 
+            } 
+          });
+        } catch(e) { return new Response("Error", { status: 500 }); }
+      }
       // === 新規追加: CSVダウンロード API (ここまで) ===
       
       if (isAdminPage) {
@@ -202,6 +263,50 @@ export default {
       
       // メイン画面の表示
       return new Response(this.getAdminHTML(env, hospitalId), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+    }
+
+    // === 新規追加: 報告投稿API (ユーザー側) ===
+    if (request.method === "POST" && url.pathname.includes("/api/report")) {
+      try {
+        const body = await request.json();
+        const rHId = url.searchParams.get("h") || "";
+        if (!rHId || !body.comment) return new Response(JSON.stringify({error: "Invalid data"}), { status: 400 });
+
+        const timestamp = Date.now();
+        const key = `${rHId}_report_${timestamp}`;
+        const reportData = {
+          key: key,
+          timestamp: timestamp,
+          yj: body.yj || "",
+          drugName: body.drugName || "",
+          type: body.type || "その他",
+          comment: body.comment,
+          name: body.name || "名無し",
+          isDone: false
+        };
+
+        // TTLを90日（7776000秒）に設定して保存
+        await env.MEDI_KV.put(key, JSON.stringify(reportData), { expirationTtl: 7776000 });
+        
+        return new Response(JSON.stringify({success: true}), { headers: { "Content-Type": "application/json" } });
+      } catch (e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
+    }
+
+    // === 新規追加: 報告完了(済)API (管理用) ===
+    if (request.method === "POST" && url.pathname.includes("/api/admin/report-done")) {
+      try {
+        const body = await request.json();
+        if (!body.key) return new Response(JSON.stringify({error: "Key missing"}), { status: 400 });
+
+        const val = await env.MEDI_KV.get(body.key);
+        if (val) {
+          const reportData = JSON.parse(val);
+          reportData.isDone = true;
+          // 済にしてもTTLはリセットせずそのまま上書き（元々のTTLを維持するのはKVでは難しいので、更新時の時間からさらに90日とするか、省略して無期限にするかですが、仕様上90日で消えるのが良いので再度TTLセット）
+          await env.MEDI_KV.put(body.key, JSON.stringify(reportData), { expirationTtl: 7776000 });
+        }
+        return new Response(JSON.stringify({success: true}), { headers: { "Content-Type": "application/json" } });
+      } catch (e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
     }
 
     // === 新規追加: 掲示板API (管理用) ===
@@ -709,7 +814,8 @@ export default {
       .tag.green { background: #d1ffd1; color: #155724; }
       .tag.red { background: #ffebeb; color: #dc3545; border: 1px solid #ffcdd2; }
       .tag.blue { background: #e3f2fd; color: #0d47a1; border: 1px solid #bbdefb; }
-      #modalOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(3px); display: none; z-index: 1000; justify-content: center; align-items: center; }
+      #modalOverlay, #reportModalOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(3px); display: none; z-index: 1000; justify-content: center; align-items: center; }
+      #reportModalOverlay { z-index: 1100; }
       .modal { background: #fff; width: 92%; max-width: 400px; border-radius: 24px; padding: 25px; position: relative; overflow-y: auto; max-height: 85vh; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
       .modal-close { position: absolute; top: 12px; right: 18px; font-size: 28px; cursor: pointer; color: #999; }
       .btn-group { display: flex; gap: 10px; margin: 18px 0; }
@@ -728,6 +834,11 @@ export default {
       .promo-text { width: 100%; height: 60px; font-size: 12px; color: #555; border: 1px solid #ccc; border-radius: 8px; padding: 8px; box-sizing: border-box; background: #fff; resize: none; overflow: hidden; }
       .btn-copy { background: #e65100; color: #fff; border: none; padding: 6px 12px; font-size: 12px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 6px; transition: background 0.2s; }
       .btn-copy:active { background: #bf360c; }
+
+      /* 報告モーダル用スタイル */
+      .report-radio-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px; }
+      .report-radio-label { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #444; background: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #eee; cursor: pointer; }
+      .report-radio-label input[type="radio"] { width: auto; margin: 0; }
     </style></head>
     <body>
       <div id="sysHelpData" style="display:none;">${env.HELP_TEXT || "環境変数 HELP_TEXT に使い方の説明などを設定してください。"}</div>
@@ -765,10 +876,36 @@ export default {
         <span class="modal-close" onclick="closeModal()">×</span>
         <div id="modalContent"></div>
       </div></div>
+      
+      <div id="reportModalOverlay" onclick="closeReportModal(event)"><div class="modal" onclick="event.stopPropagation()">
+        <span class="modal-close" onclick="closeReportModal()">×</span>
+        <h3 style="color:#dc3545; margin-top:0;">🚨 現場の知見を報告</h3>
+        <p id="reportDrugNameLabel" style="font-size:14px; font-weight:bold; color:#555; margin-bottom:15px;"></p>
+        
+        <label style="font-size:12px; font-weight:bold; color:#666; margin-bottom:5px; display:block;">報告の種類</label>
+        <div class="report-radio-group">
+          <label class="report-radio-label"><input type="radio" name="repType" value="📝 院内メモの修正・追加" checked> 📝 院内メモの修正・追加</label>
+          <label class="report-radio-label"><input type="radio" name="repType" value="🏥 採用薬のはず（漏れ）"> 🏥 採用薬のはず（漏れ）</label>
+          <label class="report-radio-label"><input type="radio" name="repType" value="💡 その他・要望"> 💡 その他・要望</label>
+        </div>
+
+        <label style="font-size:12px; font-weight:bold; color:#666; margin-bottom:5px; display:block;">内容</label>
+        <textarea id="reportComment" style="width:100%; height:80px; padding:10px; border:1px solid #ccc; border-radius:8px; margin-bottom:15px; box-sizing:border-box; font-family:sans-serif;" placeholder="具体的な内容を教えてくださいカニ🦀"></textarea>
+        
+        <label style="font-size:12px; font-weight:bold; color:#666; margin-bottom:5px; display:block;">お名前（部署など）</label>
+        <input type="text" id="reportName" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:8px; margin-bottom:20px; box-sizing:border-box;" placeholder="例：3階病棟 山田">
+        
+        <button id="btnSubmitReport" onclick="submitReport()" style="width:100%; padding:12px; background:#dc3545; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer; transition: transform 0.1s;">🚀 報告を送信する</button>
+      </div></div>
       <script>
         const hId = "${hospitalId}";
         let currentCat = '[内]'; let timer = null;
         let currentDetailData = null; 
+        
+        // 報告用グローバル変数
+        let currentReportYj = "";
+        let currentReportName = "";
+
         const promoHTML = \`
           <div class="promo-box">
             <div class="promo-title">📣 メディカニをシェアしてカニ〜！🦀✨</div>
@@ -1136,6 +1273,52 @@ export default {
           document.getElementById('modalOverlay').style.display = 'flex';
         }
 
+        // === 新規追加: 報告モーダルの制御 ===
+        function openReportModal(yj, fullName) {
+          currentReportYj = yj;
+          currentReportName = fullName;
+          document.getElementById('reportDrugNameLabel').innerText = fullName;
+          document.getElementById('reportComment').value = '';
+          const savedName = localStorage.getItem('yakumiru_reporter_name');
+          if (savedName) document.getElementById('reportName').value = savedName;
+          document.getElementById('reportModalOverlay').style.display = 'flex';
+        }
+        function closeReportModal(e) {
+          if (e && e.target.id !== 'reportModalOverlay') return;
+          document.getElementById('reportModalOverlay').style.display = 'none';
+        }
+        async function submitReport() {
+          const comment = document.getElementById('reportComment').value.trim();
+          const name = document.getElementById('reportName').value.trim();
+          const type = document.querySelector('input[name="repType"]:checked').value;
+          
+          if (!comment) { alert("内容を入力してくださいカニ🦀"); return; }
+          
+          const btn = document.getElementById('btnSubmitReport');
+          btn.disabled = true;
+          btn.innerText = "送信中...💦";
+          
+          if (name) localStorage.setItem('yakumiru_reporter_name', name);
+
+          try {
+            const res = await fetch(\`/api/report?h=\${hId}\`, {
+              method: 'POST', headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ yj: currentReportYj, drugName: currentReportName, type, comment, name })
+            });
+            if ((await res.json()).success) {
+              alert("現場からの報告ありがとうございました！薬剤部に共有されるカニ🦀✨");
+              closeReportModal();
+            } else {
+              alert("エラーが発生しましたカニ🦀💦");
+            }
+          } catch(e) {
+            alert("通信エラーが発生しましたカニ🦀💦");
+          }
+          btn.disabled = false;
+          btn.innerText = "🚀 報告を送信する";
+        }
+        // === 新規追加: 報告モーダルの制御 (ここまで) ===
+
         async function showDetail(key) {
           document.getElementById('modalContent').innerHTML = '<p style="text-align:center;padding:30px;font-weight:bold;color:#ff9d00;">🦀 メディカニくんが詳細を開いています... 💦</p>';
           document.getElementById('modalOverlay').style.display = 'flex';
@@ -1174,6 +1357,8 @@ export default {
               </p>
               \${commentHTML}
 
+              \${hId ? \`<button onclick="openReportModal('\${d.yj}', '\${safeDrugName}')" style="width:100%; padding:10px; background:#fff; border:1px solid #dc3545; border-radius:8px; color:#dc3545; margin-bottom:15px; font-size:13px; font-weight:bold; cursor:pointer; box-shadow:0 2px 4px rgba(220,53,69,0.1);">🚨 現場の知見を報告する / 採用漏れ申請</button>\` : ''}
+
               <div style="margin-bottom:15px;">
                 <button id="btnAiAdvice" onclick="fetchAIAdvice('\${safeDrugName}')" style="width:100%; background:#fff3e0; color:#e65100; border:1px solid #ffcc80; padding:10px; border-radius:8px; font-weight:bold; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:8px; box-shadow:0 2px 4px rgba(255,157,0,0.1); transition:all 0.2s;">🤖 メディカニくんに薬効 and 注意点を聞く</button>
                 <div id="aiAdviceArea" style="display:none; background:#fff9f0; border:1px solid #ffe0b2; border-radius:8px; padding:12px; margin-top:8px; font-size:13px; color:#444; line-height:1.6; white-space:pre-wrap;"></div>
@@ -1201,7 +1386,10 @@ export default {
             document.getElementById('modalContent').innerHTML = '<p style="text-align:center;padding:20px;color:#dc3545;font-weight:bold;">⚠️ 詳細を開けませんでしたカニ🦀💦</p>';
           }
         }
-        function closeModal() { document.getElementById('modalOverlay').style.display = 'none'; }
+        function closeModal(e) { 
+          if (e && e.target.id !== 'modalOverlay') return;
+          document.getElementById('modalOverlay').style.display = 'none'; 
+        }
       </script></body></html>`;
   },
 
@@ -1245,6 +1433,8 @@ export default {
       .btn-small { padding: 6px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; border: none; font-weight: bold; }
       .btn-edit { background: #007bff; color: #fff; }
       .btn-delete { background: #dc3545; color: #fff; }
+      .btn-done { background: #17a2b8; color: #fff; }
+      .report-item.done { opacity: 0.5; background: #f9f9f9; }
     </style></head>
     <body>
       <div class="header">
@@ -1252,6 +1442,15 @@ export default {
         <div style="font-size:12px; background:rgba(255,255,255,0.2); padding:4px 10px; border-radius:15px;">ID: ${hospitalId}</div>
       </div>
       <div class="container">
+        
+        <div class="card" style="border-top: 4px solid #dc3545;">
+          <h2>🚨 現場からの報告一覧</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:10px;">スタッフから送信されたメモの修正依頼や採用薬の追加要望です。<br>確認が終わったら「済」を押してください。3ヶ月経過で自動削除されます。</p>
+          <a href="/api/admin/download-reports?h=${hospitalId}" class="btn" style="background:#dc3545; padding:8px; font-size:13px; margin-top:0; margin-bottom:15px; display:inline-block; width:auto;">⬇️ 報告一覧CSVダウンロード</a>
+          <div id="reportList" class="admin-item-list" style="max-height:400px; overflow-y:auto; border-top:none; margin-top:0;">
+            <p style="text-align:center; color:#999; font-size:13px; padding:15px;">読み込み中...🦀</p>
+          </div>
+        </div>
         <div class="card">
           <h2>📊 現在のステータス</h2>
           <div class="stat-grid">
@@ -1339,6 +1538,46 @@ export default {
       <script>
         const hId = "${hospitalId}";
         let currentEditKey = "";
+
+        // === 新規追加: 報告リストの読み込み ===
+        function loadReports() {
+          fetch('/api/admin/reports?h=' + hId).then(r=>r.json()).then(data => {
+            const list = document.getElementById('reportList');
+            if(!data || data.length === 0) {
+              list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">報告はまだありませんカニ🦀</p>';
+              return;
+            }
+            list.innerHTML = data.map(r => {
+              const dt = new Date(r.timestamp);
+              const dateStr = dt.toLocaleDateString('ja-JP') + ' ' + dt.toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'});
+              return \`
+                <div class="admin-item report-item \${r.isDone ? 'done' : ''}" style="flex-direction:column; align-items:flex-start; border:1px solid #eee; margin-bottom:10px; border-radius:8px; padding:15px;">
+                  <div style="display:flex; justify-content:space-between; width:100%; margin-bottom:8px;">
+                    <span style="font-size:12px; font-weight:bold; color:#dc3545; background:#ffebeb; padding:2px 8px; border-radius:4px;">\${r.type}</span>
+                    <span style="font-size:11px; color:#888;">\${dateStr}</span>
+                  </div>
+                  <div style="font-size:14px; font-weight:bold; color:#333; margin-bottom:4px;">\${r.drugName} <span style="font-size:11px; font-weight:normal; color:#666;">(\${r.yj || 'YJ未取得'})</span></div>
+                  <div style="font-size:13px; background:#fff; border:1px dashed #ccc; padding:10px; border-radius:6px; width:100%; box-sizing:border-box; margin-bottom:8px; white-space:pre-wrap;">\${r.comment}</div>
+                  <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                    <span style="font-size:12px; color:#555;">🧑‍⚕️ 報告者: <b>\${r.name}</b></span>
+                    \${r.isDone ? '<span style="font-size:12px; font-weight:bold; color:#17a2b8;">✅ 確認済</span>' : \`<button class="btn-small btn-done" onclick="markReportDone('\${r.key}')">確認済にする</button>\`}
+                  </div>
+                </div>
+              \`;
+            }).join('');
+          });
+        }
+        
+        async function markReportDone(key) {
+          if (!confirm('この報告を「済」にしますか？')) return;
+          const res = await fetch('/api/admin/report-done?h=' + hId, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ key })
+          });
+          if ((await res.json()).success) { loadReports(); }
+        }
+        loadReports();
+        // === 新規追加: 報告リストの読み込み (ここまで) ===
 
         fetch('/api/admin/meta?h=' + hId).then(r=>r.json()).then(d => {
           document.getElementById('metaCount').innerText = d.count || 0;
