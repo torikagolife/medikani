@@ -38,6 +38,13 @@ export default {
 
     // --- 1. Web画面の表示 (GETリクエスト) ---
     if (request.method === "GET") {
+
+      // === 新規追加: 施設名の取得 (HTML描画用) ===
+      let hospitalName = "";
+      if (hospitalId && env.MEDI_KV && !url.pathname.includes("/api/")) {
+        try { hospitalName = await env.MEDI_KV.get(`${hospitalId}_name`) || ""; } catch(e) {}
+      }
+
       // === 新規追加: 掲示板データ取得 API (ここから) ===
       if (url.pathname.includes("/api/board")) {
         try {
@@ -122,7 +129,7 @@ export default {
 
       // === 新規追加: 認証とリセット関連画面 (ここから) ===
       if (isAdminResetPage) {
-        return new Response(this.getResetHTML(env, hospitalId), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+        return new Response(this.getResetHTML(env, hospitalId, hospitalName), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
       }
       // === 新規追加: 認証とリセット関連画面 (ここまで) ===
 
@@ -257,12 +264,12 @@ export default {
       // === 新規追加: CSVダウンロード API (ここまで) ===
       
       if (isAdminPage) {
-        return new Response(this.getDashboardHTML(env, hospitalId), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+        return new Response(this.getDashboardHTML(env, hospitalId, hospitalName), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
       }
       // === 新規追加: 管理画面と管理用API (ここまで) ===
       
       // メイン画面の表示
-      return new Response(this.getAdminHTML(env, hospitalId), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      return new Response(this.getAdminHTML(env, hospitalId, hospitalName), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
 
     // === 新規追加: 報告投稿API (ユーザー側) ===
@@ -506,7 +513,7 @@ export default {
     </body></html>`;
   },
 
-  getResetHTML(env, hId) {
+  getResetHTML(env, hId, hName = "") {
     return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>パスワード再発行 - メディカニ</title>
     <style>
@@ -529,7 +536,7 @@ export default {
       </p>
       
       <label>🏥 施設ID</label>
-      <input type="text" id="hId" value="${hId}" readonly style="background:#f0f0f0; color:#777;">
+      <input type="text" id="hId" value="${hId}${hName ? ` (${hName})` : ''}" readonly style="background:#f0f0f0; color:#777;">
       
       <label>✉️ メールアドレス</label>
       <input type="email" id="email" placeholder="登録メールアドレスを入力">
@@ -761,7 +768,7 @@ export default {
     return { key: kvKey, label, fullName, yj, isAdopted, isBrand, comment, alts: alts.sort((a,b)=>b.isAdopted - a.isAdopted) };
   },
 
-  getAdminHTML(env, hospitalId) {
+  getAdminHTML(env, hospitalId, hospitalName = "") {
     const isHospitalMode = hospitalId !== "";
     const bgColor = isHospitalMode ? "#fff0f5" : "var(--bg)";
     const headerBgColor = isHospitalMode ? "#ffe4e1" : "#fff"; 
@@ -847,6 +854,7 @@ export default {
           <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" alt="メディカニロゴ" style="height: 60px;">
           メディカニ 医薬品検索💊
         </h1>
+        ${hospitalName ? `<div style="margin-top: 8px; display: inline-block; background: rgba(255,255,255,0.7); color: #d63384; font-size: 13px; font-weight: bold; padding: 4px 12px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">🏥 ${hospitalName}</div>` : ''}
       </div>
       <div class="search-box">
         <div class="tabs">
@@ -1096,7 +1104,7 @@ export default {
             if (hId) {
               resDiv.innerHTML = \`<div class="no-results" style="background:white; border-radius:20px; padding:30px; border:2px dashed var(--main-orange);">
                 <h3 style="color:var(--main-orange);">✅ プラスモード動作中カニ🦀</h3>
-                <p style="font-size:14px; color:#666; margin-top:10px;">現在、施設ID「\${hId}」の環境で動作しています。<br>採用薬や、限定メモが優先表示されますカニ🦀</p>
+                <p style="font-size:14px; color:#666; margin-top:10px;">現在、施設「${hospitalName ? hospitalName : '${hId}'}」の専用環境で動作しています。<br>採用薬や、限定メモが優先表示されますカニ🦀</p>
                 <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
                   <a href="/" style="background:#eee; color:#555; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🌍 一般モードに戻る</a>
                   <a href="/\${hId}/admin" style="background:#fff0f5; color:#d63384; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #ffcdd2;">⚙️ 管理画面を開く</a>
@@ -1393,7 +1401,7 @@ export default {
       </script></body></html>`;
   },
 
-  getDashboardHTML(env, hospitalId) {
+  getDashboardHTML(env, hospitalId, hospitalName = "") {
     return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
     <title>メディカニ・プラス 管理画面🦀</title>
@@ -1439,7 +1447,10 @@ export default {
     <body>
       <div class="header">
         <h1>🏥 メディカニ・プラス 管理画面</h1>
-        <div style="font-size:12px; background:rgba(255,255,255,0.2); padding:4px 10px; border-radius:15px;">ID: ${hospitalId}</div>
+        <div style="font-size:12px; background:rgba(255,255,255,0.2); padding:4px 10px; border-radius:15px; text-align:right;">
+          ${hospitalName ? `<div style="font-weight:bold; margin-bottom:2px;">${hospitalName}</div>` : ''}
+          ID: ${hospitalId}
+        </div>
       </div>
       <div class="container">
         
