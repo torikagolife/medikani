@@ -16,6 +16,23 @@ export default {
     // パスの1番目を施設IDとして取得（apiパスは除外）
     const hospitalId = (pathParts[0] && !pathParts[0].startsWith('api')) ? pathParts[0] : "";
 
+    // === 新規追加: 門番機能（適当なIDならノーマルへリダイレクト） ===
+    if (hospitalId && env.MEDI_KV) {
+      let isValidFacility = false;
+      if (hospitalId === "HPTEST1") {
+        isValidFacility = true;
+      } else {
+        try {
+          const list = await env.MEDI_KV.list({ prefix: `${hospitalId}_`, limit: 1 });
+          if (list.keys.length > 0) isValidFacility = true;
+        } catch(e) {}
+      }
+      if (!isValidFacility) {
+        return Response.redirect(`${url.origin}/`, 302);
+      }
+    }
+    // =========================================================
+
     // === 新規追加: 認証の判定ロジック (ここから) ===
     const isAdminResetPage = pathParts[1] === "admin" && pathParts[2] === "reset" && pathParts[0] !== "api";
     const isLoginPage = pathParts[1] === "admin" && pathParts[2] === "login" && pathParts[0] !== "api";
@@ -280,7 +297,17 @@ export default {
       // === 新規追加: CSVダウンロード API (ここまで) ===
       
       if (isAdminPage) {
-        return new Response(this.getDashboardHTML(env, hospitalId, hospitalName), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+        // === 新規追加: 古いパス制限クッキーの自動修復（スライディングセッション） ===
+        // 管理画面を開いた瞬間に、サイト全体(Path=/)で有効なクッキーを上書き発行してバグを自己修復します
+        let currentPwd = await env.MEDI_KV.get(`${hospitalId}_pwd`);
+        if (!currentPwd) currentPwd = (hospitalId === 'HPTEST1') ? '12345' : hospitalId;
+        
+        return new Response(this.getDashboardHTML(env, hospitalId, hospitalName), { 
+          headers: { 
+            "Content-Type": "text/html;charset=UTF-8",
+            "Set-Cookie": `medikani_auth_${hospitalId}=${encodeURIComponent(currentPwd)}; Path=/; HttpOnly; Secure; Max-Age=2592000`
+          } 
+        });
       }
       // === 新規追加: 管理画面と管理用API (ここまで) ===
       
@@ -1637,7 +1664,7 @@ export default {
 
         <div class="card">
           <h2>📥 CSVデータのアップロード</h2>
-          <p style="font-size:12px; color:#666; margin-bottom:15px;">一括更新はこちら。既存データはすべて上書きされますカニ🦀</p>
+          <p style="font-size:12px; color:#666; margin-bottom:15px;">一括更新はこちら。フル更新と追加更新が出来るよ🦀</p>
           <label class="dropzone" id="dropzone">
             <div style="font-size:24px; margin-bottom:10px;">📄</div>
             <div style="font-size:14px; color:#555; font-weight:bold;">CSVファイルをタップして選択</div>
