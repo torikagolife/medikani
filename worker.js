@@ -6,7 +6,7 @@ function getBestYJ(key, parts) {
 }
 
 // Webサービス: 医薬品検索（メディカニ・ハイブリッド検索＆個別メモ対応版）
-// 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API)
+// 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用)
 
 export default {
   async fetch(request, env) {
@@ -406,12 +406,32 @@ export default {
       } catch (e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
     }
 
-    // パスワード変更 (管理画面内から)
+    // パスワード変更 (管理画面内から) 【作戦A仕様に更新】
     if (request.method === "POST" && url.pathname.includes("/api/admin/changepwd")) {
       try {
         const cpBody = await request.json();
         const cpHId = url.searchParams.get("h") || "";
-        await env.MEDI_KV.put(`${cpHId}_pwd`, cpBody.newPwd);
+        
+        // 環境変数 GAS_URL が設定されているか確認
+        if (!env.GAS_URL) {
+          throw new Error("環境変数 GAS_URL が設定されていませんカニ🦀");
+        }
+        
+        // GASへPOSTリクエストを送信
+        const gasRes = await fetch(env.GAS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            facilityId: cpHId,
+            newPassword: cpBody.newPwd
+          })
+        });
+        
+        const gasData = await gasRes.json();
+        if (!gasData.success) {
+          throw new Error(gasData.message || "スプレッドシートの更新に失敗しました");
+        }
+
         return new Response(JSON.stringify({success: true}), { headers: { "Content-Type": "application/json" } });
       } catch(e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
     }
@@ -917,7 +937,7 @@ export default {
         const promoHTML = \`
           <div class="promo-box">
             <div class="promo-title">📣 メディカニをシェアしてカニ〜！🦀✨</div>
-            <p style="font-size:13px;color:#666;margin:5px 0 10px;">スマホでQRを読み取って、同僚や友人に教えてあげてね！🎁</p>
+            <p style="font-size:13px;color:#666;margin:5px 0 10px;">スマホでQRを読み取って同僚や友人に教えてあげてね！🎁</p>
             <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/QR.png" alt="メディカニQRコード" class="promo-qr">
             <div class="promo-copy-area">
               <textarea id="shareText" class="promo-text" readonly>🏥 採用薬が爆速でわかる「メディカニ」超便利だよ！🦀\n今すぐチェックカニ〜！✨\nhttps://medikani.com/</textarea>
@@ -1232,12 +1252,12 @@ export default {
               area.innerHTML = html;
             } else {
               btn.disabled = false;
-              btn.innerHTML = '🤖 メディカニくんに薬効と注意点を聞く';
+              btn.innerHTML = '🤖 AI薬剤師メディカニくんに詳細を聞く';
               area.innerHTML = '<span style="color:#dc3545;">エラーが発生しましたカニ🦀💦</span>';
             }
           } catch(e) {
             btn.disabled = false;
-            btn.innerHTML = '🤖 メディカニくんに薬効と注意点を聞く';
+            btn.innerHTML = '🤖 AI薬剤師メディカニくんに詳細を聞く';
             area.innerHTML = '<span style="color:#dc3545;">通信エラーカニ🦀💦</span>';
           }
         }
