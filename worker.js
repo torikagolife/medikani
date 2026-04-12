@@ -16,25 +16,29 @@ export default {
     // パスの1番目を施設IDとして取得（apiパスは除外）
     const hospitalId = (pathParts[0] && !pathParts[0].startsWith('api')) ? pathParts[0] : "";
 
-    // === 新規追加: Basic認証の判定ロジック (ここから) ===
+    // === 新規追加: 認証の判定ロジック (ここから) ===
     const isAdminResetPage = pathParts[1] === "admin" && pathParts[2] === "reset" && pathParts[0] !== "api";
+    const isLoginPage = pathParts[1] === "admin" && pathParts[2] === "login" && pathParts[0] !== "api";
+    const isLogoutPage = pathParts[1] === "admin" && pathParts[2] === "logout" && pathParts[0] !== "api";
+
     const isAdminResetApi = url.pathname.includes("/api/admin/reset");
-    const isAdminApi = url.pathname.includes("/api/admin/") && !isAdminResetApi;
-    const isAdminPage = pathParts[1] === "admin" && pathParts[0] !== "api" && !isAdminResetPage;
+    const isLoginApi = url.pathname.includes("/api/admin/login");
+    const isAdminApi = url.pathname.includes("/api/admin/") && !isAdminResetApi && !isLoginApi;
+    const isAdminPage = pathParts[1] === "admin" && pathParts[0] !== "api" && !isAdminResetPage && !isLoginPage && !isLogoutPage;
 
     if (isAdminApi || isAdminPage) {
       const targetHId = url.searchParams.get("h") || hospitalId;
       const isAuth = await this.checkAuth(request, env, targetHId);
       if (!isAuth) {
         if (isAdminApi) {
-          return new Response(JSON.stringify({error: "認証エラー"}), { status: 401, headers: { "WWW-Authenticate": `Basic realm="Medikani Admin"`, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({error: "認証エラー"}), { status: 401, headers: { "Content-Type": "application/json" } });
         } else {
-          // ブラウザの認証ダイアログで「キャンセル」を押した時に表示される画面（ここに再発行へのリンクを置く）
-          return new Response(this.getAuthFailedHTML(targetHId), { status: 401, headers: { "WWW-Authenticate": `Basic realm="Medikani Admin"`, "Content-Type": "text/html;charset=UTF-8" } });
+          // ログイン画面へリダイレクト
+          return Response.redirect(`${url.origin}/${targetHId}/admin/login`, 302);
         }
       }
     }
-    // === 新規追加: Basic認証の判定ロジック (ここまで) ===
+    // === 新規追加: 認証の判定ロジック (ここまで) ===
 
     // --- 1. Web画面の表示 (GETリクエスト) ---
     if (request.method === "GET") {
@@ -128,6 +132,18 @@ export default {
       }
 
       // === 新規追加: 認証とリセット関連画面 (ここから) ===
+      if (isLoginPage) {
+        return new Response(this.getLoginHTML(env, hospitalId, hospitalName), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
+      if (isLogoutPage) {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            "Location": `/${hospitalId}/admin/login`,
+            "Set-Cookie": `medikani_auth_${hospitalId}=; Path=/; HttpOnly; Secure; Max-Age=0`
+          }
+        });
+      }
       if (isAdminResetPage) {
         return new Response(this.getResetHTML(env, hospitalId, hospitalName), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
       }
@@ -340,6 +356,29 @@ export default {
       } catch (e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
     }
 
+    // === 新規追加: ログイン API ===
+    if (request.method === "POST" && isLoginApi) {
+      try {
+        const body = await request.json();
+        const lHId = body.hId;
+        const lPwd = body.pwd;
+        
+        let pwd = await env.MEDI_KV.get(`${lHId}_pwd`);
+        if (!pwd) pwd = (lHId === 'HPTEST1') ? '12345' : lHId;
+
+        if (lPwd === pwd) {
+          return new Response(JSON.stringify({success: true}), {
+            headers: {
+              "Content-Type": "application/json",
+              "Set-Cookie": `medikani_auth_${lHId}=${encodeURIComponent(lPwd)}; Path=/; HttpOnly; Secure; Max-Age=2592000`
+            }
+          });
+        } else {
+          return new Response(JSON.stringify({success: false, error: "パスワードが違いますカニ🦀"}), { headers: { "Content-Type": "application/json" } });
+        }
+      } catch(e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
+    }
+
     // === 新規追加: CSVアップロード等の POST API (ここから) ===
     if (request.method === "POST" && url.pathname.includes("/api/admin/upload")) {
       try {
@@ -493,12 +532,25 @@ export default {
   // === 新規追加: 認証ロジックヘルパー (ここから) ===
   async checkAuth(request, env, hId) {
     if (!hId) return false;
-    const authHeader = request.headers.get('Authorization');
     
     // KVからパスワードを取得（未設定なら、HPTEST1は'12345'、その他は施設IDそのものを初期パスワードにする）
     let pwd = await env.MEDI_KV.get(`${hId}_pwd`);
     if (!pwd) pwd = (hId === 'HPTEST1') ? '12345' : hId;
 
+    // Cookieベースの認証チェックを追加
+    const cookieString = request.headers.get("Cookie");
+    if (cookieString) {
+      const cookies = cookieString.split(';').map(c => c.trim());
+      const targetCookie = `medikani_auth_${hId}=`;
+      const authCookie = cookies.find(c => c.startsWith(targetCookie));
+      if (authCookie) {
+        const cookiePwd = decodeURIComponent(authCookie.substring(targetCookie.length));
+        if (cookiePwd === pwd) return true;
+      }
+    }
+
+    // Basic認証のチェック (外部API用・後方互換として残す)
+    const authHeader = request.headers.get('Authorization');
     if (!authHeader) return false;
     const match = authHeader.match(/^Basic\s+(.*)$/i);
     if (!match) return false;
@@ -530,6 +582,73 @@ export default {
       <p style="font-size:13px;color:#888;">パスワードを忘れてしまった場合は、以下のボタンから再設定（仮パスワード発行）の手続きへ進んでくださいカニ🦀</p>
       <a href="/${hId}/admin/reset" class="btn">🔑 パスワードを再発行する</a>
     </div>
+    </body></html>`;
+  },
+
+  getLoginHTML(env, hId, hName = "") {
+    return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>ログイン - メディカニ</title>
+    <style>
+      :root { --main-blue: #0056b3; --bg: #f4f7f6; }
+      body { font-family: sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #333; display:flex; justify-content:center; }
+      .card { background: #fff; border-radius: 12px; padding: 25px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); max-width: 400px; width:100%; }
+      h2 { margin-top: 0; color: var(--main-blue); font-size:18px; border-bottom: 2px solid #eee; padding-bottom:10px; }
+      label { font-size: 13px; font-weight: bold; color: #555; display:block; margin-top:15px; margin-bottom:5px; }
+      input { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; font-size: 14px; outline:none; }
+      input:focus { border-color: var(--main-blue); }
+      .btn { width: 100%; padding: 14px; background: var(--main-blue); color: #fff; font-size: 16px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; margin-top: 25px; transition:transform 0.1s; }
+      .btn:active { transform:scale(0.98); }
+      #msg { margin-top: 15px; font-size: 14px; font-weight: bold; text-align: center; line-height:1.5; color: #dc3545; }
+    </style>
+    </head><body>
+    <div class="card">
+      <h2>🔒 ログイン</h2>
+      <p style="font-size:12px; color:#666; line-height:1.6; background:#e3f2fd; padding:10px; border-radius:8px;">
+        管理画面にアクセスするためのパスワードを入力してくださいカニ🦀
+      </p>
+      
+      <label>🏥 施設ID</label>
+      <input type="text" id="hId" value="${hId}${hName ? ` (${hName})` : ''}" readonly style="background:#f0f0f0; color:#777;">
+      
+      <label>🔑 パスワード</label>
+      <input type="password" id="pwd" placeholder="パスワードを入力" onkeydown="if(event.key==='Enter') document.getElementById('btnLogin').click()">
+
+      <button class="btn" id="btnLogin">🚪 ログインする</button>
+      <div id="msg"></div>
+      
+      <div style="text-align:center; margin-top:20px;">
+        <a href="/${hId}/admin/reset" style="font-size:13px; color:#888; text-decoration:none;">パスワードを忘れた場合はこちら</a>
+      </div>
+      <div style="text-align:center; margin-top:15px;">
+        <a href="/${hId}" style="font-size:13px; color:var(--main-blue); text-decoration:none; font-weight:bold;">🔙 検索画面に戻る</a>
+      </div>
+    </div>
+    <script>
+      document.getElementById('btnLogin').addEventListener('click', async () => {
+        const pwd = document.getElementById('pwd').value.trim();
+        const msg = document.getElementById('msg');
+        
+        if(!pwd) { msg.innerText = "⚠️ パスワードを入力してくださいカニ🦀"; return; }
+        
+        msg.innerText = "⏳ 認証中...💦"; msg.style.color = "#555";
+        
+        try {
+          const res = await fetch('/api/admin/login', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ hId: "${hId}", pwd: pwd })
+          });
+          const data = await res.json();
+          if(data.success) {
+            window.location.href = "/${hId}/admin";
+          } else {
+            msg.innerText = "❌ " + data.error;
+            msg.style.color = "#dc3545";
+          }
+        } catch(e) {
+          msg.innerText = "⚠️ 通信エラーが発生しましたカニ🦀"; msg.style.color = "#dc3545";
+        }
+      });
+    </script>
     </body></html>`;
   },
 
@@ -1467,9 +1586,12 @@ export default {
     <body>
       <div class="header">
         <h1>🏥 メディカニ・プラス 管理画面</h1>
-        <div style="font-size:12px; background:rgba(255,255,255,0.2); padding:4px 10px; border-radius:15px; text-align:right;">
-          ${hospitalName ? `<div style="font-weight:bold; margin-bottom:2px;">${hospitalName}</div>` : ''}
-          ID: ${hospitalId}
+        <div style="text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:5px;">
+          <div style="font-size:12px; background:rgba(255,255,255,0.2); padding:4px 10px; border-radius:15px; text-align:right;">
+            ${hospitalName ? `<div style="font-weight:bold; margin-bottom:2px;">${hospitalName}</div>` : ''}
+            ID: ${hospitalId}
+          </div>
+          <a href="/${hospitalId}/admin/logout" style="color:#fff; font-size:12px; text-decoration:none; background:#dc3545; padding:4px 12px; border-radius:15px; font-weight:bold; border:1px solid #c82333;">🚪 ログアウト</a>
         </div>
       </div>
       <div class="container">
