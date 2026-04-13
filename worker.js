@@ -541,6 +541,32 @@ export default {
 
         // ※実際のメール送信処理 (外部APIを利用)
         if (env.RESEND_API_KEY) {
+          const emailRes = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              from: "メディカニ管理 <noreply@medikani.com>", // ※必要に応じてResendで認証したドメインに変更してください
+              to: rEmail,
+              subject: "【メディカニ】仮パスワードが発行されましたカニ🦀",
+              html: `
+                <p>メディカニ管理画面のパスワードリセットを受け付けました。</p>
+                <p>施設ID: <b>${rHId}</b><br>
+                仮パスワード: <b style="font-size:20px; background:#eee; padding:5px 10px; border-radius:5px; letter-spacing:2px;">${tempPwd}</b></p>
+                <p>ログイン後、管理画面の「個別編集」の下にある「パスワード変更」から、必ず新しいパスワードに変更してください。</p>
+                <hr>
+                <p style="font-size:12px; color:#888;">※このメールに心当たりがない場合は破棄してください。</p>
+              `
+            })
+          });
+
+          if (!emailRes.ok) {
+            const errData = await emailRes.text();
+            throw new Error("メール送信に失敗しました: " + errData);
+          }
+
           return new Response(JSON.stringify({success: true, simulated: false}), { headers: { "Content-Type": "application/json" } });
         } else {
           // テスト用: メール送信APIがない場合は特別に画面に仮パスワードを返す
