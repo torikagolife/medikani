@@ -472,7 +472,7 @@ export default {
       } catch (e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
     }
 
-    // パスワード変更 (管理画面内から) 【作戦A仕様に更新】
+    // パスワード変更 (管理画面内から) 【作戦A仕様に更新】＋【メール通知追加】
     if (request.method === "POST" && url.pathname.includes("/api/admin/changepwd")) {
       try {
         const cpBody = await request.json();
@@ -498,16 +498,81 @@ export default {
           throw new Error(gasData.message || "スプレッドシートの更新に失敗しました");
         }
 
+        // 登録メールアドレスの取得 (HPTEST1は指定のメアドをデフォルトとする)
+        let currentEmail = await env.MEDI_KV.get(`${cpHId}_email`);
+        if (cpHId === "HPTEST1" && !currentEmail) {
+          currentEmail = "toriweb+medi@gmail.com";
+        }
+
+        // メール送信処理
+        if (env.RESEND_API_KEY && currentEmail) {
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              from: "メディカニ管理 <noreply@medikani.com>",
+              to: currentEmail,
+              subject: "【メディカニ】パスワードが変更されましたカニ🦀",
+              html: `
+                <p>メディカニ管理画面のパスワードが変更されました。</p>
+                <p>施設ID: <b>${cpHId}</b></p>
+                <p>もしご自身で行った変更でない場合は、速やかに管理者へお問い合わせください。</p>
+              `
+            })
+          });
+        }
+
         return new Response(JSON.stringify({success: true}), { headers: { "Content-Type": "application/json" } });
       } catch(e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
     }
 
-    // メールアドレス変更 (管理画面内から)
+    // メールアドレス変更 (管理画面内から) 【新旧両方へ通知追加】
     if (request.method === "POST" && url.pathname.includes("/api/admin/changemail")) {
       try {
         const cmBody = await request.json();
         const cmHId = url.searchParams.get("h") || "";
-        await env.MEDI_KV.put(`${cmHId}_email`, cmBody.newEmail);
+        const newEmail = cmBody.newEmail;
+
+        let oldEmail = await env.MEDI_KV.get(`${cmHId}_email`);
+        if (cmHId === "HPTEST1" && !oldEmail) oldEmail = "toriweb+medi@gmail.com";
+
+        await env.MEDI_KV.put(`${cmHId}_email`, newEmail);
+
+        // 新旧アドレスへメール通知
+        if (env.RESEND_API_KEY) {
+          const emailPromises = [];
+          const subject = "【メディカニ】登録メールアドレスが変更されましたカニ🦀";
+          const htmlContent = `
+            <p>メディカニ管理画面の登録メールアドレスが変更されました。</p>
+            <p>施設ID: <b>${cmHId}</b><br>
+            新しいメールアドレス: <b>${newEmail}</b></p>
+            <p>もしご自身で行った変更でない場合は、速やかに管理者へお問い合わせください。</p>
+          `;
+
+          // 旧アドレスへ送信
+          if (oldEmail) {
+            emailPromises.push(fetch("https://api.resend.com/emails", {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ from: "メディカニ管理 <noreply@medikani.com>", to: oldEmail, subject: subject, html: htmlContent })
+            }));
+          }
+
+          // 新アドレスへ送信 (旧アドレスと同じでない場合のみ)
+          if (newEmail && newEmail !== oldEmail) {
+            emailPromises.push(fetch("https://api.resend.com/emails", {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ from: "メディカニ管理 <noreply@medikani.com>", to: newEmail, subject: subject, html: htmlContent })
+            }));
+          }
+
+          await Promise.all(emailPromises).catch(e => console.log("Mail send error", e));
+        }
+
         return new Response(JSON.stringify({success: true}), { headers: { "Content-Type": "application/json" } });
       } catch(e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
     }
@@ -1733,10 +1798,10 @@ export default {
           <div id="changeMsg" style="margin-top:15px; font-size:14px; font-weight:bold; text-align:center; display:none;"></div>
         </div>
         <div class="card" style="border-top: 4px solid #0056b3;">
-          <h2>✉️ メールアドレス登録</h2>
+          <h2>✉️ メールアドレス変更</h2>
           <p style="font-size:12px; color:#666; margin-bottom:15px;">現在登録中: <b id="currentEmail">確認中...</b></p>
           <input type="email" id="changeEmail" placeholder="新しいメールアドレスを入力カニ🦀" style="width:100%; padding:12px; border:1px solid #ccc; border-radius:8px; margin-bottom:15px; box-sizing:border-box; font-size:14px;">
-          <button class="btn" id="btnChangeEmail" style="background:#0056b3; margin-top:0;">✉️ メールアドレスを登録</button>
+          <button class="btn" id="btnChangeEmail" style="background:#0056b3; margin-top:0;">✉️ メールアドレスを変更</button>
           <div id="emailMsg" style="margin-top:15px; font-size:14px; font-weight:bold; text-align:center; display:none;"></div>
         </div>
         <div style="text-align:center; margin-top:20px; margin-bottom:40px;"><a href="/${hospitalId}" style="color:#0056b3; font-weight:bold; text-decoration:none;">🌍 実際の検索画面へ戻る</a></div>
@@ -1861,7 +1926,7 @@ export default {
           if(!newEmail) return;
           const res = await fetch('/api/admin/changemail?h=' + hId, {method: 'POST', body: JSON.stringify({ newEmail })});
           const r = await res.json();
-          if(r.success) { document.getElementById('currentEmail').innerText = newEmail; alert('登録完了カニ！🦀'); }
+          if(r.success) { document.getElementById('currentEmail').innerText = newEmail; alert('変更完了カニ！🦀'); }
         };
         function parseCSV(text) {
           let rows = []; let row = []; let cell = ""; let q = false;
