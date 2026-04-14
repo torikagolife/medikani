@@ -30,7 +30,6 @@ export default {
         </style>
       </head>
       <body>
-      <body>
         <div class="container">
           <h1>特定商取引法に基づく表記</h1>
           <table>
@@ -1749,6 +1748,24 @@ export default {
       .btn-delete { background: #dc3545; color: #fff; }
       .btn-done { background: #17a2b8; color: #fff; }
       .report-item.done { opacity: 0.5; background: #f9f9f9; }
+
+/* === ポスター印刷用スタイル === */
+      @media print {
+        @page { margin: 0; }
+        /* 上30mm、左右下20mmの余白に設定 */
+        body { background: #fff !important; margin: 30mm 20mm 20mm; }
+        .header, .container, #adminEditModal { display: none !important; }
+        #printArea { display: block !important; position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
+      }
+      #printArea { display: none; text-align: center; color: #000; font-family: sans-serif; }
+      /* margin-top: 20px; を追加してさらにロゴ上のスペースを確保 */
+      .poster-logo { height: 150px; margin-top: 20px; margin-bottom: 10px; }
+      .poster-title { font-size: 28px; font-weight: bold; border-bottom: 3px solid #000; padding-bottom: 15px; margin-bottom: 30px; }
+      .poster-desc { font-size: 18px; line-height: 1.6; margin-bottom: 30px; font-weight: bold; }
+      .poster-box { border: 4px solid #000; border-radius: 15px; padding: 30px; max-width: 650px; margin: 0 auto 30px; display: flex; align-items: center; justify-content: center; gap: 40px; }
+      .poster-qr { width: 160px; height: 160px; }
+      .poster-box-text { font-size: 22px; font-weight: bold; text-align: left; line-height: 1.5; }
+      .poster-freetext { font-size: 16px; line-height: 1.6; border: 2px dashed #000; padding: 25px; border-radius: 10px; max-width: 650px; margin: 0 auto; text-align: left; white-space: pre-wrap; font-weight: bold; }
     </style></head>
     <body>
       <div class="header">
@@ -1778,6 +1795,18 @@ export default {
             <div class="stat-box"><div class="label">最終更新日時</div><div class="num" id="metaDate" style="font-size:16px; margin-top:12px;">確認中...</div></div>
           </div>
           <a href="/api/admin/download?h=${hospitalId}" class="btn" style="background:#17a2b8; margin-top:10px; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none;">⬇️ 現在の採用薬CSVをダウンロード</a>
+        </div>
+
+        <div class="card" style="border-top: 4px solid #17a2b8;">
+          <h2>🖨️ 現場用ポスターの印刷</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:10px;">スタッフ周知用のQRコード付きポスターを印刷できます。<br>以下のメッセージを自由に書き換えてから印刷ボタンを押してくださいカニ🦀</p>
+         <textarea id="posterInputText" style="width:100%; height:180px; padding:10px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box; font-family:sans-serif; margin-bottom:10px;">スタッフの皆様へ
+お手持ちのスマートフォンでQRコードを読み取ると、当施設の「採用薬」が優先して表示されるお薬検索アプリが使えるようになります！
+処方薬からも市販薬からも検索可能です。
+アプリのインストールやログインは不要です。ブックマークして今日からご活用くださ
+い。
+※採用漏れやメモの追加希望があれば、お薬の詳細画面にある「🚨報告する」ボタンからお知らせください</textarea>
+          <button onclick="printPoster()" style="width:100%; padding:12px; background:#17a2b8; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer; transition: transform 0.1s; display:flex; align-items:center; justify-content:center; gap:8px;">🖨️ この内容でポスターを印刷する</button>
         </div>
 
         <div class="card">
@@ -1855,9 +1884,35 @@ export default {
         </div>
         <div style="text-align:center; margin-top:20px; margin-bottom:40px;"><a href="/${hospitalId}" style="color:#0056b3; font-weight:bold; text-decoration:none;">🌍 実際の検索画面へ戻る</a></div>
       </div>
+
+      <div id="printArea">
+        <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/logo.png" class="poster-logo" alt="メディカニロゴ">
+        <div class="poster-title">医薬品検索「メディカニ・プラス」導入のお知らせ</div>
+        <div class="poster-desc">
+          当施設専用の医薬品検索ツールがスマートフォンで使えるようになりました。<br>
+          いつでもどこでも、施設の採用薬や代替薬をサクッと確認できます。
+        </div>
+        <div class="poster-box">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://medikani.com/${hospitalId}" class="poster-qr" alt="QRコード">
+          <div class="poster-box-text">
+            👈 スマホのカメラで<br>
+            　 QRコードを読み取るだけ！<br>
+            <span style="font-size:14px; font-weight:normal; margin-top:10px; display:block; color:#333;">URL: https://medikani.com/${hospitalId}</span>
+          </div>
+        </div>
+        <div class="poster-freetext" id="posterOutputText"></div>
+      </div>
+
       <script>
         const hId = "${hospitalId}";
         let currentEditKey = "";
+
+        // === 新規追加: ポスター印刷機能 ===
+        function printPoster() {
+          const text = document.getElementById('posterInputText').value;
+          document.getElementById('posterOutputText').innerText = text;
+          window.print();
+        }
 
         // === 新規追加: 報告リストの読み込み ===
         function loadReports() {
