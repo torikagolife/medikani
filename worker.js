@@ -11,6 +11,55 @@ function getBestYJ(key, parts) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    // === 新規追加: 特定商取引法に基づく表記ページ ===
+    if (url.pathname === "/tokusho" || url.pathname === "/tokusho/") {
+      const tokushoHTML = `<!DOCTYPE html>
+      <html lang="ja">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>特定商取引法に基づく表記 - メディカニ</title>
+        <style>
+          body { font-family: sans-serif; background: #f4f7f6; color: #333; line-height: 1.6; padding: 20px; display: flex; justify-content: center; }
+          .container { background: #fff; max-width: 600px; width: 100%; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+          h1 { font-size: 20px; color: #0056b3; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 0; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+          th, td { border: 1px solid #ddd; padding: 12px; }
+          th { background: #f9f9f9; width: 35%; text-align: left; color: #555; }
+        </style>
+      </head>
+      <body>
+      <body>
+        <div class="container">
+          <h1>特定商取引法に基づく表記</h1>
+          <table>
+            <tr><th>法人名（販売事業者）</th><td>久保田 善彦</td></tr>
+            <tr><th>運営責任者</th><td>久保田 善彦</td></tr>
+            <tr><th>住所（所在地）</th><td>〒274-0815 千葉県船橋市西習志野２－８－４ レピュート小川A105</td></tr>
+            <tr><th>電話番号</th><td>090-8727-9605<br><span style="font-size:12px;color:#666;">※営業時間 10:00 ～ 18:00 (土日祝日を除く)</span></td></tr>
+            <tr><th>メールアドレス</th><td>info@medikani.com<br><span style="font-size:12px;color:#666;">※営業時間 10:00 ～ 18:00 (土日祝日を除く)</span></td></tr>
+            <tr><th>販売価格</th><td>各商品・プランの申し込みページに記載（例：調剤薬局プラン 月額1,480円 税込）</td></tr>
+            <tr><th>追加手数料</th><td>当サイトのページの閲覧、サービスのご利用等に必要となるインターネット接続料金、通信料金等はお客様のご負担となります。</td></tr>
+            <tr><th>利用可能な決済手段</th><td>クレジットカード決済</td></tr>
+            <tr><th>決済期間</th><td>クレジットカード決済はただちに処理されます。<br>サブスクリプション（継続課金）の場合は、初回の決済以降、毎月同日に自動決済されます。</td></tr>
+            <tr><th>配達時間（引渡時期）</th><td>クレジットカードでのご注文完了後、ただちにご利用可能です。ご登録いただいたメールアドレス宛にログイン情報を送付いたします。</td></tr>
+            <tr><th>交換および返品に関する<br>ポリシー</th><td>
+              <b>＜顧客都合の返品・交換（解約）＞</b><br>
+              デジタルコンテンツという商品の特性上、購入後の返品や交換、返金はお受けできません。<br>
+              継続課金の解約は管理画面よりいつでも可能です。月の途中で解約された場合でも日割り計算による返金は行われず、次回決済日の前日までご利用いただけます。<br><br>
+              <b>＜不良品（サービスの不具合）の対応＞</b><br>
+              システムに重大な瑕疵や不具合が発見された場合は、カスタマーサポート（info@medikani.com）までお問い合わせください。速やかに調査および修正対応を行います。
+            </td></tr>
+            <tr><th>動作環境</th><td>iOS、Android、Windows、Mac の最新の標準ブラウザ（Safari、Chrome、Edge）</td></tr>
+          </table>
+        </div>
+      </body>
+      </html>`;
+      return new Response(tokushoHTML, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+    }
+    // ===============================================
+
     const pathParts = url.pathname.split('/').filter(p => p);
     
     // パスの1番目を施設IDとして取得（apiパスは除外）
