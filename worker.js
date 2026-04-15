@@ -149,11 +149,13 @@ export default {
 // === 新規追加: ランキングデータ取得 API (ここから) ===
       if (url.pathname.includes("/api/admin/ranking")) {
         try {
-          const rHId = url.searchParams.get("h") || "";
+const rHId = url.searchParams.get("h") || "";
           const rankStr = await env.MEDI_KV.get(`${rHId}_ranking`);
-          const rankData = rankStr ? JSON.parse(rankStr) : { favs: {}, views: {} };
+          // namesも読み込む
+          const rankData = rankStr ? JSON.parse(rankStr) : { favs: {}, views: {}, names: {} };
+          const rankNames = rankData.names || {}; 
           
-          // viewsは今月と先月の合算（直近約30〜60日として扱う）
+          // viewsは今月と先月の合算
           const aggregatedViews = {};
           Object.values(rankData.views || {}).forEach(monthData => {
             for (const [key, count] of Object.entries(monthData)) {
@@ -167,9 +169,11 @@ export default {
           for (let i = 0; i < allKeys.length; i += 50) {
             const chunk = allKeys.slice(i, i + 50);
             const vals = await Promise.all(chunk.map(k => k.startsWith('[市販]') ? k.replace('[市販]', '🛒 ') : env.MEDI_KV.get(k)));
-            chunk.forEach((k, idx) => {
+chunk.forEach((k, idx) => {
               if (k.startsWith('[市販]')) {
-                results[k] = vals[idx];
+                // 保存された名前があればそれを使う。なければキーから「[市販]」を消したものを出す
+                const otcName = rankNames[k] || k.replace('[市販]', '');
+                results[k] = `🛒 ${otcName}`;
               } else if (vals[idx]) {
                 const p = String(vals[idx]).split(/[,\uFF0C]/);
                 results[k] = p[0] || "名称不明";
@@ -499,9 +503,15 @@ export default {
         const tHId = url.searchParams.get("h") || "";
         if (!tHId || !body.key) return new Response("OK", { status: 200 });
 
-        const rKey = `${tHId}_ranking`;
-        let rankData = { favs: {}, views: {} };
+const rKey = `${tHId}_ranking`;
+        let rankData = { favs: {}, views: {}, names: {} }; // namesを追加
         try { const val = await env.MEDI_KV.get(rKey); if (val) rankData = JSON.parse(val); } catch(e) {}
+
+        // ★追加: 名前が送られてきたら保存しておく
+        if (body.name) {
+          if (!rankData.names) rankData.names = {};
+          rankData.names[body.key] = body.name;
+        }
 
         if (body.type === 'fav') {
           rankData.favs[body.key] = (rankData.favs[body.key] || 0) + body.val;
@@ -1459,7 +1469,7 @@ function getFormEmoji(yj, ctx = "") {
           let catName = cat.replace(/\\[|\\]/g, '');
           area.innerHTML = \`<div style="font-size:12px; color:#888; font-weight:bold; margin-bottom:6px; padding-left:4px;">🕒 最近見た\${catName}薬</div><div class="top-hist-scroll">\${chipsHTML}</div>\`;
         }
-        function saveHistory(key, d) {
+function saveHistory(key, d) {
           try {
             let hist = JSON.parse(localStorage.getItem('yakumiru_history') || '[]');
             hist = hist.filter(h => h.key !== key);
@@ -1468,27 +1478,48 @@ function getFormEmoji(yj, ctx = "") {
             } else {
               hist.unshift({ key: key, name: d.fullName, yj: d.yj, isAdopted: d.isAdopted, isBrand: d.isBrand });
             }
-if (hist.length > 50) hist.pop(); 
+            if (hist.length > 50) hist.pop(); 
             localStorage.setItem('yakumiru_history', JSON.stringify(hist));
+            
             if (currentCat === '[履歴]') renderHistory();
             else if (document.getElementById('q').value.trim().length === 0) renderTopHistory(currentCat);
-            // === 追加: 詳細表示ランキング用データ送信 ===
-            if (hId) fetch('/api/track?h=' + hId, { method: 'POST', body: JSON.stringify({ type: 'view', key: key }) }).catch(e=>{});
-            // ==================================
-          } catch(e) {}
-        }
+
+            // === 修正: 閲覧数を記録する時も名前をセットで送るカニ🦀 ===
+            if (hId) {
+              fetch('/api/track?h=' + hId, { 
+                method: 'POST', 
+                body: JSON.stringify({ 
+                  type: 'view', 
+                  key: key,
+                  name: d.name || d.fullName 
+                }) 
+              }).catch(e=>{});
+            }
+          } catch(e) { console.error(e); } // ← ここで try を閉じて catch を追加
+        } // ← ここで function を閉じる
         function isFavorite(key) {
           let favs = JSON.parse(localStorage.getItem('yakumiru_favorites') || '[]');
           return favs.some(f => f.key === key);
         }
         
         // === 修正: インラインでのお気に入り追加に対応、履歴への同時保存機能を追加 ===
-        function toggleFav(isInline = false) {
+function toggleFav(isInline = false) {
           if (isInline && window.lastOtcResult) {
             currentDetailData = window.lastOtcResult;
           }
           if (!currentDetailData) return;
           let d = currentDetailData;
+
+          // === 修正: 市販薬の場合、AIが名前を特定するまで送信をガードするカニ🦀 ===
+          if (d.isOtc) {
+            // 名前がまだ検索語句と同じ、あるいは名前が空の場合は「考え中」とみなす
+            if (!d.name || d.name === d.fullName) {
+              alert("メディカニくんが名前を特定するまで、もう少し待っててカニ！🦀");
+              return;
+            }
+          }
+
+          let favs = JSON.parse(localStorage.getItem('yakumiru_favorites') || '[]');
           let favs = JSON.parse(localStorage.getItem('yakumiru_favorites') || '[]');
           let idx = favs.findIndex(f => f.key === d.key);
           const starEl = isInline ? document.getElementById('inlineFavStar') : document.getElementById('favStar');
@@ -1508,10 +1539,19 @@ let trackVal = 0;
             if (starEl) starEl.innerText = '🌟';
             trackVal = 1;
           }
-          localStorage.setItem('yakumiru_favorites', JSON.stringify(favs));
-          // === 追加: ランキング用データ送信 ===
-          if (hId) fetch('/api/track?h=' + hId, { method: 'POST', body: JSON.stringify({ type: 'fav', key: d.key, val: trackVal }) }).catch(e=>{});
-          // ==================================
+localStorage.setItem('yakumiru_favorites', JSON.stringify(favs));
+    // === 修正: 名前(name)も一緒にサーバーへ送るようにしました ===
+    if (hId) {
+      fetch('/api/track?h=' + hId, { 
+        method: 'POST', 
+        body: JSON.stringify({ 
+          type: 'fav', 
+          key: d.key, 
+          val: trackVal,
+          name: d.name || d.fullName // ここで「アレグラFX」等の名前を送る
+        }) 
+      }).catch(e=>{});
+    }
           if (currentCat === '[お気に入り]') renderFavorites();
         }
         // ==============================================================
@@ -1694,9 +1734,20 @@ let trackVal = 0;
             return '切替候補：<span style="font-weight:bold; color:#0056b3;">' + cleanKw + '</span> <button onclick="closeModal(); searchAlt(\\'' + cleanKw + '\\')" style="background:var(--main-orange);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-left:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);font-weight:bold;vertical-align:middle;">🔍 切替候補を探す</button>';
           });
           
-          const searchKw = item.kataQuery || query;
+const searchKw = item.kataQuery || query;
           const isFav = isFavorite('[市販]' + query);
 
+          // === 修正: 履歴から開いた時も、正式名称をサーバーに再送してデータを補完するカニ🦀 ===
+          if (hId) {
+            fetch('/api/track?h=' + hId, { 
+              method: 'POST', 
+              body: JSON.stringify({ 
+                type: 'view', 
+                key: '[市販]' + query, 
+                name: displayName // 保存されている正式名称を送る
+              }) 
+            }).catch(e=>{});
+          }
           document.getElementById('modalContent').innerHTML = \`
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
               <h3 style="color:#e83e8c; margin: 5px 15px 0 0; font-size:20px; flex:1; line-height:1.4; word-break: break-word;">🛒 \${displayName}</h3>
