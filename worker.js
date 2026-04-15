@@ -146,7 +146,46 @@ export default {
         } catch(e) { return new Response("[]", { status: 500 }); }
       }
       // === 新規追加: 報告一覧取得 API (ここまで) ===
+// === 新規追加: ランキングデータ取得 API (ここから) ===
+      if (url.pathname.includes("/api/admin/ranking")) {
+        try {
+          const rHId = url.searchParams.get("h") || "";
+          const rankStr = await env.MEDI_KV.get(`${rHId}_ranking`);
+          const rankData = rankStr ? JSON.parse(rankStr) : { favs: {}, views: {} };
+          
+          // viewsは今月と先月の合算（直近約30〜60日として扱う）
+          const aggregatedViews = {};
+          Object.values(rankData.views || {}).forEach(monthData => {
+            for (const [key, count] of Object.entries(monthData)) {
+              aggregatedViews[key] = (aggregatedViews[key] || 0) + count;
+            }
+          });
 
+          const allKeys = [...new Set([...Object.keys(rankData.favs || {}), ...Object.keys(aggregatedViews)])];
+          const results = {};
+          
+          for (let i = 0; i < allKeys.length; i += 50) {
+            const chunk = allKeys.slice(i, i + 50);
+            const vals = await Promise.all(chunk.map(k => k.startsWith('[市販]') ? k.replace('[市販]', '🛒 ') : env.MEDI_KV.get(k)));
+            chunk.forEach((k, idx) => {
+              if (k.startsWith('[市販]')) {
+                results[k] = vals[idx];
+              } else if (vals[idx]) {
+                const p = String(vals[idx]).split(/[,\uFF0C]/);
+                results[k] = p[0] || "名称不明";
+              } else {
+                results[k] = "名称不明";
+              }
+            });
+          }
+
+          const favRank = Object.entries(rankData.favs || {}).map(([k, v]) => ({ name: results[k], count: v })).sort((a, b) => b.count - a.count).slice(0, 10);
+          const viewRank = Object.entries(aggregatedViews).map(([k, v]) => ({ name: results[k], count: v })).sort((a, b) => b.count - a.count).slice(0, 10);
+
+          return new Response(JSON.stringify({ favRank, viewRank }), { headers: { "Content-Type": "application/json" } });
+        } catch(e) { return new Response(JSON.stringify({ favRank: [], viewRank: [] }), { status: 500 }); }
+      }
+      // === 新規追加: ランキングデータ取得 API (ここまで) ===
       // 検索API (Web用)
       if (url.pathname.includes("/api/search")) {
         try {
@@ -453,7 +492,37 @@ export default {
         }
       } catch(e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
     }
+// === 新規追加: ランキング集計API (ここから) ===
+    if (request.method === "POST" && url.pathname.includes("/api/track")) {
+      try {
+        const body = await request.json();
+        const tHId = url.searchParams.get("h") || "";
+        if (!tHId || !body.key) return new Response("OK", { status: 200 });
 
+        const rKey = `${tHId}_ranking`;
+        let rankData = { favs: {}, views: {} };
+        try { const val = await env.MEDI_KV.get(rKey); if (val) rankData = JSON.parse(val); } catch(e) {}
+
+        if (body.type === 'fav') {
+          rankData.favs[body.key] = (rankData.favs[body.key] || 0) + body.val;
+          if (rankData.favs[body.key] <= 0) delete rankData.favs[body.key];
+        } else if (body.type === 'view') {
+          // 月ごとのキー (例: 2026-04)
+          const ym = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit' }).replace('/', '-');
+          if (!rankData.views[ym]) rankData.views[ym] = {};
+          rankData.views[ym][body.key] = (rankData.views[ym][body.key] || 0) + 1;
+          
+          // 古い月のデータを削除（今月と先月の2ヶ月分だけ残す）
+          const months = Object.keys(rankData.views).sort().reverse();
+          if (months.length > 2) {
+            months.slice(2).forEach(m => delete rankData.views[m]);
+          }
+        }
+        await env.MEDI_KV.put(rKey, JSON.stringify(rankData));
+        return new Response("OK", { status: 200 });
+      } catch(e) { return new Response("Error", { status: 500 }); }
+    }
+    // === 新規追加: ランキング集計API (ここまで) ===
     // === 新規追加: CSVアップロード等の POST API (ここから) ===
     if (request.method === "POST" && url.pathname.includes("/api/admin/upload")) {
       try {
@@ -1399,10 +1468,13 @@ function getFormEmoji(yj, ctx = "") {
             } else {
               hist.unshift({ key: key, name: d.fullName, yj: d.yj, isAdopted: d.isAdopted, isBrand: d.isBrand });
             }
-            if (hist.length > 50) hist.pop(); 
+if (hist.length > 50) hist.pop(); 
             localStorage.setItem('yakumiru_history', JSON.stringify(hist));
             if (currentCat === '[履歴]') renderHistory();
             else if (document.getElementById('q').value.trim().length === 0) renderTopHistory(currentCat);
+            // === 追加: 詳細表示ランキング用データ送信 ===
+            if (hId) fetch('/api/track?h=' + hId, { method: 'POST', body: JSON.stringify({ type: 'view', key: key }) }).catch(e=>{});
+            // ==================================
           } catch(e) {}
         }
         function isFavorite(key) {
@@ -1421,20 +1493,25 @@ function getFormEmoji(yj, ctx = "") {
           let idx = favs.findIndex(f => f.key === d.key);
           const starEl = isInline ? document.getElementById('inlineFavStar') : document.getElementById('favStar');
           
+let trackVal = 0;
           if (idx >= 0) {
             favs.splice(idx, 1);
             if (starEl) starEl.innerText = '⭐';
+            trackVal = -1;
           } else {
             if (d.isOtc) {
               favs.unshift({ key: d.key, isOtc: true, name: d.name || d.fullName, fullName: d.fullName, aiInfo: d.aiInfo, kataQuery: d.kataQuery });
-              // ★ お気に入りに入れたタイミングで履歴にも保存する
               saveHistory(d.key, d);
             } else {
               favs.unshift({ key: d.key, name: d.fullName, yj: d.yj, isAdopted: d.isAdopted, isBrand: d.isBrand });
             }
             if (starEl) starEl.innerText = '🌟';
+            trackVal = 1;
           }
           localStorage.setItem('yakumiru_favorites', JSON.stringify(favs));
+          // === 追加: ランキング用データ送信 ===
+          if (hId) fetch('/api/track?h=' + hId, { method: 'POST', body: JSON.stringify({ type: 'fav', key: d.key, val: trackVal }) }).catch(e=>{});
+          // ==================================
           if (currentCat === '[お気に入り]') renderFavorites();
         }
         // ==============================================================
@@ -1846,7 +1923,19 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           </div>
           <a href="/api/admin/download?h=${hospitalId}" class="btn" style="background:#17a2b8; margin-top:10px; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none;">⬇️ 現在の採用薬CSVをダウンロード</a>
         </div>
-
+<div class="card" style="border-top: 4px solid #ff9800;">
+          <h2>🏆 よく見られているお薬（トップ10）</h2>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <div>
+              <h3 style="font-size:14px; color:#555; border-bottom:1px solid #eee; padding-bottom:5px;">⭐️ お気に入り (全期間)</h3>
+              <div id="favRankingList" style="font-size:13px; line-height:1.8; color:#444;">読込中...🦀</div>
+            </div>
+            <div>
+              <h3 style="font-size:14px; color:#555; border-bottom:1px solid #eee; padding-bottom:5px;">👀 詳細表示 (直近30日)</h3>
+              <div id="viewRankingList" style="font-size:13px; line-height:1.8; color:#444;">読込中...🦀</div>
+            </div>
+          </div>
+        </div>
         <div class="card" style="border-top: 4px solid #17a2b8;">
           <h2>🖨️ 現場用ポスターの印刷</h2>
           <p style="font-size:12px; color:#666; margin-bottom:10px;">スタッフ周知用のQRコード付きポスターを印刷できます。<br>以下のメッセージを自由に書き換えてから印刷ボタンを押してくださいカニ🦀</p>
@@ -2003,6 +2092,27 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
         }
         loadReports();
         // === 新規追加: 報告リストの読み込み (ここまで) ===
+// === 新規追加: ランキング読み込み (ここから) ===
+        function loadRankings() {
+          fetch('/api/admin/ranking?h=' + hId).then(r=>r.json()).then(data => {
+            const fList = document.getElementById('favRankingList');
+            const vList = document.getElementById('viewRankingList');
+            
+            fList.innerHTML = (!data.favRank || data.favRank.length === 0) 
+              ? '<span style="color:#999;">データなし🦀</span>' 
+              : data.favRank.map((r, i) => '<div><b style="color:#ff9800;">' + (i+1) + '位</b>: ' + r.name + ' <span style="color:#888;font-size:11px;">(' + r.count + ')</span></div>').join('');
+            
+            vList.innerHTML = (!data.viewRank || data.viewRank.length === 0) 
+              ? '<span style="color:#999;">データなし🦀</span>' 
+              : data.viewRank.map((r, i) => '<div><b style="color:#ff9800;">' + (i+1) + '位</b>: ' + r.name + ' <span style="color:#888;font-size:11px;">(' + r.count + '回)</span></div>').join('');
+          }).catch(e => {
+            document.getElementById('favRankingList').innerHTML = 'エラー🦀';
+            document.getElementById('viewRankingList').innerHTML = 'エラー🦀';
+          });
+        }
+        loadRankings();
+        // === 新規追加: ランキング読み込み (ここまで) ===
+        
 
         fetch('/api/admin/meta?h=' + hId).then(r=>r.json()).then(d => {
           document.getElementById('metaCount').innerText = d.count || 0;
