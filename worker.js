@@ -960,10 +960,11 @@ export default {
     const matchedMaster = masterKeys.filter(k => k.includes(hiraQuery));
     const matchedAdopted = adoptedKeys.filter(k => k.includes(hiraQuery));
 
-    let finalKeys = [];
+let finalKeys = [];
     if (hospitalId) {
-      const adoptedSuffixes = new Set(matchedAdopted.map(k => k.replace(`${hospitalId}_`, "")));
-      const filteredMaster = matchedMaster.filter(k => !adoptedSuffixes.has(k));
+      // 変更：キー文字列全体ではなく末尾のYJコードのみで一致判定
+      const adoptedYJs = new Set(matchedAdopted.map(k => k.split("_").pop()));
+      const filteredMaster = matchedMaster.filter(k => !adoptedYJs.has(k.split("_").pop()));
       finalKeys = [...matchedAdopted, ...filteredMaster].slice(0, 30);
     } else {
       finalKeys = matchedMaster.slice(0, 30);
@@ -1035,14 +1036,16 @@ export default {
         if (prefix2 && k.includes(prefix2)) return true;
         return false;
       });
-      const uniqueKeysToFetch = [];
-      const seenSuffixes = new Set();
+const uniqueKeysToFetch = [];
+      const seenYJs = new Set();
       for (const k of keysToFetch.filter(k => hospitalId && k.startsWith(`${hospitalId}_`))) {
         uniqueKeysToFetch.push(k);
-        seenSuffixes.add(k.replace(`${hospitalId}_`, ""));
+        // 変更：末尾のYJコードを登録
+        seenYJs.add(k.split("_").pop());
       }
       for (const k of keysToFetch.filter(k => !(hospitalId && k.startsWith(`${hospitalId}_`)))) {
-        if (!seenSuffixes.has(k)) uniqueKeysToFetch.push(k);
+        // 変更：末尾のYJコードで重複チェック
+        if (!seenYJs.has(k.split("_").pop())) uniqueKeysToFetch.push(k);
       }
       const altPromises = uniqueKeysToFetch.slice(0, 50).map(async (k) => {
         const v = await env.MEDI_KV.get(k);
@@ -1251,21 +1254,33 @@ export default {
           document.getElementById('q').value = kw;
           setCat('[内]', document.querySelectorAll('.tab')[0]); 
         }
-        function getFormEmoji(yj, ctx = "") {
-          if (!yj || yj === "NONE" || yj.length < 8) return "💊";
-          const f = yj.charAt(7).toUpperCase();
-          const s = String(ctx);
-          if (s.includes("注")) return "💉";
-          if (s.includes("外")) {
-            if (f === "S") return "🩹"; 
-            if (f === "R") return "💨"; 
-            if ("VWX".includes(f)) return "💧"; 
-            return "🧴"; 
-          }
-          if ("ABCDE".includes(f)) return "🧂"; 
-          if ("QRS".includes(f)) return "💧"; 
-          return "💊"; 
-        }
+function getFormEmoji(yj, ctx = "") {
+          if (!yj || yj === "NONE" || yj.length < 8) return "💊";
+          const f = yj.charAt(7).toUpperCase();
+          const s = String(ctx);
+          
+          // 1. 注射薬
+          if (s.includes("注")) return "💉";
+          
+          // 2. 外用薬
+          if (s.includes("外")) {
+            if (f === "P" || f === "S") return "🩹"; // テープ・パップ等
+            if (f === "R" || f === "T") return "💨"; // スプレー・吸入等
+            if ("QUVWX".includes(f)) return "💧"; // 点眼・点鼻・うがい・浣腸等
+            if (f === "M") return "🚀"; // 坐薬
+            return "🧴"; // 軟膏・クリーム・ローション等
+          }
+          
+          // 3. 内服薬
+          if (f === "A") return "🧂"; // 散剤・顆粒（粉薬）
+          if ("DQEST".includes(f)) return "💧"; // シロップ・液剤等
+          if (f === "G") return "🍬"; // トローチ・ドロップ
+          if ("HR".includes(f)) return "🍮"; // ゼリー剤
+          if (f === "K") return "👅"; // フィルム剤
+          
+          // B(錠剤), C(カプセル), F, I, J(チュアブル) などは基本の薬マーク
+          return "💊";
+        }
         function renderHistory() {
           const resDiv = document.getElementById('results');
           document.getElementById('loading').style.display = 'none';
@@ -2067,7 +2082,7 @@ export default {
           uploadPayload = []; const tbody = document.querySelector('#previewTable tbody'); tbody.innerHTML = ''; const csvKeys = new Set();
           parsedData.forEach(row => {
             const yj = row[iY]; if(!yj||yj.length<7) return;
-            let cat = "[内]"; if("SRV".includes(yj.charAt(7))) cat="[外]"; if("AH".includes(yj.charAt(7))) cat="[注]";
+            let cat = "[内]"; if("MPQRSTUVWX".includes(yj.charAt(7))) cat="[外]"; if("AH".includes(yj.charAt(7))) cat="[注]";
             const cleanName = row[iN] ? row[iN].replace(/,/g, '，') : "";
             const cleanSpec = iS !== -1 && row[iS] ? row[iS].replace(/,/g, '，') : "";
             const cleanMemo = iC1 !== -1 && row[iC1] ? row[iC1].replace(/,/g, '，') : "";
