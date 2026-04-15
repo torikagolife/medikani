@@ -934,7 +934,7 @@ export default {
   },
   // === 新規追加: 詳細画面用AIヘルパー (ここまで) ===
 
-  async handleWebSearch(query, category, hospitalId, env) {
+async handleWebSearch(query, category, hospitalId, env) {
     if (!query || query.length < 2) return [];
     const hiraQuery = hiraToKata(query);
     
@@ -960,7 +960,7 @@ export default {
     const matchedMaster = masterKeys.filter(k => k.includes(hiraQuery));
     const matchedAdopted = adoptedKeys.filter(k => k.includes(hiraQuery));
 
-let finalKeys = [];
+    let finalKeys = [];
     if (hospitalId) {
       // 変更：キー文字列全体ではなく末尾のYJコードのみで一致判定
       const adoptedYJs = new Set(matchedAdopted.map(k => k.split("_").pop()));
@@ -976,11 +976,25 @@ let finalKeys = [];
       let parts = String(val).split(/[,\uFF0C]/);
       const yj = getBestYJ(key, parts);
       const isAdopted = hospitalId ? key.startsWith(`${hospitalId}_`) : false;
+      
       if (isAdopted) {
         const yjIndex = parts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
         if (yjIndex !== -1 && yjIndex < parts.length - 1) {
           parts = parts.slice(0, yjIndex + 1);
         }
+        // ===== 追加: 表示時のみマスタの薬品名と規格に差し替える =====
+        if (yj && yj !== "NONE") {
+          const masterKey = masterKeys.find(k => k.endsWith(`_${yj}`) || k.endsWith(yj));
+          if (masterKey) {
+            const mVal = await env.MEDI_KV.get(masterKey);
+            if (mVal) {
+              const mParts = String(mVal).split(/[,\uFF0C]/);
+              parts[0] = mParts[0] || parts[0]; // 薬品名
+              parts[1] = mParts[1] || parts[1]; // 規格
+            }
+          }
+        }
+        // ==============================================================
       }
       const rawType = (parts[3] || "").trim();
       const isBrand = (yj && yj.length >= 11 && yj.charAt(10) === '1') || rawType.includes("先");
@@ -999,12 +1013,36 @@ let finalKeys = [];
     const yj = getBestYJ(kvKey, parts);
     const isAdopted = hospitalId ? kvKey.startsWith(`${hospitalId}_`) : false;
     let comment = "";
+
+    // ===== 追加: 代替薬検索用のマスタ取得を前倒しして名前取得に利用 =====
+    let cursor = "";
+    let masterCategoryKeys = [];
+    do {
+      const list = await env.MEDI_KV.list({ prefix: label, limit: 1000, cursor: cursor || undefined });
+      masterCategoryKeys.push(...list.keys.map(k => k.name));
+      cursor = list.list_complete ? "" : list.cursor;
+    } while (cursor);
+    // ==================================================================
+
     if (isAdopted) {
       const yjIndex = parts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
       if (yjIndex !== -1 && yjIndex < parts.length - 1) {
         comment = parts.slice(yjIndex + 1).join(",").trim();
         parts = parts.slice(0, yjIndex + 1);
       }
+      // ===== 追加: 表示時のみマスタの薬品名と規格に差し替える =====
+      if (yj && yj !== "NONE") {
+        const masterKey = masterCategoryKeys.find(k => k.endsWith(`_${yj}`) || k.endsWith(yj));
+        if (masterKey) {
+          const mVal = await env.MEDI_KV.get(masterKey);
+          if (mVal) {
+            const mParts = String(mVal).split(/[,\uFF0C]/);
+            parts[0] = mParts[0] || parts[0];
+            parts[1] = mParts[1] || parts[1];
+          }
+        }
+      }
+      // ==============================================================
     }
     const rawType = (parts[3] || "").trim();
     const isBrand = (yj && yj.length >= 11 && yj.charAt(10) === '1') || rawType.includes("先");
@@ -1012,13 +1050,9 @@ let finalKeys = [];
     const yj7 = (yj && yj !== "NONE") ? yj.substring(0, 7) : null;
     let alts = [];
     if (yj7) {
-      let cursor = "";
-      let allCategoryKeys = [];
-      do {
-        const list = await env.MEDI_KV.list({ prefix: label, limit: 1000, cursor: cursor || undefined });
-        allCategoryKeys.push(...list.keys.map(k => k.name));
-        cursor = list.list_complete ? "" : list.cursor;
-      } while (cursor);
+      // 変更: 上で取得済みの masterCategoryKeys をコピーして使い回す（無駄な通信削減）
+      let allCategoryKeys = [...masterCategoryKeys];
+      
       if (hospitalId) {
         let aCursor = "";
         do {
@@ -1036,7 +1070,7 @@ let finalKeys = [];
         if (prefix2 && k.includes(prefix2)) return true;
         return false;
       });
-const uniqueKeysToFetch = [];
+      const uniqueKeysToFetch = [];
       const seenYJs = new Set();
       for (const k of keysToFetch.filter(k => hospitalId && k.startsWith(`${hospitalId}_`))) {
         uniqueKeysToFetch.push(k);
@@ -1721,9 +1755,10 @@ function getFormEmoji(yj, ctx = "") {
       </script></body></html>`;
   },
 
-  getDashboardHTML(env, hospitalId, hospitalName = "") {
+getDashboardHTML(env, hospitalId, hospitalName = "") {
     return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
     <title>メディカニ・プラス 管理画面🦀</title>
     <style>
       :root { --main-blue: #0056b3; --bg: #f4f7f6; }
