@@ -6,7 +6,7 @@ function getBestYJ(key, parts) {
 }
 
 // Webサービス: 医薬品検索（メディカニ・ハイブリッド検索＆個別メモ対応版）
-// 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用)
+// 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用), ASK_FORM_URL(問合せフォームURL), G_FORM_ID(フォームの施設ID項目)
 
 export default {
   async fetch(request, env) {
@@ -1987,6 +1987,7 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
             <p style="text-align:center; color:#999; font-size:13px; padding:15px;">読み込み中...🦀</p>
           </div>
         </div>
+
         <div class="card">
           <h2>📊 現在のステータス</h2>
           <div class="stat-grid">
@@ -1994,30 +1995,6 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
             <div class="stat-box"><div class="label">最終更新日時</div><div class="num" id="metaDate" style="font-size:16px; margin-top:12px;">確認中...</div></div>
           </div>
           <a href="/api/admin/download?h=${hospitalId}" class="btn" style="background:#17a2b8; margin-top:10px; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none;">⬇️ 現在の採用薬CSVをダウンロード</a>
-        </div>
-<div class="card" style="border-top: 4px solid #ff9800;">
-          <h2>🏆 よく見られているお薬（トップ10）</h2>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-            <div>
-              <h3 style="font-size:14px; color:#555; border-bottom:1px solid #eee; padding-bottom:5px;">⭐️ お気に入り (全期間)</h3>
-              <div id="favRankingList" style="font-size:13px; line-height:1.8; color:#444;">読込中...🦀</div>
-            </div>
-            <div>
-              <h3 style="font-size:14px; color:#555; border-bottom:1px solid #eee; padding-bottom:5px;">👀 詳細表示 (直近30日)</h3>
-              <div id="viewRankingList" style="font-size:13px; line-height:1.8; color:#444;">読込中...🦀</div>
-            </div>
-          </div>
-        </div>
-        <div class="card" style="border-top: 4px solid #17a2b8;">
-          <h2>🖨️ 現場用ポスターの印刷</h2>
-          <p style="font-size:12px; color:#666; margin-bottom:10px;">スタッフ周知用のQRコード付きポスターを印刷できます。<br>以下のメッセージを自由に書き換えてから印刷ボタンを押してくださいカニ🦀</p>
-         <textarea id="posterInputText" style="width:100%; height:180px; padding:10px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box; font-family:sans-serif; margin-bottom:10px;">スタッフの皆様へ
-お手持ちのスマートフォンでQRコードを読み取ると、当施設の「採用薬」が優先して表示されるお薬検索アプリが使えるようになります！
-処方薬からも市販薬からも検索可能です。
-アプリのインストールやログインは不要です。ブックマークして今日からご活用くださ
-い。
-※採用漏れやメモの追加希望があれば、お薬の詳細画面にある「🚨報告する」ボタンからお知らせください</textarea>
-          <button onclick="printPoster()" style="width:100%; padding:12px; background:#17a2b8; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer; transition: transform 0.1s; display:flex; align-items:center; justify-content:center; gap:8px;">🖨️ この内容でポスターを印刷する</button>
         </div>
 
         <div class="card">
@@ -2092,7 +2069,7 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
             <div id="uploadMsg"></div>
           </div>
         </div>
-        
+
         <div class="card" style="border-top: 4px solid #28a745;">
           <h2>📢 掲示板（お知らせ）管理</h2>
           <p style="font-size:12px; color:#666; margin-bottom:10px;">検索画面のトップに表示されるお知らせを投稿できますカニ🦀</p>
@@ -2103,12 +2080,39 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           <div id="boardList" class="admin-item-list" style="max-height:300px; overflow-y:auto;"></div>
         </div>
 
+        <div class="card" style="border-top: 4px solid #ff9800;">
+          <h2>🏆 よく見られているお薬（トップ10）</h2>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <div>
+              <h3 style="font-size:14px; color:#555; border-bottom:1px solid #eee; padding-bottom:5px;">⭐️ お気に入り (全期間)</h3>
+              <div id="favRankingList" style="font-size:13px; line-height:1.8; color:#444;">読込中...🦀</div>
+            </div>
+            <div>
+              <h3 style="font-size:14px; color:#555; border-bottom:1px solid #eee; padding-bottom:5px;">👀 詳細表示 (直近30日)</h3>
+              <div id="viewRankingList" style="font-size:13px; line-height:1.8; color:#444;">読込中...🦀</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="border-top: 4px solid #17a2b8;">
+          <h2>🖨️ 現場用ポスターの印刷</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:10px;">スタッフ周知用のQRコード付きポスターを印刷できます。<br>以下のメッセージを自由に書き換えてから印刷ボタンを押してくださいカニ🦀</p>
+         <textarea id="posterInputText" style="width:100%; height:180px; padding:10px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box; font-family:sans-serif; margin-bottom:10px;">スタッフの皆様へ
+お手持ちのスマートフォンでQRコードを読み取ると、当施設の「採用薬」が優先して表示されるお薬検索アプリが使えるようになります！
+処方薬からも市販薬からも検索可能です。
+アプリのインストールやログインは不要です。ブックマークして今日からご活用くださ
+い。
+※採用漏れやメモの追加希望があれば、お薬の詳細画面にある「🚨報告する」ボタンからお知らせください</textarea>
+          <button onclick="printPoster()" style="width:100%; padding:12px; background:#17a2b8; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer; transition: transform 0.1s; display:flex; align-items:center; justify-content:center; gap:8px;">🖨️ この内容でポスターを印刷する</button>
+        </div>
+
         <div class="card" style="border-top: 4px solid #ff9d00;">
           <h2>🔑 パスワード変更</h2>
           <input type="password" id="changePwd" placeholder="新しいパスワードを入力カニ🦀" style="width:100%; padding:12px; border:1px solid #ccc; border-radius:8px; margin-bottom:15px; box-sizing:border-box; font-size:14px;">
           <button class="btn" id="btnChangePwd" style="background:#ff9d00; margin-top:0;">🔄 パスワードを変更</button>
           <div id="changeMsg" style="margin-top:15px; font-size:14px; font-weight:bold; text-align:center; display:none;"></div>
         </div>
+
         <div class="card" style="border-top: 4px solid #0056b3;">
           <h2>✉️ メールアドレス変更</h2>
           <p style="font-size:12px; color:#666; margin-bottom:15px;">現在登録中: <b id="currentEmail">確認中...</b></p>
@@ -2116,6 +2120,15 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           <button class="btn" id="btnChangeEmail" style="background:#0056b3; margin-top:0;">✉️ メールアドレスを変更</button>
           <div id="emailMsg" style="margin-top:15px; font-size:14px; font-weight:bold; text-align:center; display:none;"></div>
         </div>
+
+        ${env.ASK_FORM_URL ? `
+        <div class="card" style="border-top: 4px solid #6c757d;">
+          <h2>📞 お問い合わせ</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:15px;">システムの不具合やご質問、ご要望などはこちらからご連絡くださいカニ🦀</p>
+          <a href="${env.ASK_FORM_URL}${env.ASK_FORM_URL.includes('?') ? '&' : '?'}${env.G_FORM_ID || ''}=${hospitalId}" target="_blank" class="btn" style="background:#6c757d; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none; margin-top:0;">✉️ お問い合わせフォームを開く</a>
+        </div>
+        ` : ''}
+
         <div style="text-align:center; margin-top:20px; margin-bottom:40px;"><a href="/${hospitalId}" style="color:#0056b3; font-weight:bold; text-decoration:none;">🌍 実際の検索画面へ戻る</a></div>
       </div>
 
