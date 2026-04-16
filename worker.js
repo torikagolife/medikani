@@ -615,6 +615,43 @@ export default {
       } catch (e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
     }
 
+    // --- 新機能: 個別追加API (管理用) ---
+    if (request.method === "POST" && url.pathname.includes("/api/admin/add-item")) {
+      try {
+        const body = await request.json();
+        const { masterKey, comment } = body;
+        const addHId = url.searchParams.get("h") || "";
+        if (!masterKey || !addHId) return new Response(JSON.stringify({error: "Data missing"}), { status: 400 });
+
+        const mVal = await env.MEDI_KV.get(masterKey);
+        if (!mVal) return new Response(JSON.stringify({error: "Master not found"}), { status: 404 });
+
+        let parts = String(mVal).split(/[,\uFF0C]/);
+        const yj = getBestYJ(masterKey, parts);
+        const yjIndex = parts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
+
+        if (yjIndex !== -1) {
+          const newVal = [...parts.slice(0, yjIndex + 1), comment || ""].join(",");
+          const newKey = `${addHId}_${masterKey}`;
+          await env.MEDI_KV.put(newKey, newVal);
+          
+          // メタデータのカウントも更新しておく
+          try {
+             let metaStr = await env.MEDI_KV.get(`${addHId}_meta`);
+             if (metaStr) {
+               let meta = JSON.parse(metaStr);
+               meta.count = (meta.count || 0) + 1;
+               meta.lastUpdated = new Date().toISOString();
+               await env.MEDI_KV.put(`${addHId}_meta`, JSON.stringify(meta));
+             }
+          } catch(e) {}
+
+          return new Response(JSON.stringify({success: true}), { headers: { "Content-Type": "application/json" } });
+        }
+        return new Response(JSON.stringify({error: "Format error"}), { status: 500 });
+      } catch (e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
+    }
+
     // パスワード変更 (管理画面内から) 【作戦A仕様に更新】＋【メール通知追加】
     if (request.method === "POST" && url.pathname.includes("/api/admin/changepwd")) {
       try {
@@ -1029,27 +1066,33 @@ export default {
   },
   // === 新規追加: 詳細画面用AIヘルパー (ここまで) ===
 
-async handleWebSearch(query, category, hospitalId, env) {
+  async handleWebSearch(query, category, hospitalId, env) {
     if (!query || query.length < 2) return [];
     const hiraQuery = hiraToKata(query);
     
     // --- ハイブリッド検索 ---
     let masterKeys = [];
-    let mCursor = "";
-    do {
-      const list = await env.MEDI_KV.list({ prefix: category, limit: 1000, cursor: mCursor || undefined });
-      masterKeys.push(...list.keys.map(k => k.name));
-      mCursor = list.list_complete ? "" : list.cursor;
-    } while (mCursor);
-
     let adoptedKeys = [];
-    if (hospitalId) {
-      let aCursor = "";
+
+    // categoryが"all"の場合は全カテゴリを検索するように修正
+    const cats = category === "all" ? ["[内]", "[外]", "[注]"] : [category];
+
+    for (const c of cats) {
+      let mCursor = "";
       do {
-        const list = await env.MEDI_KV.list({ prefix: `${hospitalId}_${category}`, limit: 1000, cursor: aCursor || undefined });
-        adoptedKeys.push(...list.keys.map(k => k.name));
-        aCursor = list.list_complete ? "" : list.cursor;
-      } while (aCursor);
+        const list = await env.MEDI_KV.list({ prefix: c, limit: 1000, cursor: mCursor || undefined });
+        masterKeys.push(...list.keys.map(k => k.name));
+        mCursor = list.list_complete ? "" : list.cursor;
+      } while (mCursor);
+
+      if (hospitalId) {
+        let aCursor = "";
+        do {
+          const list = await env.MEDI_KV.list({ prefix: `${hospitalId}_${c}`, limit: 1000, cursor: aCursor || undefined });
+          adoptedKeys.push(...list.keys.map(k => k.name));
+          aCursor = list.list_complete ? "" : list.cursor;
+        } while (aCursor);
+      }
     }
 
     const matchedMaster = masterKeys.filter(k => k.includes(hiraQuery));
@@ -1060,9 +1103,10 @@ async handleWebSearch(query, category, hospitalId, env) {
       // 変更：キー文字列全体ではなく末尾のYJコードのみで一致判定
       const adoptedYJs = new Set(matchedAdopted.map(k => k.split("_").pop()));
       const filteredMaster = matchedMaster.filter(k => !adoptedYJs.has(k.split("_").pop()));
-      finalKeys = [...matchedAdopted, ...filteredMaster].slice(0, 30);
+      // "all"の場合は多めに返す
+      finalKeys = [...matchedAdopted, ...filteredMaster].slice(0, category === "all" ? 100 : 30);
     } else {
-      finalKeys = matchedMaster.slice(0, 30);
+      finalKeys = matchedMaster.slice(0, category === "all" ? 100 : 30);
     }
 
     const results = await Promise.all(finalKeys.map(async (key) => {
@@ -1909,7 +1953,7 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
         @page { margin: 0; }
         /* 上30mm、左右下20mmの余白に設定 */
         body { background: #fff !important; margin: 30mm 20mm 20mm; }
-        .header, .container, #adminEditModal { display: none !important; }
+        .header, .container, #adminEditModal, #adminAddModal { display: none !important; }
         #printArea { display: block !important; position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
       }
       #printArea { display: none; text-align: center; color: #000; font-family: sans-serif; }
@@ -1977,13 +2021,23 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
         </div>
 
         <div class="card">
-          <h2>✏️ 個別編集</h2>
-          <p style="font-size:12px; color:#666; margin-bottom:10px;">修正したい薬品を検索してから編集してくださいカニ🦀</p>
+          <h2>✏️ 個別編集（修正・削除）</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:10px;">採用中の薬品を検索してメモの修正・削除ができますカニ🦀</p>
           <div style="display:flex; gap:8px;">
-            <input type="text" id="adminSearchQ" placeholder="薬品名で検索..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:8px;">
+            <input type="text" id="adminSearchQ" placeholder="採用薬を検索..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:8px;" onkeydown="if(event.key==='Enter') adminSearch()">
             <button onclick="adminSearch()" style="padding:10px 20px; background:var(--main-blue); color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">検索</button>
           </div>
           <div id="adminSearchResults" class="admin-item-list"></div>
+        </div>
+
+        <div class="card" style="border-top: 4px solid #28a745;">
+          <h2>➕ 個別追加</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:10px;">未採用の薬（マスターデータ）を検索して、採用薬に追加できますカニ🦀</p>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="adminAddSearchQ" placeholder="未採用薬を検索..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:8px;" onkeydown="if(event.key==='Enter') adminAddSearch()">
+            <button onclick="adminAddSearch()" style="padding:10px 20px; background:#28a745; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">検索</button>
+          </div>
+          <div id="adminAddSearchResults" class="admin-item-list"></div>
         </div>
 
         <div id="adminEditModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:2000; justify-content:center; align-items:center;">
@@ -1994,6 +2048,19 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
             <div style="display:flex; gap:10px;">
               <button onclick="saveAdminComment()" id="btnSaveAdmin" style="flex:1; padding:12px; background:#28a745; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">保存する</button>
               <button onclick="closeAdminEdit()" style="flex:1; padding:12px; background:#eee; color:#333; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">キャンセル</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="adminAddModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:2000; justify-content:center; align-items:center;">
+          <div style="background:#fff; width:90%; max-width:400px; padding:25px; border-radius:15px; position:relative;">
+            <h3 style="margin-top:0; color:#28a745;">採用薬の追加</h3>
+            <p id="addDrugName" style="font-size:13px; font-weight:bold; margin-bottom:15px; color:#555;"></p>
+            <label style="font-size:12px; font-weight:bold; color:#666; margin-bottom:5px; display:block;">メモ (任意)</label>
+            <textarea id="addMemo" style="width:100%; height:100px; padding:10px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box; font-family:sans-serif; margin-bottom:15px;"></textarea>
+            <div style="display:flex; gap:10px;">
+              <button onclick="saveAdminAdd()" id="btnSaveAdd" style="flex:1; padding:12px; background:#28a745; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">追加する</button>
+              <button onclick="closeAdminAdd()" style="flex:1; padding:12px; background:#eee; color:#333; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">キャンセル</button>
             </div>
           </div>
         </div>
@@ -2151,15 +2218,17 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           document.getElementById('currentEmail').innerText = d.email || '未登録';
         });
 
-        // 管理画面用検索
+        // 管理画面用検索（個別編集用：採用薬のみ）
         async function adminSearch() {
           const q = document.getElementById('adminSearchQ').value.trim();
           if(!q) return;
-          const res = await fetch(\`/api/search?q=\${encodeURIComponent(q)}&h=\${hId}\`);
-          const data = await res.json();
           const list = document.getElementById('adminSearchResults');
-          if(!data.length) { list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">見つかりませんでしたカニ🦀</p>'; return; }
-          list.innerHTML = data.filter(i => i.isAdopted).map(i => \`
+          list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">検索中...🦀</p>';
+          const res = await fetch(\`/api/search?c=all&q=\${encodeURIComponent(q)}&h=\${hId}\`);
+          const data = await res.json();
+          const adoptedData = data.filter(i => i.isAdopted);
+          if(!adoptedData.length) { list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">採用薬が見つかりませんでしたカニ🦀</p>'; return; }
+          list.innerHTML = adoptedData.map(i => \`
             <div class="admin-item">
               <div class="admin-item-info">
                 <b>\${i.name}</b><br><small>\${i.spec}</small>
@@ -2167,6 +2236,28 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
               <div class="admin-item-actions">
                 <button class="btn-small btn-edit" onclick="openAdminEdit('\${i.key.replace(/'/g, "\\\\'")}', '\${i.name.replace(/'/g, "\\\\'")}')">編集</button>
                 <button class="btn-small btn-delete" onclick="adminDeleteItem('\${i.key.replace(/'/g, "\\\\'")}')">削除</button>
+              </div>
+            </div>
+          \`).join('');
+        }
+
+        // 管理画面用検索（個別追加用：未採用マスターのみ）
+        async function adminAddSearch() {
+          const q = document.getElementById('adminAddSearchQ').value.trim();
+          if(!q) return;
+          const list = document.getElementById('adminAddSearchResults');
+          list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">検索中...🦀</p>';
+          const res = await fetch(\`/api/search?c=all&q=\${encodeURIComponent(q)}&h=\${hId}\`);
+          const data = await res.json();
+          const masterData = data.filter(i => !i.isAdopted && !i.key.includes('[市販]'));
+          if(!masterData.length) { list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">追加できる未採用薬が見つかりませんでしたカニ🦀</p>'; return; }
+          list.innerHTML = masterData.map(i => \`
+            <div class="admin-item">
+              <div class="admin-item-info">
+                <b>\${i.name}</b><br><small>\${i.spec}</small>
+              </div>
+              <div class="admin-item-actions">
+                <button class="btn-small" style="background:#28a745; color:#fff;" onclick="openAdminAdd('\${i.key.replace(/'/g, "\\\\'")}', '\${i.name.replace(/'/g, "\\\\'")}')">追加</button>
               </div>
             </div>
           \`).join('');
@@ -2203,6 +2294,38 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
             body: JSON.stringify({ key })
           });
           if((await res.json()).success) { alert('削除しましたカニ🦀'); adminSearch(); }
+        }
+
+        // 個別追加用の処理
+        let currentAddMasterKey = "";
+        function openAdminAdd(key, name) {
+          currentAddMasterKey = key;
+          document.getElementById('addDrugName').innerText = name;
+          document.getElementById('addMemo').value = "";
+          document.getElementById('adminAddModal').style.display = 'flex';
+        }
+        function closeAdminAdd() { document.getElementById('adminAddModal').style.display = 'none'; }
+
+        async function saveAdminAdd() {
+          const comment = document.getElementById('addMemo').value.trim();
+          const btn = document.getElementById('btnSaveAdd');
+          btn.disabled = true;
+          const res = await fetch(\`/api/admin/add-item?h=\${hId}\`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ masterKey: currentAddMasterKey, comment })
+          });
+          if((await res.json()).success) { 
+            alert('採用薬に追加しましたカニ！🦀'); 
+            closeAdminAdd(); 
+            adminAddSearch(); 
+            // もし編集検索で何か開いていたら再検索してあげる
+            if (document.getElementById('adminSearchQ').value.trim()) {
+              adminSearch();
+            }
+          } else {
+            alert('追加に失敗しましたカニ🦀💦');
+          }
+          btn.disabled = false;
         }
 
         // --- 既存のCSV処理 ---
