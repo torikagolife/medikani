@@ -113,6 +113,9 @@ export default {
       if (hospitalId && env.MEDI_KV && !url.pathname.includes("/api/")) {
         try { hospitalName = await env.MEDI_KV.get(`${hospitalId}_name`) || ""; } catch(e) {}
       }
+      if (hospitalId === "HPTEST1" && !hospitalName) {
+        hospitalName = "テスト総合病院";
+      }
 
       // === 新規追加: 掲示板データ取得 API (ここから) ===
       if (url.pathname.includes("/api/board")) {
@@ -1605,7 +1608,7 @@ let trackVal = 0;
             if (hId) {
               resDiv.innerHTML = \`<div class="no-results" style="background:white; border-radius:20px; padding:30px; border:2px dashed var(--main-orange);">
                 <h3 style="color:var(--main-orange);">✅ プラスモード動作中カニ🦀</h3>
-                <p style="font-size:14px; color:#666; margin-top:10px;">現在、施設「${hospitalName ? hospitalName : '${hId}'}」の専用環境で動作しています。<br>採用薬や、限定メモが優先表示されますカニ🦀</p>
+                <p style="font-size:14px; color:#666; margin-top:10px;">現在、施設「${hospitalName ? hospitalName : hospitalId}」の専用環境で動作しています。<br>採用薬や、限定メモが優先表示されますカニ🦀</p>
                 <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
                   <a href="/" style="background:#eee; color:#555; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🌍 一般モードに戻る</a>
                   <a href="/\${hId}/admin" style="background:#fff0f5; color:#d63384; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #ffcdd2;">⚙️ 管理画面を開く</a>
@@ -1616,9 +1619,9 @@ let trackVal = 0;
                 <h3 style="color:var(--main-orange);">✨ メディカニ・プラス体験版</h3>
                 <p style="font-size:14px; color:#666; margin-top:10px;">施設ごとの「採用薬」や「メモ」を表示できる法人向け機能のデモですカニ🦀</p>
                 <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
-                  <a href="/HPTEST1" style="background:var(--main-orange); color:white; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🏥 デモ施設（HPTEST1）を試す</a>
+                  <a href="/HPTEST1" style="background:var(--main-orange); color:white; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🏥 デモ施設のプラスモードを試す</a>
                 </div>
-                <p style="font-size:11px; color:#aaa; margin-top:15px;">※URLの末尾に施設IDを入れるだけで専用環境に切り替わりますカニ🦀</p>
+                <p style="font-size:11px; color:#aaa; margin-top:15px;">※実際に触ってみて体験して欲しいカニ🦀</p>
               </div>\`;
             }
             return;
