@@ -1,0 +1,187 @@
+/**
+ * ステータスが変更されたら発火
+ */
+function handleStatusEdit(e) {
+  if (!e || !e.range) return;
+  const sheet = e.source.getActiveSheet();
+  
+  // 「顧客マスタ」シートのB列（2列目）が編集されたかチェック
+  if (sheet.getName() !== '顧客マスタ' || e.range.getColumn() !== 2) return;
+
+  const newValue = e.value;
+  const oldValue = e.oldValue; // 変更前の値を取得
+  const row = e.range.getRow();
+  if (row < 2) return;
+
+  // 最新のスプレッドシート列構成に合わせてデータを取得
+  const rowData = sheet.getRange(row, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+  // インデックス（0始まり）
+  const planName     = rowData[2];   // C列
+  const facilityId   = rowData[8];   // I列
+  const facilityName = rowData[9];   // J列
+  const email        = rowData[19];  // T列
+  const personName   = rowData[21];  // V列
+  const password     = rowData[25];  // Z列
+
+  // --- 【1】トライアル開始 または 契約開始 の処理 ---
+  if (newValue === 'トライアル中' || newValue === '契約中') {
+    
+    if (!facilityId || !password || !email) {
+      e.source.toast("ID、パスワード、またはメールが空欄です", "⚠️ 登録不可", 5);
+      return;
+    }
+
+    // Cloudflare KVへユーザー情報を登録（既存の上書きを兼ねる）
+    const successKV = registerUserToKV(facilityId, password, planName, facilityName);
+
+    if (successKV) {
+      const props = PropertiesService.getScriptProperties();
+      const RESEND_API_KEY = props.getProperty('RESEND_API_KEY');
+      const FROM_EMAIL = "メディカニ管理 <info@medikani.com>";
+
+      // ★重複メール防止ロジック
+      // 前の状態が「案内済み」などの未登録状態から、初めて利用可能になった時だけWelcomeメールを送る
+      if (oldValue !== 'トライアル中' && oldValue !== '契約中') {
+        sendWelcomeEmail(RESEND_API_KEY, FROM_EMAIL, email, facilityName, personName, facilityId, password);
+        e.source.toast("KV登録と案内メール送信を完了しましたカニ🦀", "✅ 利用開始案内", 5);
+      } 
+      // トライアルから契約に切り替わった場合（メールは送らずトースト通知のみ）
+      else if (oldValue === 'トライアル中' && newValue === '契約中') {
+        e.source.toast("本契約への切り替えを完了しました（メールは送信していません）", "✅ 契約更新", 5);
+      }
+    } else {
+      e.source.toast("KVへの書き込みに失敗しました。", "❌ エラー", 10);
+    }
+  } 
+  
+  // --- 【2】解約済 の処理 ---
+  else if (newValue === '解約済') {
+    if (!facilityId) return;
+
+    // KVからデータを削除
+    const deleteSuccess = deleteUserFromKV(facilityId);
+
+    if (deleteSuccess) {
+      e.source.toast(`${facilityName}様のログイン権限を削除しました。`, "🚫 解約処理完了", 5);
+    } else {
+      e.source.toast("KVからのデータ削除に失敗しました。", "❌ エラー", 10);
+    }
+  }
+}
+
+/**
+ * ユーザー認証情報をKVに書き込む（既存のまま）
+ */
+function registerUserToKV(id, pwd, plan, name) {
+  const props = PropertiesService.getScriptProperties();
+  const CF_ACCOUNT_ID = props.getProperty('CF_ACCOUNT_ID');
+  const CF_KV_NAMESPACE_ID = props.getProperty('CF_KV_NAMESPACE_ID');
+  const CF_API_TOKEN = props.getProperty('CF_API_TOKEN');
+  
+  const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}`;
+  
+  const payload = JSON.stringify([
+    { "key": `${id}_pwd`, "value": pwd },
+    { "key": `${id}_name`, "value": name },
+    { "key": `${id}_plan`, "value": plan }
+  ]);
+
+  const options = {
+    method: 'put',
+    headers: { 'Authorization': `Bearer ${CF_API_TOKEN}`, 'Content-Type': 'application/json' },
+    payload: payload,
+    muteHttpExceptions: true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(`${baseUrl}/bulk`, options);
+    return response.getResponseCode() === 200;
+  } catch (e) {
+    Logger.log("KV登録失敗: " + e.toString());
+    return false;
+  }
+}
+
+/**
+ * ユーザー情報をKVから削除（解約用）
+ */
+function deleteUserFromKV(id) {
+  const props = PropertiesService.getScriptProperties();
+  const CF_ACCOUNT_ID = props.getProperty('CF_ACCOUNT_ID');
+  const CF_KV_NAMESPACE_ID = props.getProperty('CF_KV_NAMESPACE_ID');
+  const CF_API_TOKEN = props.getProperty('CF_API_TOKEN');
+  
+  const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}`;
+  
+  // 削除対象のキーリスト
+  const payload = JSON.stringify([
+    `${id}_pwd`,
+    `${id}_name`,
+    `${id}_plan`
+  ]);
+
+  const options = {
+    method: 'delete',
+    headers: { 'Authorization': `Bearer ${CF_API_TOKEN}`, 'Content-Type': 'application/json' },
+    payload: payload,
+    muteHttpExceptions: true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(`${baseUrl}/bulk`, options);
+    return response.getResponseCode() === 200;
+  } catch (e) {
+    Logger.log("KV削除失敗: " + e.toString());
+    return false;
+  }
+}
+
+/**
+ * 利用開始案内メール（ご希望のフォーマット）
+ */
+function sendWelcomeEmail(apiKey, from, to, companyName, personName, loginId, password) {
+  const subject = "【メディカニ・プラス】準備が整いました！ご利用開始のご案内";
+  
+  let body = `${companyName}\n${personName} 様\n\n`;
+  body += `お待たせいたしました！メディカニ・プラスのご利用準備が完了いたしました。\n\n`;
+  
+  body += `【メディカニ・プラス ユーザーURL】\n`;
+  body += `https://medikani.com/${loginId}\n`;
+  body += `スタッフの皆様にはこのURLをメールやLINEでお伝え下さい。\n`;
+  body += `管理画面からQRコード付きの掲示物も印刷出来ますのでご利用下さい。\n\n`;
+  
+  body += `【メディカニ・プラス 管理画面URL】\n`;
+  body += `https://medikani.com/${loginId}l/admin\n`;
+  body += `【ログイン情報】\n`;
+  body += `・施設ID : ${loginId}\n`;
+  body += `・パスワード : ${password}\n\n`;
+  
+  body += `まずは管理画面にて、採用薬を管理されているシステムから出力した「採用薬リスト（CSV）」のアップロードをお願いいたします。\n`;
+  body += `手順がご不明な場合は、管理画面右上の【管理者マニュアル】をご覧頂くか、本メールにそのままご返信ください。\n\n`;
+  
+  body += `--------------------------------------------------\n`;
+  body += `トリの巣ワークス メディカニ運営事務局\n`;
+  body += `〒107-0062 東京都港区南青山3丁目1番36号 青山丸竹ビル6F\n`;
+  body += `TEL: 070-3813-8742\n`;
+  body += `--------------------------------------------------`;
+
+  sendEmailWithResend(apiKey, from, to, subject, body);
+}
+
+/**
+ * Resend APIを使用してメールを送信するヘルパー関数
+ */
+function sendEmailWithResend(apiKey, from, to, subject, textBody) {
+  const url = "https://api.resend.com/emails";
+  const payload = { "from": from, "to": to, "subject": subject, "text": textBody };
+  const options = {
+    "method": "post",
+    "contentType": "application/json",
+    "headers": { "Authorization": "Bearer " + apiKey },
+    "payload": JSON.stringify(payload),
+    "muteHttpExceptions": true
+  };
+  const response = UrlFetchApp.fetch(url, options);
+  Logger.log(response.getContentText());
+}
