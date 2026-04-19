@@ -81,9 +81,12 @@ function handleApplicationForm(e, RESEND_API_KEY, FROM_EMAIL) {
   monthlyPrice = basePlan.m;
   yearlyPrice = basePlan.y;
   
-  // Stripeリンク（月払い・年払いで出し分け）
-  // ※実際のStripeリンクをここに設定してください
-  stripeLink = isYearly ? "https://buy.stripe.com/年額用リンク" : "https://buy.stripe.com/月額用リンク";
+  // Stripeリンク（スクリプトプロパティから取得）
+  if (planName === 'PLUS_0M' || planName === 'PLUS_0Y') {
+    stripeLink = "https://medikani.com/test-payment"; // テスト用プランのフォールバック
+  } else {
+    stripeLink = PropertiesService.getScriptProperties().getProperty('STP_' + planName) || "https://medikani.com/contact";
+  }
 
   // 3. 「顧客マスタ」シートへの転記処理（列構成の変更に対応）
   const no = masterSheet.getLastRow(); 
@@ -133,13 +136,29 @@ function handleApplicationForm(e, RESEND_API_KEY, FROM_EMAIL) {
   body += `ご選択プラン: 【${cleanedFacilityType}】 ${cycleText}\n\n`;
 
   if (paymentMethod.indexOf('クレジットカード') !== -1) {
-    body += `クレジットカード決済のお手続きをお願いいたします。\n以下の安全なStripe決済用リンクより、お手続きにお進みください。\n\n▼決済用リンク\n${stripeLink}\n\n`;
-    body += `決済が完了次第、ご登録のメールアドレス宛に初期パスワードと管理画面のURLをお送りいたしますカニ🦀\n`;
+    if (isYearly) {
+      body += `クレジットカード決済のお手続きをお願いいたします。\n以下の安全なStripe決済用リンクより、お手続きにお進みください。\n\n▼決済用リンク\n${stripeLink}\n\n`;
+    } else {
+      body += `お選びいただいた月払いプランは「最初の30日間無料トライアル」となります。\n現時点でのクレジットカード情報のご登録は【不要】ですのでご安心ください。\n以下の安全なStripeリンクより、トライアル開始（アカウント登録）のお手続きにお進みください。\n\n▼無料トライアル開始リンク\n${stripeLink}\n\n`;
+    }
+    body += `お手続きが完了次第、ご登録のメールアドレス宛に初期パスワードと管理画面のURLをお送りいたしますカニ🦀\n`;
   } else {
-    body += `「${paymentMethod}」での決済を受け付けました。\n後ほど、経理ご担当者様宛に専用の請求書（一括お振込先記載）をメールにてお送りいたしますので、今しばらくお待ちくださいませ。\n\n`;
-    body += `ご入金が確認でき次第、初期パスワードと管理画面のURLをお送りいたします。\n`;
+    // 銀行振込（請求書払い）の場合の出し分け
+    if (isYearly) {
+      body += `「${paymentMethod}」での決済を受け付けました。\n後ほど、経理ご担当者様宛に専用の請求書（一括お振込先記載）をメールにてお送りいたしますので、今しばらくお待ちくださいませ。\n\n`;
+      body += `ご入金が確認でき次第、初期パスワードと管理画面のURLをお送りいたします。\n`;
+    } else {
+      body += `お選びいただいた月払いプランは「最初の30日間無料トライアル」となります。\n無料期間中のため、現時点でのお振り込みは【不要】ですのでご安心ください。\n\n`;
+      body += `無料トライアル期間終了のタイミングで、経理ご担当者様宛に専用の請求書（お振込先記載）をメールにてご案内いたします。\n\n`;
+      body += `まずはすぐにご利用いただけるよう、アカウント発行の準備を進めております。\n準備が整い次第、初期パスワードと管理画面のURLをお送りいたしますカニ🦀\n`;
+    }
   }
-  body += `\nご不明な点がございましたら、本メールにご返信ください。\n引き続きよろしくお願いいたします。`;
+  body += `\nご不明な点がございましたら、本メールにご返信ください。\n引き続きよろしくお願いいたします。\n\n`;
+  body += `--------------------------------------------------\n`;
+  body += `トリの巣ワークス メディカニ運営事務局\n`;
+  body += `〒107-0062 東京都港区南青山3丁目1番36号 青山丸竹ビル6F\n`;
+  body += `TEL: 070-3813-8742\n`;
+  body += `--------------------------------------------------`;
 
   sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, email, subject, body);
 }
@@ -164,7 +183,12 @@ function handleInquiryForm(e, RESEND_API_KEY, FROM_EMAIL) {
   body += `【内容】\n${content}\n`;
   body += `--------------------------------------------------\n\n`;
   body += `内容を確認の上、担当者より改めてご連絡させていただきます。\n恐れ入りますが、今しばらくお待ちくださいませ。\n\n`;
-  body += `※本メールは自動返信でお送りしています。\nご不明な点がございましたら、このメールにそのまま返信してください。\n`;
+  body += `※本メールは自動返信でお送りしています。\nご不明な点がございましたら、このメールにそのまま返信してください。\n\n`;
+  body += `--------------------------------------------------\n`;
+  body += `トリの巣ワークス メディカニ運営事務局\n`;
+  body += `〒107-0062 東京都港区南青山3丁目1番36号 青山丸竹ビル6F\n`;
+  body += `TEL: 070-3813-8742\n`;
+  body += `--------------------------------------------------`;
 
   // 3. 管理者（トリさん）宛の通知
   const adminSubject = `【要対応】お問い合わせが入りました（${personName} 様）`;
