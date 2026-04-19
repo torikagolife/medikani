@@ -1,0 +1,187 @@
+/**
+ * 【作戦A】外部（Workers）からのパスワード変更リクエストを受け取る
+ * 1. スプレッドシートを更新
+ * 2. その直後にCloudflare KVを更新（個別更新）
+ */
+function doPost(e) {
+  const params = JSON.parse(e.postData.contents);
+  const targetId = params.facilityId; // 施設ID
+  const newPwd = params.newPassword;  // 新しいパスワード
+  
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const masterSheet = ss.getSheetByName("顧客マスタ");
+  const data = masterSheet.getDataRange().getValues();
+  
+  let targetRow = -1;
+  
+  // 1. スプレッドシートの対象行を探す
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][7]).trim() === targetId) { // H列(7)が施設ID
+      targetRow = i + 1;
+      break;
+    }
+  }
+  
+  if (targetRow === -1) {
+    return ContentService.createTextOutput(JSON.stringify({ success: false, message: "IDが見つかりません" })).setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  // 2. スプレッドシート（Y列:24）を更新
+  masterSheet.getRange(targetRow, 25).setValue(newPwd); // Y列は25番目
+  
+  // 3. 連携してCloudflare KVもその場で更新（個別更新）
+  const successKV = updateSingleKV(`${targetId}_pwd`, newPwd);
+  
+  return ContentService.createTextOutput(JSON.stringify({ 
+    success: successKV, 
+    message: successKV ? "更新完了" : "KV更新失敗" 
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Cloudflare KVへ特定のキーだけを個別に更新するヘルパー関数
+ */
+function updateSingleKV(key, value) {
+  const props = PropertiesService.getScriptProperties();
+  const CF_ACCOUNT_ID = props.getProperty('CF_ACCOUNT_ID');
+  const CF_KV_NAMESPACE_ID = props.getProperty('CF_KV_NAMESPACE_ID');
+  const CF_API_TOKEN = props.getProperty('CF_API_TOKEN');
+  
+  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/${key}`;
+  const options = {
+    method: 'put',
+    headers: { 'Authorization': `Bearer ${CF_API_TOKEN}` },
+    payload: value,
+    muteHttpExceptions: true
+  };
+  
+  const response = UrlFetchApp.fetch(url, options);
+  return response.getResponseCode() === 200;
+}
+
+/**
+ * スプレッドシートのデータをCloudflare KVに一括同期する（既存機能の強化版）
+ */
+function syncAllSheetsToKV() {
+  const props = PropertiesService.getScriptProperties();
+  const CF_ACCOUNT_ID = props.getProperty('CF_ACCOUNT_ID');
+  const CF_KV_NAMESPACE_ID = props.getProperty('CF_KV_NAMESPACE_ID');
+  const CF_API_TOKEN = props.getProperty('CF_API_TOKEN');
+
+  if (!CF_ACCOUNT_ID || !CF_KV_NAMESPACE_ID || !CF_API_TOKEN) {
+    Browser.msgBox("エラー: スクリプトプロパティに設定が見つかりません。");
+    return;
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // --- ① 設定と準備 ---
+  const targetConfigs = [
+    ["内服同期", "[内]"],
+    ["注射同期", "[注]"],
+    ["外用同期", "[外]"]
+  ];
+
+  const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}`;
+  const headers = { 
+    'Authorization': `Bearer ${CF_API_TOKEN}`,
+    'Content-Type': 'application/json'
+  };
+
+  const allBody = [];
+  const compIndex = {}; 
+  const keySet = new Set();
+
+  // --- ② 同期データの作成 ---
+  for (const [sheetName, label] of targetConfigs) {
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) continue;
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) continue;
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const csvValue = String(row[1] || "").trim();
+      if (!csvValue) continue;
+
+      const parts = csvValue.split(",");
+      if (parts.length < 3) continue;
+
+      const yjCode = parts[parts.length - 1].trim();
+      const kanaName = parts[0].trim();
+      let cleanName = kanaName;
+      const match = kanaName.match(/[\u30A0-\u30FF\u30FCa-zA-ZＡ-Ｚａ-ｚ]+/);
+      if (match) cleanName = match[0];
+
+      const key = `${label}${cleanName}_${yjCode}`;
+      if (keySet.has(key)) continue;
+      keySet.add(key);
+      allBody.push({ key: key, value: csvValue.replace(/,/g, "，") });
+
+      if (yjCode.length >= 7) {
+        const baseCode = yjCode.substring(0, 7);
+        const compKey = `COMP_${baseCode}`;
+        if (!compIndex[compKey]) compIndex[compKey] = [];
+        compIndex[compKey].push(key);
+      }
+    }
+  }
+
+  for (const compKey in compIndex) {
+    allBody.push({ key: compKey, value: JSON.stringify(compIndex[compKey]) });
+  }
+
+  // --- ②-2 顧客マスタ（施設名・パスワード）の同期 ---
+  const customerSheet = ss.getSheetByName("顧客マスタ");
+  if (customerSheet) {
+    const cData = customerSheet.getDataRange().getValues();
+    for (let i = 1; i < cData.length; i++) {
+      const row = cData[i];
+      const hId = String(row[7] || "").trim();    // H列: 施設ID
+      const hName = String(row[8] || "").trim();  // I列: 施設名
+      const hPwd = String(row[24] || "").trim();  // Y列: パスワード
+
+      if (hId && hName) {
+        allBody.push({ key: `${hId}_name`, value: hName });
+      }
+      if (hId && hPwd) {
+        allBody.push({ key: `${hId}_pwd`, value: hPwd });
+      }
+    }
+  }
+
+  if (allBody.length === 0) {
+    Browser.msgBox("同期対象のデータが見つかりませんでした。");
+    return;
+  }
+
+  // --- ③ Cloudflareへ一括送信 ---
+  const chunkSize = 2000;
+  let successCount = 0;
+  
+  for (let i = 0; i < allBody.length; i += chunkSize) {
+    const chunk = allBody.slice(i, i + chunkSize);
+    try {
+      const response = UrlFetchApp.fetch(`${baseUrl}/bulk`, {
+        method: 'put', 
+        headers: headers,
+        payload: JSON.stringify(chunk), 
+        muteHttpExceptions: true
+      });
+      
+      const resCode = response.getResponseCode();
+      if (resCode === 200) {
+        const resJson = JSON.parse(response.getContentText());
+        if (resJson.success) {
+          successCount += chunk.filter(item => !item.key.includes("COMP_")).length;
+        }
+      }
+      Utilities.sleep(500); 
+    } catch (e) {
+      Logger.log("送信中に例外発生: " + e.toString());
+    }
+  }
+  
+  Browser.msgBox(`【マスターデータ 同期完了】\n\n${successCount} 件のデータを更新しました。`);
+}
