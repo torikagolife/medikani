@@ -1596,7 +1596,7 @@ let trackVal = 0;
             clearTimeout(timer);
             document.getElementById('loading').style.display = 'none';
             const helpEl = document.getElementById('sysHelpData');
-            resDiv.innerHTML = '<div class="help-box">' + (helpEl ? helpEl.innerHTML : '説明文がありませんカニ🦀') + '</div>' + promoHTML;
+            resDiv.innerHTML = '<div class="help-box">' + (helpEl ? helpEl.innerHTML : '説明文がありませんカニ🦀') + '</div>' + promoHTML + '<div style="margin-top:20px; text-align:center;"><a href="https://medikani.com/info" target="_blank" style="display:block; background:#e3f2fd; color:#0056b3; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a></div>';
             return;
           }
           if (currentCat === '[履歴]') { clearTimeout(timer); renderHistory(); return; }
@@ -1620,6 +1620,7 @@ let trackVal = 0;
                 <p style="font-size:14px; color:#666; margin-top:10px;">施設ごとの「採用薬」や「メモ」を表示できる法人向け機能のデモですカニ🦀</p>
                 <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
                   <a href="/HPTEST1" style="background:var(--main-orange); color:white; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🏥 デモ施設のプラスモードを試す</a>
+                  <a href="https://medikani.com/info" target="_blank" style="background:#e3f2fd; color:#0056b3; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb;">ℹ️ 公式サイトで詳しく見る</a>
                 </div>
                 <p style="font-size:11px; color:#aaa; margin-top:15px;">※実際に触ってみて体験して欲しいカニ🦀</p>
               </div>\`;
@@ -1783,6 +1784,9 @@ let trackVal = 0;
             <div style="font-size:14px; background:#fff0f5; padding:12px; border-radius:10px; margin-bottom:12px; line-height:1.6; white-space:pre-wrap; border: 1px solid #ffd1dc;">\${infoHtml}</div>
             <div class="btn-group"><a href="https://www.google.com/search?q=\${encodeURIComponent(searchKw + ' 医療用 同成分')}" class="btn btn-google" target="_blank" style="display:flex;">🔍 Googleで処方薬を探す</a></div>
             \${promoHTML}
+            <div style="margin-top:20px; text-align:center;">
+              <a href="https://medikani.com/info" target="_blank" style="display:inline-block; width:100%; background:#e3f2fd; color:#0056b3; padding:12px; border-radius:12px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a>
+            </div>
           \`;
           document.getElementById('modalOverlay').style.display = 'flex';
         }
@@ -1894,7 +1898,10 @@ let trackVal = 0;
                   </div>
                 </a>\`}).join('') : '<p style="font-size:13px; color:#999; text-align:center; padding:10px 0;">見つかりませんでしたカニ🦀💦</p>'}
               \${promoHTML}
-              \${!hId ? \`<div onclick="closeModal(); setCat('[デモ]', document.querySelectorAll('.tab')[6]);" style="margin-top:20px; text-align:center; padding:12px; background:#fff0f5; border-radius:12px; border:1px dashed #ffb6c1; cursor:pointer; transition: opacity 0.2s;"><span style="color:#d63384;font-weight:bold;font-size:13px;">🦀メディカニ・プラスは採用薬が切替候補に出るカニ💚</span><br><span style="color:#999;font-size:11px;text-decoration:underline;margin-top:4px;display:inline-block;">プラス体験はこちら ✨</span></div>\` : ''}
+              <div style="margin-top:20px; text-align:center;">
+                <a href="https://medikani.com/info" target="_blank" style="display:inline-block; width:100%; background:#e3f2fd; color:#0056b3; padding:12px; border-radius:12px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a>
+              </div>
+              \${!hId ? \`<div onclick="closeModal(); setCat('[デモ]', document.querySelectorAll('.tab')[6]);" style="margin-top:15px; text-align:center; padding:15px; background:#fff0f5; border-radius:12px; border:1px dashed #ffb6c1; cursor:pointer; transition: opacity 0.2s;"><span style="color:#d63384;font-weight:bold;font-size:13px;">🦀メディカニ・プラスは採用薬が切替候補に出るカニ💚</span><br><span style="color:#fff;background:#e83e8c;font-size:14px;text-decoration:none;margin-top:10px;padding:10px 20px;border-radius:25px;display:inline-block;font-weight:bold;box-shadow:0 4px 6px rgba(232,62,140,0.3);">✨ プラス体験はこちら ✨</span></div>\` : ''}
             \`;
           } catch(e) {
             document.getElementById('modalContent').innerHTML = '<p style="text-align:center;padding:20px;color:#dc3545;font-weight:bold;">⚠️ 詳細を開けませんでしたカニ🦀💦</p>';
