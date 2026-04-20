@@ -1937,7 +1937,10 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
             ${hospitalName ? `<div style="font-weight:bold; margin-bottom:2px;">${hospitalName}</div>` : ''}
             ID: ${hospitalId}
           </div>
-          <a href="/${hospitalId}/admin/logout" style="color:#fff; font-size:12px; text-decoration:none; background:#dc3545; padding:4px 12px; border-radius:15px; font-weight:bold; border:1px solid #c82333;">🚪 ログアウト</a>
+          <div style="display:flex; gap:8px;">
+            <a href="https://medikani.com/manual" target="_blank" style="color:#0056b3; font-size:12px; text-decoration:none; background:#e3f2fd; padding:4px 12px; border-radius:15px; font-weight:bold; border:1px solid #bbdefb;">📘 管理画面マニュアル</a>
+            <a href="/${hospitalId}/admin/logout" style="color:#fff; font-size:12px; text-decoration:none; background:#dc3545; padding:4px 12px; border-radius:15px; font-weight:bold; border:1px solid #c82333;">🚪 ログアウト</a>
+          </div>
         </div>
       </div>
       <div class="container">
