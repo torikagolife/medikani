@@ -2023,7 +2023,7 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
             <div class="map-row"><label>🔑 YJコード (必須)</label><select id="mapYJ"></select></div>
             <div class="map-row"><label>💬 メモ</label><select id="mapC1"></select></div>
             <div class="map-row" style="background:#fff3cd; padding:10px; border-radius:6px; border:1px solid #ffe69c; border-bottom:none; margin-top:15px;">
-              <label style="color:#856404; margin-bottom:0; cursor:pointer;"><input type="checkbox" id="chkFullSync" checked> 🗑️ フル同期カニ🦀</label>
+              <label style="color:#856404; margin-bottom:0; cursor:pointer;"><input type="checkbox" id="chkFullSync"> 🗑️ フル同期カニ🦀</label>
             </div>
             <button class="btn" id="btnPreview" style="background:var(--main-blue); margin-top:15px;">👀 プレビュー</button>
           </div>
@@ -2066,7 +2066,7 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
          <textarea id="posterInputText" style="width:100%; height:180px; padding:10px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box; font-family:sans-serif; margin-bottom:10px;">スタッフの皆様へ
 お手持ちのスマートフォンでQRコードを読み取ると、当施設の「採用薬」が優先して表示されるお薬検索アプリが使えるようになります！
 処方薬からも市販薬からも検索可能です。
-アプリのインストールやログインは不要です。ブックマークして今日からご活用くださ
+アプリのインストールやログインは不要です。ホーム画面に追加して今日からご活用くださ
 い。
 ※採用漏れやメモの追加希望があれば、お薬の詳細画面にある「🚨報告する」ボタンからお知らせください</textarea>
           <button onclick="printPoster()" style="width:100%; padding:12px; background:#17a2b8; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer; transition: transform 0.1s; display:flex; align-items:center; justify-content:center; gap:8px;">🖨️ この内容でポスターを印刷する</button>
