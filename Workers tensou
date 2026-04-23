@@ -1,0 +1,57 @@
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+
+    // --- 1. Googleフォームへのリダイレクト設定 ---
+
+    // お問い合わせフォーム (/contact)
+    if (pathname === '/contact') {
+      const googleFormUrl = new URL('https://docs.google.com/forms/d/e/1FAIpQLSfqrJNd8Miehe1o13r0z7FlPZjxWz68Fo4CLGCdhvDZVxzGTQ/viewform');
+      // 元のURLのパラメータ（?facility_id=xxx など）をそのまま引き継ぐ
+      googleFormUrl.search = url.search;
+      return Response.redirect(googleFormUrl.toString(), 302);
+    }
+
+    // 申込みフォーム (/apply)
+    if (pathname === '/apply') {
+      const applyUrl = new URL('https://forms.gle/N75uLMxiMHk8aRAd8');
+      // こちらも同様にパラメータを引き継ぐ
+      applyUrl.search = url.search;
+      return Response.redirect(applyUrl.toString(), 302);
+    }
+
+    // --- 2. 既存のPagesプロキシ処理 ---
+
+    let targetPath;
+
+    // LPの処理： /info でアクセスが来たら Pagesのルート(/) を見せる
+    if (pathname.startsWith('/info')) {
+      targetPath = pathname.replace(/^\/info/, '');
+      if (targetPath === '') {
+        targetPath = '/';
+      }
+    } 
+    // 規約・ポリシー・特商法・マニュアルの処理
+    else if (
+      pathname.startsWith('/terms') || 
+      pathname.startsWith('/privacy') || 
+      pathname.startsWith('/tokusho') ||
+      pathname.startsWith('/manual') // ← ここに /manual を追加しました
+    ) {
+      targetPath = pathname;
+    } 
+    // それ以外のパス
+    else {
+      targetPath = pathname;
+    }
+
+    // 転送先のPagesのURLを組み立て（ここでも url.search を結合しているので既存ページも安心です）
+    const proxyUrl = new URL(`https://medikani.pages.dev${targetPath}${url.search}`);
+
+    const proxyRequest = new Request(proxyUrl.toString(), request);
+    let response = await fetch(proxyRequest);
+
+    return new Response(response.body, response);
+  },
+};
