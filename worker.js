@@ -2343,28 +2343,35 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           if(cell||row.length) { row.push(cell.trim()); rows.push(row); }
           return rows.filter(r => r.join('').trim() !== '');
         }
-        document.getElementById('csvFile').onchange = (e) => {
-          const reader = new FileReader();
-          reader.onload = (evt) => {
-            const uint8Array = new Uint8Array(evt.target.result);
-            const unicodeArray = Encoding.convert(uint8Array, {
-                to: 'UNICODE',
-                from: 'AUTO'
-            });
-            const csvText = Encoding.codeToString(unicodeArray);
-            
-            const rows = parseCSV(csvText);
-            headers = rows[0]; parsedData = rows.slice(1);
-            ['mapName', 'mapSpec', 'mapYJ', 'mapC1'].forEach((sid, idx) => {
-              const sel = document.getElementById(sid);
-              sel.innerHTML = '<option value="-1">なし</option>' + headers.map((h, i) => \`<option value="\${i}">\${h}</option>\`).join('');
-              const mIdx = headers.findIndex(h => h.includes(['名', '規格', 'YJ', 'メモ'][idx]));
-              if(mIdx !== -1) sel.value = mIdx;
-            });
-            document.getElementById('mappingArea').style.display = 'block';
-          };
-          reader.readAsArrayBuffer(e.target.files[0]);
-        };
+document.getElementById('csvFile').onchange = (e) => {
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            const uint8Array = new Uint8Array(evt.target.result);
+            const unicodeArray = Encoding.convert(uint8Array, {
+                to: 'UNICODE',
+                from: 'AUTO'
+            });
+            const csvText = Encoding.codeToString(unicodeArray);
+            
+            const rows = parseCSV(csvText);
+            headers = rows[0]; parsedData = rows.slice(1);
+            ['mapName', 'mapSpec', 'mapYJ', 'mapC1'].forEach((sid, idx) => {
+              const sel = document.getElementById(sid);
+              
+              
+              sel.innerHTML = '<option value="-1">なし</option>' + headers.map((h, i) => {
+                const colLabel = (i >= 26 ? String.fromCharCode(64 + Math.floor(i / 26)) : '') + String.fromCharCode(65 + (i % 26));
+                return \`<option value="\${i}">\${colLabel}列：\${h}</option>\`;
+              }).join('');
+              
+
+              const mIdx = headers.findIndex(h => h.includes(['名', '規格', 'YJ', 'メモ'][idx]));
+              if(mIdx !== -1) sel.value = mIdx;
+            });
+            document.getElementById('mappingArea').style.display = 'block';
+          };
+          reader.readAsArrayBuffer(e.target.files[0]);
+        };
         let uploadPayload = []; let keysToRemove = []; let finalCount = 0;
         document.getElementById('btnPreview').onclick = async () => {
           const iN = parseInt(document.getElementById('mapName').value), 
