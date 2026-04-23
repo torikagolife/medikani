@@ -1601,11 +1601,11 @@ let trackVal = 0;
                 let infoHtml = data.aiInfo || "";
                 
                 let extractedName = q;
-                infoHtml = infoHtml.replace(/(?:対象|薬品名)[:：]\s*([^\n]+)/, function(match, name) {
+                infoHtml = infoHtml.replace(/(?:対象|薬品名)[:：]\\s*([^\\n]+)/, function(match, name) {
                    extractedName = name.trim();
                    return '<div style="font-weight:bold; color:#d63384; margin-bottom:8px; border-bottom:1px dashed #ffd1dc; padding-bottom:4px;">薬品名： ' + extractedName + '</div>';
                 });
-                infoHtml = infoHtml.replace(/切替候補[:：]\s*([^\n]+)/, function(match, kw) {
+                infoHtml = infoHtml.replace(/切替候補[:：]\\s*([^\\n]+)/, function(match, kw) {
                   var cleanKw = kw.trim().replace(/['"]/g, "");
                   return '切替候補：<span style="font-weight:bold; color:#0056b3;">' + cleanKw + '</span> <button onclick="searchAlt(\\'' + cleanKw + '\\')" style="background:var(--main-orange);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-left:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);font-weight:bold;vertical-align:middle;">🔍 切替候補を探す</button>';
                 });
@@ -1715,10 +1715,10 @@ let trackVal = 0;
           
           let infoHtml = item.aiInfo || "";
           
-          infoHtml = infoHtml.replace(/(?:対象|薬品名)[:：]\s*([^\n]+)/, function(match, name) {
+          infoHtml = infoHtml.replace(/(?:対象|薬品名)[:：]\\s*([^\\n]+)/, function(match, name) {
               return '<div style="font-weight:bold; color:#d63384; margin-bottom:8px; border-bottom:1px dashed #ffd1dc; padding-bottom:4px;">薬品名： ' + name.trim() + '</div>';
           });
-          infoHtml = infoHtml.replace(/切替候補[:：]\s*([^\n]+)/, function(match, kw) {
+          infoHtml = infoHtml.replace(/切替候補[:：]\\s*([^\\n]+)/, function(match, kw) {
             var cleanKw = kw.trim().replace(/['"]/g, "");
             return '切替候補：<span style="font-weight:bold; color:#0056b3;">' + cleanKw + '</span> <button onclick="closeModal(); searchAlt(\\'' + cleanKw + '\\')" style="background:var(--main-orange);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-left:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);font-weight:bold;vertical-align:middle;">🔍 切替候補を探す</button>';
           });
@@ -2334,22 +2334,15 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           return rows.filter(r => r.join('').trim() !== '');
         }
         document.getElementById('csvFile').onchange = (e) => {
-          const file = e.target.files[0];
-          if(!file) return;
           const reader = new FileReader();
           reader.onload = (evt) => {
-            // 1. 読み込んだ生データを取得
             const uint8Array = new Uint8Array(evt.target.result);
-            
-            // 2. encoding.js を使って文字コードを自動判定＆UTF-8（UNICODE）に変換
             const unicodeArray = Encoding.convert(uint8Array, {
                 to: 'UNICODE',
                 from: 'AUTO'
             });
-            
-            // 3. 変換されたデータを、普通の文字列（テキスト）に戻す
             const csvText = Encoding.codeToString(unicodeArray);
-
+            
             const rows = parseCSV(csvText);
             headers = rows[0]; parsedData = rows.slice(1);
             ['mapName', 'mapSpec', 'mapYJ', 'mapC1'].forEach((sid, idx) => {
@@ -2360,7 +2353,7 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
             });
             document.getElementById('mappingArea').style.display = 'block';
           };
-          reader.readAsArrayBuffer(file);
+          reader.readAsArrayBuffer(e.target.files[0]);
         };
         let uploadPayload = []; let keysToRemove = []; let finalCount = 0;
         document.getElementById('btnPreview').onclick = async () => {
