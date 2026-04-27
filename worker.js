@@ -1399,13 +1399,14 @@ function getFormEmoji(yj, ctx = "") {
           // 1. 注射薬
           if (s.includes("注")) return "💉";
           
-          // 2. 外用薬
-          if (s.includes("外")) {
+          // 2. 外用薬（「外」または「坐」が含まれていればここに入る）
+          if (s.includes("外") || s.includes("坐")) {
             if (f === "P" || f === "S") return "🩹"; // テープ・パップ等
             if (f === "R" || f === "T") return "💨"; // スプレー・吸入等
+            if (f === "M" || f === "T") return "🧴"; // 軟膏
             if ("QUVWX".includes(f)) return "💧"; // 点眼・点鼻・うがい・浣腸等
-            if (f === "M") return "🚀"; // 坐薬
-            return "🧴"; // 軟膏・クリーム・ローション等
+            if (f === "J" || s.includes("坐")) return "🚀"; // 坐薬（YJコードか文字で判定）
+            return "🧴"; // 他ローション等
           }
           
           // 3. 内服薬
