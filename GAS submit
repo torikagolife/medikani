@@ -127,7 +127,7 @@ function handleApplicationForm(e, RESEND_API_KEY, FROM_EMAIL) {
 
   masterSheet.appendRow(newRow);
 
-  // 4. メールの自動送信
+  // 4. お客様へのメール自動送信
   const subject = "【メディカニ】ご利用申し込みの受付と決済のご案内";
   const cycleText = isYearly ? "年払い（2ヶ月分お得！）" : "月払い（初月無料！）";
   
@@ -160,7 +160,26 @@ function handleApplicationForm(e, RESEND_API_KEY, FROM_EMAIL) {
   body += `TEL: 070-3813-8742\n`;
   body += `--------------------------------------------------`;
 
+  // 5. 管理者（トリさん）宛の通知
+  const adminSubject = `【新規申込】メディカニ・プラスのお申し込みがありました（${companyName} 様）`;
+  let adminBody = `お申し込みフォームから新規受付がありました。\nスプレッドシートの「顧客マスタ」を確認し、初期パスワードの発行等の手続きを進めてください。\n\n`;
+  adminBody += `--------------------------------------------------\n`;
+  adminBody += `施設名: ${companyName}\n`;
+  adminBody += `お名前: ${personName} 様\n`;
+  adminBody += `プラン: ${cleanedFacilityType} (${cycleText})\n`;
+  adminBody += `決済方法: ${paymentMethod}\n`;
+  adminBody += `希望ID: ${requestedId}\n`;
+  adminBody += `メール: ${email}\n`;
+  adminBody += `電話番号: ${phone}\n`;
+  adminBody += `予想ユーザー数: ${expectedUsers}\n`;
+  adminBody += `--------------------------------------------------\n`;
+  if (message) {
+    adminBody += `備考:\n${message}\n`;
+  }
+
+  // 送信実行（ユーザー宛と管理者宛）
   sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, email, subject, body);
+  sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, "toriweb@gmail.com", adminSubject, adminBody);
 }
 
 /**
