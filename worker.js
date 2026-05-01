@@ -5,7 +5,7 @@ function getBestYJ(key, parts) {
   return String(parts[2] || "").replace(/[^a-zA-Z0-9]/g, "");
 }
 
-// Webサービス: 医薬品検索（メディカニ・ハイブリッド検索＆個別メモ対応版）
+// Webサービス: 医薬品検索（メディカニ・ハイブリッド検索＆個別メモ対応版　）
 // 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用), ASK_FORM_URL(問合せフォームURL), G_FORM_ID(フォームの施設ID項目)
 
 export default {
@@ -33,6 +33,38 @@ export default {
       }
     }
     // =========================================================
+
+    // === 新規追加: ユーザーパスワード機能 (ここから) ===
+    const isUserLoginPage = pathParts[1] === "login" && pathParts[0] !== "api";
+    const isUserLoginApi = url.pathname.includes("/api/userlogin");
+
+    if (hospitalId && env.MEDI_KV) {
+      const userPwd = await env.MEDI_KV.get(`${hospitalId}_userpwd`);
+      if (userPwd) {
+        let isUserAuth = false;
+        const cookieString = request.headers.get("Cookie");
+        if (cookieString) {
+          const cookies = cookieString.split(';').map(c => c.trim());
+          const targetCookie = `medikani_userauth_${hospitalId}=`;
+          const authCookie = cookies.find(c => c.startsWith(targetCookie));
+          if (authCookie) {
+            const cookiePwd = decodeURIComponent(authCookie.substring(targetCookie.length));
+            if (cookiePwd === userPwd) isUserAuth = true;
+          }
+        }
+        
+        // ログイン画面、ログインAPI、管理画面関連を除き、未認証ならブロック
+        const isExempt = isUserLoginPage || isUserLoginApi || pathParts[1] === "admin" || url.pathname.includes("/api/admin/");
+        if (!isUserAuth && !isExempt) {
+          if (url.pathname.includes("/api/")) {
+            return new Response(JSON.stringify({error: "ユーザー認証エラー"}), { status: 401, headers: { "Content-Type": "application/json" } });
+          } else {
+            return Response.redirect(`${url.origin}/${hospitalId}/login`, 302);
+          }
+        }
+      }
+    }
+    // === 新規追加: ユーザーパスワード機能 (ここまで) ===
 
     // === 新規追加: 認証の判定ロジック (ここから) ===
     const isAdminResetPage = pathParts[1] === "admin" && pathParts[2] === "reset" && pathParts[0] !== "api";
@@ -223,6 +255,9 @@ export default {
       if (isAdminResetPage) {
         return new Response(this.getResetHTML(env, hospitalId, hospitalName), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
       }
+      if (isUserLoginPage) {
+        return new Response(this.getUserLoginHTML(hospitalId, hospitalName), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      }
       // === 新規追加: 認証とリセット関連画面 (ここまで) ===
 
       // === 新規追加: 管理画面と管理用API (ここから) ===
@@ -239,13 +274,15 @@ export default {
           let cursor = "";
           do {
             const list = await env.MEDI_KV.list({ prefix: `${metaHId}_`, limit: 1000, cursor: cursor || undefined });
-            realCount += list.keys.filter(k => !k.name.endsWith("_meta") && !k.name.endsWith("_pwd") && !k.name.endsWith("_email") && !k.name.endsWith("_board") && !k.name.includes("_report_") && !k.name.includes("COMP_")).length;
+            realCount += list.keys.filter(k => !k.name.endsWith("_meta") && !k.name.endsWith("_pwd") && !k.name.endsWith("_userpwd") && !k.name.endsWith("_email") && !k.name.endsWith("_board") && !k.name.includes("_report_") && !k.name.includes("COMP_")).length;
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
           meta.count = realCount;
           // ==============================================================
 
           meta.email = currentEmail || "未登録"; // 画面表示用にメアドも含めて返す
+          let userPwd = await env.MEDI_KV.get(`${metaHId}_userpwd`);
+          meta.userPwd = userPwd || "";
           return new Response(JSON.stringify(meta), { headers: { "Content-Type": "application/json" } });
         } catch(e) { return new Response("{}", { status: 500 }); }
       }
@@ -259,7 +296,7 @@ export default {
           let cursor = "";
           do {
             const list = await env.MEDI_KV.list({ prefix: `${listHId}_`, limit: 1000, cursor: cursor || undefined });
-            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("_report_")));
+            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_userpwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("_report_")));
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
           return new Response(JSON.stringify({ keys: keys }), { headers: { "Content-Type": "application/json" } });
@@ -277,7 +314,7 @@ export default {
           do {
             const list = await env.MEDI_KV.list({ prefix: `${dHId}_`, limit: 1000, cursor: cursor || undefined });
             // ダウンロード時は絶対に COMP_ ゴミデータを排除する
-            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("_report_") && !n.includes("COMP_")));
+            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_userpwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("_report_") && !n.includes("COMP_")));
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
 
@@ -457,6 +494,28 @@ export default {
             headers: {
               "Content-Type": "application/json",
               "Set-Cookie": `medikani_auth_${lHId}=${encodeURIComponent(lPwd)}; Path=/; HttpOnly; Secure; Max-Age=2592000`
+            }
+          });
+        } else {
+          return new Response(JSON.stringify({success: false, error: "パスワードが違いますカニ🦀"}), { headers: { "Content-Type": "application/json" } });
+        }
+      } catch(e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
+    }
+
+    // === 新規追加: ユーザーログイン API ===
+    if (request.method === "POST" && isUserLoginApi) {
+      try {
+        const body = await request.json();
+        const lHId = body.hId;
+        const lPwd = body.pwd;
+        
+        const pwd = await env.MEDI_KV.get(`${lHId}_userpwd`);
+
+        if (lPwd === pwd) {
+          return new Response(JSON.stringify({success: true}), {
+            headers: {
+              "Content-Type": "application/json",
+              "Set-Cookie": `medikani_userauth_${lHId}=${encodeURIComponent(lPwd)}; Path=/; HttpOnly; Secure; Max-Age=31536000`
             }
           });
         } else {
@@ -659,6 +718,49 @@ export default {
               `
             })
           });
+        }
+
+        return new Response(JSON.stringify({success: true}), { headers: { "Content-Type": "application/json" } });
+      } catch(e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
+    }
+
+    // === 🔥修正: ユーザーパスワード設定のエラーデバッグ用強化アーマー ===
+    if (request.method === "POST" && url.pathname.includes("/api/admin/changeuserpwd")) {
+      try {
+        const cpBody = await request.json();
+        const cpHId = url.searchParams.get("h") || "";
+        const newUserPwd = cpBody.newUserPwd || "";
+        
+        // KVへは必ず保存する
+        if (newUserPwd === "") {
+            await env.MEDI_KV.delete(`${cpHId}_userpwd`);
+        } else {
+            await env.MEDI_KV.put(`${cpHId}_userpwd`, newUserPwd);
+        }
+
+        if (env.GAS_URL) {
+          const gasRes = await fetch(env.GAS_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              facilityId: cpHId,
+              newUserPassword: newUserPwd
+            })
+          });
+          
+          // 🔥 一度テキストとして受け取って、GASが何を返してきたのか暴く
+          const rawText = await gasRes.text();
+          let gasData;
+          try {
+            gasData = JSON.parse(rawText);
+          } catch(parseErr) {
+            // もしGASからHTML（エラー画面）が返ってきていたら、その中身をエラーとして投げる
+            throw new Error(`GASがJSON以外を返しました: ${rawText.substring(0, 150)}...`);
+          }
+          
+          if (!gasData.success) {
+            throw new Error(gasData.message || "スプレッドシートの更新に失敗しました");
+          }
         }
 
         return new Response(JSON.stringify({success: true}), { headers: { "Content-Type": "application/json" } });
@@ -898,6 +1000,68 @@ export default {
           const data = await res.json();
           if(data.success) {
             window.location.href = "/${hId}/admin";
+          } else {
+            msg.innerText = "❌ " + data.error;
+            msg.style.color = "#dc3545";
+          }
+        } catch(e) {
+          msg.innerText = "⚠️ 通信エラーが発生しましたカニ🦀"; msg.style.color = "#dc3545";
+        }
+      });
+    </script>
+    </body></html>`;
+  },
+
+  getUserLoginHTML(hId, hName = "") {
+    return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>スタッフログイン - メディカニ</title>
+    <link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani-icon.png">
+    <link rel="apple-touch-icon" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani-icon.png">
+    <style>
+      :root { --main-blue: #6f42c1; --bg: #f4f7f6; }
+      body { font-family: sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #333; display:flex; justify-content:center; }
+      .card { background: #fff; border-radius: 12px; padding: 25px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); max-width: 400px; width:100%; }
+      h2 { margin-top: 0; color: var(--main-blue); font-size:18px; border-bottom: 2px solid #eee; padding-bottom:10px; }
+      label { font-size: 13px; font-weight: bold; color: #555; display:block; margin-top:15px; margin-bottom:5px; }
+      input { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; font-size: 14px; outline:none; }
+      input:focus { border-color: var(--main-blue); }
+      .btn { width: 100%; padding: 14px; background: var(--main-blue); color: #fff; font-size: 16px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; margin-top: 25px; transition:transform 0.1s; }
+      .btn:active { transform:scale(0.98); }
+      #msg { margin-top: 15px; font-size: 14px; font-weight: bold; text-align: center; line-height:1.5; color: #dc3545; }
+    </style>
+    </head><body>
+    <div class="card">
+      <h2>🔐 スタッフ用ログイン</h2>
+      <p style="font-size:12px; color:#666; line-height:1.6; background:#f8f0ff; padding:10px; border-radius:8px;">
+        メディカニを利用するためのパスワードを入力してくださいカニ🦀<br>（※初回のみ必要です）
+      </p>
+      
+      <label>🏥 施設</label>
+      <input type="text" id="hId" value="${hId}${hName ? ` (${hName})` : ''}" readonly style="background:#f0f0f0; color:#777;">
+      
+      <label>🔑 パスワード</label>
+      <input type="password" id="pwd" placeholder="パスワードを入力" onkeydown="if(event.key==='Enter') document.getElementById('btnLogin').click()">
+
+      <button class="btn" id="btnLogin">🚪 利用を開始する</button>
+      <div id="msg"></div>
+    </div>
+    <script>
+      document.getElementById('btnLogin').addEventListener('click', async () => {
+        const pwd = document.getElementById('pwd').value.trim();
+        const msg = document.getElementById('msg');
+        
+        if(!pwd) { msg.innerText = "⚠️ パスワードを入力してくださいカニ🦀"; return; }
+        
+        msg.innerText = "⏳ 確認中...💦"; msg.style.color = "#555";
+        
+        try {
+          const res = await fetch('/api/userlogin', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ hId: "${hId}", pwd: pwd })
+          });
+          const data = await res.json();
+          if(data.success) {
+            window.location.href = "/${hId}";
           } else {
             msg.innerText = "❌ " + data.error;
             msg.style.color = "#dc3545";
@@ -2099,6 +2263,14 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           <div id="emailMsg" style="margin-top:15px; font-size:14px; font-weight:bold; text-align:center; display:none;"></div>
         </div>
 
+        <div class="card" style="border-top: 4px solid #6f42c1;">
+          <h2>🔐 ユーザー用パスワード設定</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:15px;">ここでパスワードを設定すると、スタッフが検索画面を利用する際に初回だけパスワード入力が必要になります。<br>空欄にして保存するとパスワードなし（今まで通り）に戻りますカニ🦀</p>
+          <input type="text" id="changeUserPwd" placeholder="ユーザー用パスワード（未設定は空欄）" style="width:100%; padding:12px; border:1px solid #ccc; border-radius:8px; margin-bottom:15px; box-sizing:border-box; font-size:14px;">
+          <button class="btn" id="btnChangeUserPwd" style="background:#6f42c1; margin-top:0;">🔐 ユーザーパスワードを保存</button>
+          <div id="userPwdMsg" style="margin-top:15px; font-size:14px; font-weight:bold; text-align:center; display:none;"></div>
+        </div>
+
         ${env.ASK_FORM_URL ? `
         <div class="card" style="border-top: 4px solid #6c757d;">
           <h2>📞 お問い合わせ</h2>
@@ -2207,6 +2379,7 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
             document.getElementById('metaDate').innerText = dt.toLocaleDateString('ja-JP') + ' ' + dt.toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'});
           } else { document.getElementById('metaDate').innerText = '未登録'; }
           document.getElementById('currentEmail').innerText = d.email || '未登録';
+          document.getElementById('changeUserPwd').value = d.userPwd || '';
         });
 
         // 管理画面用検索（個別編集用：採用薬のみ）
@@ -2330,10 +2503,34 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
         document.getElementById('btnChangeEmail').onclick = async () => {
           const newEmail = document.getElementById('changeEmail').value.trim();
           if(!newEmail) return;
-          const res = await fetch('/api/admin/changemail?h=' + hId, {method: 'POST', body: JSON.stringify({ newEmail })});
+          const res = await fetch('/api/admin/changemail?h=' + hId, {method: 'POST',headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newEmail })});
           const r = await res.json();
           if(r.success) { document.getElementById('currentEmail').innerText = newEmail; alert('変更完了カニ！🦀'); }
         };
+        
+        // 🔥ここを変更: エラー詳細をそのまま画面に出すようにしました🦀
+        document.getElementById('btnChangeUserPwd').onclick = async () => {
+          const newUserPwd = document.getElementById('changeUserPwd').value.trim();
+          const btn = document.getElementById('btnChangeUserPwd');
+          btn.disabled = true;
+          try {
+            const res = await fetch('/api/admin/changeuserpwd?h=' + hId, {method: 'POST',headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newUserPwd })});
+            const r = await res.json();
+            if(r.success) { 
+                const msg = document.getElementById('userPwdMsg');
+                msg.innerText = newUserPwd ? '✅ ユーザーパスワードを設定したカニ！🦀' : '✅ ユーザーパスワードを解除したカニ！🦀';
+                msg.style.color = '#28a745';
+                msg.style.display = 'block';
+                setTimeout(() => msg.style.display = 'none', 3000);
+            } else {
+                alert('GAS連携エラー🦀\\n詳細: ' + (r.error || '不明なエラー'));
+            }
+          } catch(e) {
+            alert('通信パースエラーカニ🦀💦\\n詳細: ' + e.message);
+          }
+          btn.disabled = false;
+        };
+        
         function parseCSV(text) {
           let rows = []; let row = []; let cell = ""; let q = false;
           for(let i=0; i<text.length; i++) {
@@ -2345,34 +2542,34 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           return rows.filter(r => r.join('').trim() !== '');
         }
 document.getElementById('csvFile').onchange = (e) => {
-          const reader = new FileReader();
-          reader.onload = (evt) => {
-            const uint8Array = new Uint8Array(evt.target.result);
-            const unicodeArray = Encoding.convert(uint8Array, {
-                to: 'UNICODE',
-                from: 'AUTO'
-            });
-            const csvText = Encoding.codeToString(unicodeArray);
-            
-            const rows = parseCSV(csvText);
-            headers = rows[0]; parsedData = rows.slice(1);
-            ['mapName', 'mapSpec', 'mapYJ', 'mapC1'].forEach((sid, idx) => {
-              const sel = document.getElementById(sid);
-              
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            const uint8Array = new Uint8Array(evt.target.result);
+            const unicodeArray = Encoding.convert(uint8Array, {
+                to: 'UNICODE',
+                from: 'AUTO'
+            });
+            const csvText = Encoding.codeToString(unicodeArray);
+            
+            const rows = parseCSV(csvText);
+            headers = rows[0]; parsedData = rows.slice(1);
+            ['mapName', 'mapSpec', 'mapYJ', 'mapC1'].forEach((sid, idx) => {
+              const sel = document.getElementById(sid);
               
-              sel.innerHTML = '<option value="-1">なし</option>' + headers.map((h, i) => {
+              
+              sel.innerHTML = '<option value="-1">なし</option>' + headers.map((h, i) => {
                 const colLabel = (i >= 26 ? String.fromCharCode(64 + Math.floor(i / 26)) : '') + String.fromCharCode(65 + (i % 26));
                 return \`<option value="\${i}">\${colLabel}列：\${h}</option>\`;
               }).join('');
               
 
-              const mIdx = headers.findIndex(h => h.includes(['名', '規格', 'YJ', 'メモ'][idx]));
-              if(mIdx !== -1) sel.value = mIdx;
-            });
-            document.getElementById('mappingArea').style.display = 'block';
-          };
-          reader.readAsArrayBuffer(e.target.files[0]);
-        };
+              const mIdx = headers.findIndex(h => h.includes(['名', '規格', 'YJ', 'メモ'][idx]));
+              if(mIdx !== -1) sel.value = mIdx;
+            });
+            document.getElementById('mappingArea').style.display = 'block';
+          };
+          reader.readAsArrayBuffer(e.target.files[0]);
+        };
         let uploadPayload = []; let keysToRemove = []; let finalCount = 0;
         document.getElementById('btnPreview').onclick = async () => {
           const iN = parseInt(document.getElementById('mapName').value), 
