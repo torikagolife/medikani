@@ -4,38 +4,63 @@
  * 2. その直後にCloudflare KVを更新（個別更新）
  */
 function doPost(e) {
-  const params = JSON.parse(e.postData.contents);
-  const targetId = params.facilityId; // 施設ID
-  const newPwd = params.newPassword;  // 新しいパスワード
-  
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const masterSheet = ss.getSheetByName("顧客マスタ");
-  const data = masterSheet.getDataRange().getValues();
-  
-  let targetRow = -1;
-  
-  // 1. スプレッドシートの対象行を探す
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][7]).trim() === targetId) { // H列(7)が施設ID
-      targetRow = i + 1;
-      break;
+  try {
+    const params = JSON.parse(e.postData.contents);
+    const targetId = params.facilityId; // 施設ID
+    
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const masterSheet = ss.getSheetByName("顧客マスタ");
+    
+    // AA列(27列目)が存在しない場合は自動で列を追加する
+    if (masterSheet.getMaxColumns() < 27) {
+      masterSheet.insertColumnsAfter(masterSheet.getMaxColumns(), 27 - masterSheet.getMaxColumns());
     }
+
+    const data = masterSheet.getDataRange().getValues();
+    
+    let targetRow = -1;
+    
+    // 1. スプレッドシートの対象行を探す
+    for (let i = 1; i < data.length; i++) {
+      // 🔥 修正: 施設IDは「I列」なのでインデックスは「8」
+      if (String(data[i][8]).trim() === targetId) {
+        targetRow = i + 1;
+        break;
+      }
+    }
+    
+    if (targetRow === -1) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, message: "IDが見つかりません" })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    let successKV = true;
+
+    // 2. スプレッドシートとKVを更新（リクエストに含まれるものを処理）
+    
+    // 管理者パスワードの更新
+    if (params.newPassword !== undefined) {
+      masterSheet.getRange(targetRow, 25).setValue(params.newPassword); // Y列は25番目
+      successKV = updateSingleKV(`${targetId}_pwd`, params.newPassword);
+    }
+    
+    // ユーザーパスワードの更新
+    if (params.newUserPassword !== undefined) {
+      masterSheet.getRange(targetRow, 27).setValue(params.newUserPassword); // AA列は27番目
+      successKV = updateSingleKV(`${targetId}_userpwd`, params.newUserPassword);
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({ 
+      success: successKV, 
+      message: successKV ? "更新完了" : "KV更新失敗" 
+    })).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    // GASがクラッシュしても絶対にJSONでエラーを返す（Worker側に生々しいエラーを届ける）
+    return ContentService.createTextOutput(JSON.stringify({ 
+      success: false, 
+      message: "GAS側例外: " + err.message + " / " + err.stack
+    })).setMimeType(ContentService.MimeType.JSON);
   }
-  
-  if (targetRow === -1) {
-    return ContentService.createTextOutput(JSON.stringify({ success: false, message: "IDが見つかりません" })).setMimeType(ContentService.MimeType.JSON);
-  }
-  
-  // 2. スプレッドシート（Y列:24）を更新
-  masterSheet.getRange(targetRow, 25).setValue(newPwd); // Y列は25番目
-  
-  // 3. 連携してCloudflare KVもその場で更新（個別更新）
-  const successKV = updateSingleKV(`${targetId}_pwd`, newPwd);
-  
-  return ContentService.createTextOutput(JSON.stringify({ 
-    success: successKV, 
-    message: successKV ? "更新完了" : "KV更新失敗" 
-  })).setMimeType(ContentService.MimeType.JSON);
 }
 
 /**
@@ -48,12 +73,19 @@ function updateSingleKV(key, value) {
   const CF_API_TOKEN = props.getProperty('CF_API_TOKEN');
   
   const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/${key}`;
-  const options = {
-    method: 'put',
+  
+  let options = {
     headers: { 'Authorization': `Bearer ${CF_API_TOKEN}` },
-    payload: value,
     muteHttpExceptions: true
   };
+
+  // 値が空文字（パスワード解除）の時は PUT ではなく DELETE を使う
+  if (value === "") {
+    options.method = 'delete';
+  } else {
+    options.method = 'put';
+    options.payload = value;
+  }
   
   const response = UrlFetchApp.fetch(url, options);
   return response.getResponseCode() === 200;
@@ -138,15 +170,24 @@ function syncAllSheetsToKV() {
     const cData = customerSheet.getDataRange().getValues();
     for (let i = 1; i < cData.length; i++) {
       const row = cData[i];
-      const hId = String(row[7] || "").trim();    // H列: 施設ID
-      const hName = String(row[8] || "").trim();  // I列: 施設名
-      const hPwd = String(row[24] || "").trim();  // Y列: パスワード
+      // 🔥 修正: 施設IDは「I列」なのでインデックスは「8」
+      const hId = String(row[8] || "").trim();    
+      
+      // ※注意：もし施設名が「H列」や「J列」にズレている場合は、ここの数字(現状は8にしていましたが、元がI列想定だったので一旦そのままか、実態に合わせてください)を調整してください。
+      // もしH列が施設名なら row[7] 、J列が施設名なら row[9] になります。
+      const hName = String(row[7] || "").trim();  // 一旦H列(7)を施設名と仮定して取得しています
+      
+      const hPwd = String(row[24] || "").trim();  // Y列: 管理者パスワード
+      const hUserPwd = String(row[26] || "").trim(); // AA列: ユーザー用パスワード
 
       if (hId && hName) {
         allBody.push({ key: `${hId}_name`, value: hName });
       }
       if (hId && hPwd) {
         allBody.push({ key: `${hId}_pwd`, value: hPwd });
+      }
+      if (hId && hUserPwd) {
+        allBody.push({ key: `${hId}_userpwd`, value: hUserPwd });
       }
     }
   }
