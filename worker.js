@@ -6,7 +6,7 @@ function getBestYJ(key, parts) {
 }
 
 // Webサービス: 医薬品検索（メディカニ・ハイブリッド検索＆個別メモ対応版　）
-// 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用), ASK_FORM_URL(問合せフォームURL), G_FORM_ID(フォームの施設ID項目)
+// 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用), ASK_FORM_URL(問合せフォームURL), G_FORM_ID(フォームの施設ID項目), STRIPE_PORTAL_URL(StripeカスタマーポータルのURL)
 
 export default {
   async fetch(request, env) {
@@ -1460,8 +1460,7 @@ export default {
       <div id="sysHelpData" style="display:none;">${env.HELP_TEXT || "環境変数 HELP_TEXT に使い方の説明などを設定してください。"}</div>
       <div class="header">
         <h1>
-          <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" alt="メディカニロゴ" style="height: 60px;">
-          メディカニ 医薬品検索💊
+          <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/medikanilogo.png" alt="メディカニ 医薬品検索" style="height: 50px; max-width: 100%; object-fit: contain;">
         </h1>
         ${hospitalName ? `<div style="margin-top: 8px; display: inline-block; background: rgba(255,255,255,0.7); color: #d63384; font-size: 13px; font-weight: bold; padding: 4px 12px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">🏥 ${hospitalName}</div>` : ''}
       </div>
@@ -2278,6 +2277,13 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           <a href="${env.ASK_FORM_URL}${env.ASK_FORM_URL.includes('?') ? '&' : '?'}${env.G_FORM_ID || ''}=${hospitalId}" target="_blank" class="btn" style="background:#6c757d; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none; margin-top:0;">✉️ お問い合わせフォームを開く</a>
         </div>
         ` : ''}
+
+        <div class="card" style="border-top: 4px solid #495057;">
+          <h2>💳 契約変更・退会手続き</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:15px;">クレジットカード情報の変更や、メディカニ・プラスの解約（退会）はStripeの決済管理画面からお手続きできますカニ🦀</p>
+          <!-- ↓ココを修正！環境変数が設定されていない場合はアラートを出します -->
+          <a href="${env.STRIPE_PORTAL_URL || '#'}" target="_blank" class="btn" onclick="if(this.getAttribute('href')==='#'){alert('StripeポータルのURLが環境変数(STRIPE_PORTAL_URL)に設定されていませんカニ🦀'); return false;}" style="background:#495057; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none; margin-top:0;">🚪 退会・変更はこちら</a>
+        </div>
 
         <div style="text-align:center; margin-top:20px; margin-bottom:40px;"><a href="/${hospitalId}" style="color:#0056b3; font-weight:bold; text-decoration:none;">🌍 実際の検索画面へ戻る</a></div>
       </div>
