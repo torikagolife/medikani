@@ -1486,6 +1486,10 @@ export default {
           </div>
           <div id="topHistoryArea" style="margin-top:10px;"></div>
           <div id="boardArea"></div>
+          <a href="${env.INTRO_FORM_URL || '#'}" target="_blank" style="display:block; margin-top:15px; padding:15px; background:linear-gradient(135deg, #ff9d00, #ff5722); color:#fff; border-radius:15px; text-decoration:none; font-weight:bold; box-shadow:0 4px 10px rgba(255,87,34,0.3); text-align:center;">
+            <div style="font-size:15px; margin-bottom:5px;">【ご紹介キャンペーン🎁】</div>
+            <div style="font-size:12px; line-height:1.4;">メディカニ・プラス🦀をあなたの職場やお知り合いの施設にご紹介で、あなたとご紹介先にAmazonギフトカード2,000円分プレゼント！✨️</div>
+          </a>
         </div>
       </div>
       <div id="modalOverlay" onclick="closeModal(event)"><div class="modal" onclick="event.stopPropagation()">
@@ -1534,6 +1538,26 @@ export default {
             </div>
           </div>
         \`;
+
+        const introCampaignHTML = \`
+          <a href="${env.INTRO_FORM_URL || '#'}" target="_blank" style="display:block; margin-top:15px; padding:15px; background:linear-gradient(135deg, #ff9d00, #ff5722); color:#fff; border-radius:15px; text-decoration:none; font-weight:bold; box-shadow:0 4px 10px rgba(255,87,34,0.3); text-align:center;">
+            <div style="font-size:15px; margin-bottom:5px;">【ご紹介キャンペーン🎁】</div>
+            <div style="font-size:12px; line-height:1.4;">メディカニ・プラス🦀をあなたの職場やお知り合いの施設にご紹介で、あなたとご紹介先にAmazonギフトカード2,000円分プレゼント！✨️</div>
+          </a>
+        \`;
+
+        const signFormHTML = \`
+          <a href="${env.SIGN_FORM_URL || '#'}" target="_blank" style="display:block; margin-top:5px; padding:15px; background:#28a745; color:#fff; border-radius:15px; text-decoration:none; font-weight:bold; box-shadow:0 4px 10px rgba(40,167,69,0.3); text-align:center; font-size:15px;">
+            📝 メディカニ・プラスに申し込む
+          </a>
+        \`;
+
+        const simpleIntroHTML = \`
+          <a href="${env.INTRO_FORM_URL || '#'}" target="_blank" style="display:block; margin-bottom:10px; padding:12px; background:#fff3e0; color:#e65100; border-radius:12px; text-decoration:none; font-weight:bold; border:1px solid #ffcc80; box-sizing:border-box; font-size:13px;">
+            🎁 プラスご紹介キャンペーン中 ✨
+          </a>
+        \`;
+
         function copyShareText() {
           const textArea = document.getElementById('shareText');
           textArea.select();
@@ -1721,7 +1745,7 @@ let trackVal = 0;
             clearTimeout(timer);
             document.getElementById('loading').style.display = 'none';
             const helpEl = document.getElementById('sysHelpData');
-            resDiv.innerHTML = '<div class="help-box">' + (helpEl ? helpEl.innerHTML : '説明文がありませんカニ🦀') + '</div>' + promoHTML + '<div style="margin-top:20px; text-align:center;"><a href="https://medikani.com/info" target="_blank" style="display:block; background:#e3f2fd; color:#0056b3; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a></div>';
+            resDiv.innerHTML = '<div class="help-box">' + (helpEl ? helpEl.innerHTML : '説明文がありませんカニ🦀') + '</div>' + promoHTML + '<div style="margin-top:20px; text-align:center;">' + simpleIntroHTML + '<a href="https://medikani.com/info" target="_blank" style="display:block; background:#e3f2fd; color:#0056b3; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a></div>';
             return;
           }
           if (currentCat === '[履歴]') { clearTimeout(timer); renderHistory(); return; }
@@ -1737,7 +1761,12 @@ let trackVal = 0;
                 <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
                   <a href="/" style="background:#eee; color:#555; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🌍 一般モードに戻る</a>
                   <a href="/\${hId}/admin" style="background:#fff0f5; color:#d63384; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #ffcdd2;">⚙️ 管理画面を開く</a>
-                </div>
+                  <a href="https://medikani.com/info" target="_blank" style="background:#e3f2fd; color:#0056b3; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb;">ℹ️ 公式サイトで詳しく見る</a>
+                            <a href="${env.INTRO_FORM_URL || '#'}" target="_blank" style="display:block; margin-top:15px; padding:15px; background:linear-gradient(135deg, #ff9d00, #ff5722); color:#fff; border-radius:15px; text-decoration:none; font-weight:bold; box-shadow:0 4px 10px rgba(255,87,34,0.3); text-align:center;">
+            <div style="font-size:15px; margin-bottom:5px;">【ご紹介キャンペーン🎁】</div>
+            <div style="font-size:12px; line-height:1.4;">メディカニ・プラス🦀をあなたの職場やお知り合いの施設にご紹介で、あなたとご紹介先にAmazonギフトカード2,000円分プレゼント！✨️</div>
+          </a>
+          </div>
               </div>\`;
             } else {
               resDiv.innerHTML = \`<div class="no-results" style="background:white; border-radius:20px; padding:30px; border:2px dashed var(--main-orange);">
@@ -1746,6 +1775,8 @@ let trackVal = 0;
                 <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
                   <a href="/HPTEST1" style="background:var(--main-orange); color:white; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🏥 デモ施設のプラスモードを試す</a>
                   <a href="https://medikani.com/info" target="_blank" style="background:#e3f2fd; color:#0056b3; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb;">ℹ️ 公式サイトで詳しく見る</a>
+                  \${signFormHTML}
+                  \${introCampaignHTML}
                 </div>
                 <p style="font-size:11px; color:#aaa; margin-top:15px;">※実際に触ってみて体験して欲しいカニ🦀</p>
               </div>\`;
@@ -1755,7 +1786,7 @@ let trackVal = 0;
           
           // 検索文字が空になったらデフォルト表示（カニのつぶやき ＋ お知らせ）に戻す
           if (q.length === 0) {
-            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="topHistoryArea" style="margin-top:10px;"></div><div id="boardArea">' + (window.boardHTML || '') + '</div></div>';
+            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="topHistoryArea" style="margin-top:10px;"></div><div id="boardArea">' + (window.boardHTML || '') + '</div>' + introCampaignHTML + '</div>';
             renderTopHistory(currentCat);
             return;
           }
