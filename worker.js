@@ -2076,9 +2076,10 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
     <link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani-icon.png">
     <link rel="apple-touch-icon" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani-icon.png">
-    <title>メディカニ・プラス 管理画面🦀</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/encoding-japanese/2.0.0/encoding.min.js"></script>
-    <style>
+<title>メディカニ・プラス 管理画面🦀</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/encoding-japanese/2.0.0/encoding.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
       :root { --main-blue: #0056b3; --bg: #f4f7f6; }
       body { font-family: sans-serif; background: var(--bg); margin: 0; padding: 0; color: #333; }
       .header { background: var(--main-blue); color: #fff; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
@@ -2215,13 +2216,13 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
         </div>
 
         <div class="card">
-          <h2>📥 CSVデータのアップロード</h2>
-          <p style="font-size:12px; color:#666; margin-bottom:15px;">一括更新はこちら。フル更新と追加更新が出来るよ🦀</p>
-          <label class="dropzone" id="dropzone">
-            <div style="font-size:24px; margin-bottom:10px;">📄</div>
-            <div style="font-size:14px; color:#555; font-weight:bold;">CSVファイルをタップして選択</div>
-            <input type="file" id="csvFile" accept=".csv">
-          </label>
+          <h2>📥 CSV/Excelデータのアップロード</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:15px;">一括更新はこちら。フル更新と追加更新が出来るよ🦀</p>
+          <label class="dropzone" id="dropzone">
+            <div style="font-size:24px; margin-bottom:10px;">📄</div>
+            <div style="font-size:14px; color:#555; font-weight:bold;">CSVまたはExcelファイルをタップして選択</div>
+            <input type="file" id="csvFile" accept=".csv, .xlsx, .xls">
+          </label>
           <div class="mapping-area" id="mappingArea">
             <h3 style="font-size:14px; color:#d63384; margin-top:0;">🔀 列の紐付け（自動選択）</h3>
             <div class="map-row"><label>💊 薬品名 (必須)</label><select id="mapName"></select></div>
@@ -2579,34 +2580,54 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           return rows.filter(r => r.join('').trim() !== '');
         }
 document.getElementById('csvFile').onchange = (e) => {
-          const reader = new FileReader();
-          reader.onload = (evt) => {
-            const uint8Array = new Uint8Array(evt.target.result);
-            const unicodeArray = Encoding.convert(uint8Array, {
-                to: 'UNICODE',
-                from: 'AUTO'
-            });
-            const csvText = Encoding.codeToString(unicodeArray);
-            
-            const rows = parseCSV(csvText);
-            headers = rows[0]; parsedData = rows.slice(1);
-            ['mapName', 'mapSpec', 'mapYJ', 'mapC1'].forEach((sid, idx) => {
-              const sel = document.getElementById(sid);
-              
-              
-              sel.innerHTML = '<option value="-1">なし</option>' + headers.map((h, i) => {
-                const colLabel = (i >= 26 ? String.fromCharCode(64 + Math.floor(i / 26)) : '') + String.fromCharCode(65 + (i % 26));
-                return \`<option value="\${i}">\${colLabel}列：\${h}</option>\`;
-              }).join('');
-              
+          const file = e.target.files[0];
+          if(!file) return;
+          const fileName = file.name.toLowerCase();
+          const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
 
-              const mIdx = headers.findIndex(h => h.includes(['名', '規格', 'YJ', 'メモ'][idx]));
-              if(mIdx !== -1) sel.value = mIdx;
-            });
-            document.getElementById('mappingArea').style.display = 'block';
-          };
-          reader.readAsArrayBuffer(e.target.files[0]);
-        };
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            const uint8Array = new Uint8Array(evt.target.result);
+            let rows = [];
+
+            if (isExcel) {
+              // Excelの読み込み処理 (SheetJSを使用)
+              const workbook = XLSX.read(uint8Array, {type: 'array'});
+              const firstSheetName = workbook.SheetNames[0]; // 1番左のシートを取得
+              const worksheet = workbook.Sheets[firstSheetName];
+              // ヘッダーも含めた2次元配列として取得 (空白セルも詰める)
+              rows = XLSX.utils.sheet_to_json(worksheet, {header: 1, defval: ""});
+              // 空行を排除
+              rows = rows.filter(r => r.join('').trim() !== '');
+            } else {
+              // 従来のCSV読み込み処理
+              const unicodeArray = Encoding.convert(uint8Array, {
+                  to: 'UNICODE',
+                  from: 'AUTO'
+              });
+              const csvText = Encoding.codeToString(unicodeArray);
+              rows = parseCSV(csvText);
+            }
+
+            headers = rows[0] || []; parsedData = rows.slice(1);
+            ['mapName', 'mapSpec', 'mapYJ', 'mapC1'].forEach((sid, idx) => {
+              const sel = document.getElementById(sid);
+              
+              
+              sel.innerHTML = '<option value="-1">なし</option>' + headers.map((h, i) => {
+                const colLabel = (i >= 26 ? String.fromCharCode(64 + Math.floor(i / 26)) : '') + String.fromCharCode(65 + (i % 26));
+                // Excelのヘッダーが数値になる場合を考慮して String(h) にする
+                return \`<option value="\${i}">\${colLabel}列：\${String(h)}</option>\`;
+              }).join('');
+              
+
+              const mIdx = headers.findIndex(h => String(h).includes(['名', '規格', 'YJ', 'メモ'][idx]));
+              if(mIdx !== -1) sel.value = mIdx;
+            });
+            document.getElementById('mappingArea').style.display = 'block';
+          };
+          reader.readAsArrayBuffer(file);
+        };
         let uploadPayload = []; let keysToRemove = []; let finalCount = 0;
         document.getElementById('btnPreview').onclick = async () => {
           const iN = parseInt(document.getElementById('mapName').value), 
