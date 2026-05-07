@@ -164,24 +164,24 @@ function syncAllSheetsToKV() {
     allBody.push({ key: compKey, value: JSON.stringify(compIndex[compKey]) });
   }
 
-  // --- ②-2 顧客マスタ（施設名・パスワード）の同期 ---
+  // --- ②-2 顧客マスタ（施設名・パスワード・StripeID）の同期 ---
   const customerSheet = ss.getSheetByName("顧客マスタ");
   if (customerSheet) {
     const cData = customerSheet.getDataRange().getValues();
     for (let i = 1; i < cData.length; i++) {
       const row = cData[i];
-      // 🔥 修正: 施設IDは「I列」なのでインデックスは「8」
-      const hId = String(row[8] || "").trim();    
+      const hId = String(row[8] || "").trim();    // I列: 施設ID
       
-      // ※注意：もし施設名が「H列」や「J列」にズレている場合は、ここの数字(現状は8にしていましたが、元がI列想定だったので一旦そのままか、実態に合わせてください)を調整してください。
-      // もしH列が施設名なら row[7] 、J列が施設名なら row[9] になります。
-      const hName = String(row[7] || "").trim();  // 一旦H列(7)を施設名と仮定して取得しています
-      
+      const hName = String(row[7] || "").trim();  // H列: 施設名
+      const stripeId = String(row[23] || "").trim(); // ★追加: X列 StripeID
       const hPwd = String(row[24] || "").trim();  // Y列: 管理者パスワード
       const hUserPwd = String(row[26] || "").trim(); // AA列: ユーザー用パスワード
 
       if (hId && hName) {
         allBody.push({ key: `${hId}_name`, value: hName });
+      }
+      if (hId && stripeId) {
+        allBody.push({ key: `${hId}_stripe_id`, value: stripeId }); // ★追加
       }
       if (hId && hPwd) {
         allBody.push({ key: `${hId}_pwd`, value: hPwd });
