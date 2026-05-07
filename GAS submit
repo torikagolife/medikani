@@ -1,237 +1,330 @@
 /**
- * フォーム送信時に実行されるメイン関数（申し込み・お問い合わせ両対応）
- */
+ * フォーム送信時に実行されるメイン関数（申し込み・お問い合わせ・紹介キャンペーン対応）
+ */
 function onFormSubmit(e) {
-  // --- 【設定】スクリプトプロパティからAPIキーを取得 ---
-  const RESEND_API_KEY = PropertiesService.getScriptProperties().getProperty('RESEND_API_KEY');
-  const FROM_EMAIL = "メディカニ管理 <info@medikani.com>";
+  // --- 【設定】スクリプトプロパティからAPIキーを取得 ---
+  const RESEND_API_KEY = PropertiesService.getScriptProperties().getProperty('RESEND_API_KEY');
+  const FROM_EMAIL = "メディカニ管理 <info@medikani.com>";
 
-  // 判定ロジック：フォームに「施設タイプ」という項目があれば「申し込み」、なければ「お問い合わせ」とみなす
-  if (e.namedValues['施設タイプ']) {
-    handleApplicationForm(e, RESEND_API_KEY, FROM_EMAIL);
-  } else if (e.namedValues['お問い合わせ項目']) {
-    handleInquiryForm(e, RESEND_API_KEY, FROM_EMAIL);
-  }
+  // 判定ロジック：フォーム特有の項目名でどのフォームからの送信かを判定する
+  if (e.namedValues['施設タイプ']) {
+    handleApplicationForm(e, RESEND_API_KEY, FROM_EMAIL);
+  } else if (e.namedValues['お問い合わせ項目']) {
+    handleInquiryForm(e, RESEND_API_KEY, FROM_EMAIL);
+  } else if (e.namedValues['あなたのお名前']) {
+    handleReferralForm(e, RESEND_API_KEY, FROM_EMAIL);
+  }
 }
 
 /**
- * 【A】プラン申し込みフォームの処理
- */
+ * 【A】プラン申し込みフォームの処理
+ */
 function handleApplicationForm(e, RESEND_API_KEY, FROM_EMAIL) {
-  // 1. フォームの入力データを取得
-  const timestamp = e.namedValues['タイムスタンプ'] ? e.namedValues['タイムスタンプ'][0] : "";
-  const facilityInput = e.namedValues['施設タイプ'] ? e.namedValues['施設タイプ'][0] : "";
-  const paymentCycle = e.namedValues['お支払いサイクル'] ? e.namedValues['お支払いサイクル'][0] : "";
-  const expectedUsers = e.namedValues['予想ユーザー数'] ? e.namedValues['予想ユーザー数'][0] : "";
-  const companyName = e.namedValues['会社名'] ? e.namedValues['会社名'][0] : "";
-  const departmentName = e.namedValues['部署名'] ? e.namedValues['部署名'][0] : "";
-  const personName = e.namedValues['お名前'] ? e.namedValues['お名前'][0] : "";
-  const email = e.namedValues['返信用メールアドレス'] ? e.namedValues['返信用メールアドレス'][0] : "";
-  const phone = e.namedValues['お電話番号'] ? e.namedValues['お電話番号'][0] : "";
-  const zip = e.namedValues['郵便番号(ハイフン無し)'] ? e.namedValues['郵便番号(ハイフン無し)'][0] : "";
-  const address = e.namedValues['ご住所'] ? e.namedValues['ご住所'][0] : "";
-  const requestedId = e.namedValues['ご希望ID(英数字6桁～12桁)'] ? e.namedValues['ご希望ID(英数字6桁～12桁)'][0] : "";
-  const paymentMethod = e.namedValues['決済方法'] ? e.namedValues['決済方法'][0] : "";
-  const message = e.namedValues['備考・メッセージ'] ? e.namedValues['備考・メッセージ'][0] : "";
+  // 1. フォームの入力データを取得
+  const timestamp = e.namedValues['タイムスタンプ'] ? e.namedValues['タイムスタンプ'][0] : "";
+  const facilityInput = e.namedValues['施設タイプ'] ? e.namedValues['施設タイプ'][0] : "";
+  const paymentCycle = e.namedValues['お支払いサイクル'] ? e.namedValues['お支払いサイクル'][0] : "";
+  const expectedUsers = e.namedValues['予想ユーザー数'] ? e.namedValues['予想ユーザー数'][0] : "";
+  const companyName = e.namedValues['会社名'] ? e.namedValues['会社名'][0] : "";
+  const departmentName = e.namedValues['部署名'] ? e.namedValues['部署名'][0] : "";
+  const personName = e.namedValues['お名前'] ? e.namedValues['お名前'][0] : "";
+  const email = e.namedValues['返信用メールアドレス'] ? e.namedValues['返信用メールアドレス'][0] : "";
+  const phone = e.namedValues['お電話番号'] ? e.namedValues['お電話番号'][0] : "";
+  const zip = e.namedValues['郵便番号(ハイフン無し)'] ? e.namedValues['郵便番号(ハイフン無し)'][0] : "";
+  const address = e.namedValues['ご住所'] ? e.namedValues['ご住所'][0] : "";
+  const requestedId = e.namedValues['ご希望ID(英数字6桁～12桁)'] ? e.namedValues['ご希望ID(英数字6桁～12桁)'][0] : "";
+  const paymentMethod = e.namedValues['決済方法'] ? e.namedValues['決済方法'][0] : "";
+  const message = e.namedValues['備考・メッセージ'] ? e.namedValues['備考・メッセージ'][0] : "";
 
-  // --- 重複チェックロジック ---
-  // ID列は I列（9番目）をチェックします
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const masterSheet = ss.getSheetByName('顧客マスタ'); 
-  const lastRow = masterSheet.getLastRow();
+  // --- 重複チェックロジック ---
+  // ID列は I列（9番目）をチェックします
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const masterSheet = ss.getSheetByName('顧客マスタ'); 
+  const lastRow = masterSheet.getLastRow();
 
-  if (lastRow > 1) {
-    const existingIds = masterSheet.getRange(2, 9, lastRow - 1, 1).getValues().flat();
-    if (existingIds.includes(requestedId)) {
-      const errorSubject = "【要確認】ご希望のIDは既に使用されています";
-      const errorBody = `${companyName}\n${personName} 様\n\n「メディカニ・プラス」へのお申し込みありがとうございます。\n\n入力いただいたご希望ID「${requestedId}」は、既に他のお客様が使用されているため、登録することができません。\n\n大変お手数ですが、別のIDにて再度お申し込みフォームよりご入力をお願いいたします。\n\n※このメールは自動返信で送信されています。\n引き続きよろしくお願いいたします。`;
-      sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, email, errorSubject, errorBody);
-      return; 
-    }
-  }
+  if (lastRow > 1) {
+    const existingIds = masterSheet.getRange(2, 9, lastRow - 1, 1).getValues().flat();
+    if (existingIds.includes(requestedId)) {
+      const errorSubject = "【要確認】ご希望のIDは既に使用されています";
+      const errorBody = `${companyName}\n${personName} 様\n\n「メディカニ・プラス」へのお申し込みありがとうございます。\n\n入力いただいたご希望ID「${requestedId}」は、既に他のお客様が使用されているため、登録することができません。\n\n大変お手数ですが、別のIDにて再度お申し込みフォームよりご入力をお願いいたします。\n\n※このメールは自動返信で送信されています。\n引き続きよろしくお願いいたします。`;
+      sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, email, errorSubject, errorBody);
+      return; 
+    }
+  }
 
-  // 2. 新料金体系（月額・年額）の判定ロジック
-  let planName = "";
-  let stripeLink = "";
-  let monthlyPrice = "";
-  let yearlyPrice = "";
-  const isYearly = paymentCycle.includes("年払い");
+  // 2. 新料金体系（月額・年額）の判定ロジック
+  let planName = "";
+  let stripeLink = "";
+  let monthlyPrice = "";
+  let yearlyPrice = "";
+  const isYearly = paymentCycle.includes("年払い");
 
-  // 施設種別ごとのマッピングデータ
-  const planMap = {
-    '調剤薬局': { id: 'PLUS_T1', m: '1480', y: '14800' },
-    'クリニック': { id: 'PLUS_C1', m: '1980', y: '19800' },
-    '病院（100床未満）': { id: 'PLUS_H1', m: '2980', y: '29800' },
-    '病院（100床～199床）': { id: 'PLUS_H2', m: '4980', y: '49800' },
-    '病院（200床以上）': { id: 'PLUS_H3', m: '7980', y: '79800' },
-    'その他': { id: 'PLUS_K1', m: '980', y: '9800' },
-    'テスト用': { id: 'PLUS_0', m: '0', y: '0' }
-  };
+  // 施設種別ごとのマッピングデータ
+  const planMap = {
+    '調剤薬局': { id: 'PLUS_T1', m: '1480', y: '14800' },
+    'クリニック': { id: 'PLUS_C1', m: '1980', y: '19800' },
+    '病院（100床未満）': { id: 'PLUS_H1', m: '2980', y: '29800' },
+    '病院（100床～199床）': { id: 'PLUS_H2', m: '4980', y: '49800' },
+    '病院（200床以上）': { id: 'PLUS_H3', m: '7980', y: '79800' },
+    'その他': { id: 'PLUS_K1', m: '980', y: '9800' },
+    'テスト用': { id: 'PLUS_0', m: '0', y: '0' }
+  };
 
-  // 入力された長い「施設タイプ」文字列から基本プランを特定
-  let basePlan = { id: facilityInput, m: '0', y: '0' };
-  for (let key in planMap) {
-    if (facilityInput.includes(key)) {
-      basePlan = planMap[key];
-      break;
-    }
-  }
+  // 入力された長い「施設タイプ」文字列から基本プランを特定
+  let basePlan = { id: facilityInput, m: '0', y: '0' };
+  for (let key in planMap) {
+    if (facilityInput.includes(key)) {
+      basePlan = planMap[key];
+      break;
+    }
+  }
 
-  planName = basePlan.id + (isYearly ? 'Y' : 'M');
-  monthlyPrice = basePlan.m;
-  yearlyPrice = basePlan.y;
-  
-  // Stripeリンク（スクリプトプロパティから取得）
-  if (planName === 'PLUS_0M' || planName === 'PLUS_0Y') {
-    stripeLink = "https://medikani.com/test-payment"; // テスト用プランのフォールバック
-  } else {
-    stripeLink = PropertiesService.getScriptProperties().getProperty('STP_' + planName) || "https://medikani.com/contact";
-  }
+  planName = basePlan.id + (isYearly ? 'Y' : 'M');
+  monthlyPrice = basePlan.m;
+  yearlyPrice = basePlan.y;
+  
+  // Stripeリンク（スクリプトプロパティから取得）
+  if (planName === 'PLUS_0M' || planName === 'PLUS_0Y') {
+    stripeLink = "https://medikani.com/test-payment"; // テスト用プランのフォールバック
+  } else {
+    stripeLink = PropertiesService.getScriptProperties().getProperty('STP_' + planName) || "https://medikani.com/contact";
+    if (stripeLink.includes("buy.stripe.com")) {
+      const separator = stripeLink.includes("?") ? "&" : "?";
+      stripeLink += `${separator}prefilled_email=${encodeURIComponent(email)}&client_reference_id=${encodeURIComponent(requestedId)}`;
+    }
+  }
 
-  // 3. 「顧客マスタ」シートへの転記処理（列構成の変更に対応）
-  const no = masterSheet.getLastRow(); 
-  const regDate = timestamp.split(' ')[0];
-  
-  // 指定された通り、半角スペースより前のテキストをK列に書き込む
-  const cleanedFacilityType = facilityInput.split(' ')[0];
+  // 3. 「顧客マスタ」シートへの転記処理（列構成の変更に対応）
+  const no = masterSheet.getLastRow(); 
+  const regDate = timestamp.split(' ')[0];
+  
+  // 指定された通り、半角スペースより前のテキストをK列に書き込む
+  const cleanedFacilityType = facilityInput.split(' ')[0];
 
-  // 新しい列構成（A〜Z）
-  const newRow = [
-    no,                      // A: No
-    "案内済み",                // B: ｽﾃｰﾀｽ
-    planName,                // C: プラン
-    isYearly ? "" : monthlyPrice, // D: 月払い料金（年払い時は空欄）
-    isYearly ? yearlyPrice : "",  // E: 年払い料金（月払い時は空欄）
-    regDate,                 // F: 申込日
-    "",                      // G: 開始日
-    "",                      // H: 終了日
-    requestedId,             // I: ID
-    companyName,             // J: 施設名
-    cleanedFacilityType,     // K: 形態 (施設タイプ)
-    false,                   // L: チェック
-    "",                      // M: とりメモ①
-    "",                      // N: とりメモ②
-    paymentMethod,           // O: 決済手段
-    expectedUsers,           // P: 予想ユーザ数
-    zip,                     // Q: 郵便番号
-    address,                 // R: ご住所
-    phone,                   // S: 電話番号
-    email,                   // T: メールアドレス
-    departmentName,          // U: 部署
-    personName,              // V: 担当者
-    message,                 // W: ユーザーコメント
-    "",                      // X: StripeID
-    "",                      // Y: StripeSSID
-    requestedId              // Z: パスワード (初期値はID)
-  ];
+  // 新しい列構成（A〜AA）
+  const newRow = [
+    no,                      // A: No
+    "案内済み",                // B: ｽﾃｰﾀｽ
+    planName,                // C: プラン
+    isYearly ? "" : monthlyPrice, // D: 月払い料金（年払い時は空欄）
+    isYearly ? yearlyPrice : "",  // E: 年払い料金（月払い時は空欄）
+    regDate,                 // F: 申込日
+    "",                      // G: 開始日
+    "",                      // H: 終了日
+    requestedId,             // I: ID
+    companyName,             // J: 施設名
+    cleanedFacilityType,     // K: 形態 (施設タイプ)
+    false,                   // L: チェック
+    "",                      // M: とりメモ①
+    "",                      // N: とりメモ②
+    paymentMethod,           // O: 決済手段
+    expectedUsers,           // P: 予想ユーザ数
+    zip,                     // Q: 郵便番号
+    address,                 // R: ご住所
+    phone,                   // S: 電話番号
+    email,                   // T: メールアドレス
+    departmentName,          // U: 部署
+    personName,              // V: 担当者
+    message,                 // W: ユーザーコメント
+    "",                      // X: StripeID
+    "",                      // Y: StripeSSID
+    requestedId,             // Z: パスワード (初期値はID)
+    ""                       // AA: 一般ユーザー用パスワード（初期値は空）
+  ];
 
-  masterSheet.appendRow(newRow);
+  masterSheet.appendRow(newRow);
 
-  // 4. お客様へのメール自動送信
-  const subject = "【メディカニ】ご利用申し込みの受付と決済のご案内";
-  const cycleText = isYearly ? "年払い（2ヶ月分お得！）" : "月払い（初月無料！）";
-  
-  let body = `${companyName}\n${personName} 様\n\nこの度は「メディカニ・プラス」にお申し込みいただき、誠にありがとうございます。\n\n`;
-  // メール文面も半角スペースでの切り出しに合わせる
-  body += `ご選択プラン: 【${cleanedFacilityType}】 ${cycleText}\n\n`;
+  // 4. お客様へのメール自動送信
+  const subject = "【メディカニ】ご利用申し込みの受付と決済のご案内";
+  const cycleText = isYearly ? "年払い（2ヶ月分お得！）" : "月払い（初月無料！）";
+  
+  let body = `${companyName}\n${personName} 様\n\nこの度は「メディカニ・プラス」にお申し込みいただき、誠にありがとうございます。\n\n`;
+  // メール文面も半角スペースでの切り出しに合わせる
+  body += `ご選択プラン: 【${cleanedFacilityType}】 ${cycleText}\n\n`;
 
-  if (paymentMethod.indexOf('クレジットカード') !== -1) {
-    if (isYearly) {
-      body += `クレジットカード決済のお手続きをお願いいたします。\n以下の安全なStripe決済用リンクより、お手続きにお進みください。\n\n▼決済用リンク\n${stripeLink}\n\n`;
-    } else {
-      body += `お選びいただいた月払いプランは「最初の30日間無料トライアル」となります。\n現時点でのクレジットカード情報のご登録は【不要】ですのでご安心ください。\n以下の安全なStripeリンクより、トライアル開始（アカウント登録）のお手続きにお進みください。\n\n▼無料トライアル開始リンク\n${stripeLink}\n\n`;
-    }
-    body += `お手続きが完了次第、ご登録のメールアドレス宛に初期パスワードと管理画面のURLをお送りいたしますカニ🦀\n`;
-  } else {
-    // 銀行振込（請求書払い）の場合の出し分け
-    if (isYearly) {
-      body += `「${paymentMethod}」での決済を受け付けました。\n後ほど、経理ご担当者様宛に専用の請求書（一括お振込先記載）をメールにてお送りいたしますので、今しばらくお待ちくださいませ。\n\n`;
-      body += `ご入金が確認でき次第、初期パスワードと管理画面のURLをお送りいたします。\n`;
-    } else {
-      body += `お選びいただいた月払いプランは「最初の30日間無料トライアル」となります。\n無料期間中のため、現時点でのお振り込みは【不要】ですのでご安心ください。\n\n`;
-      body += `無料トライアル期間終了のタイミングで、経理ご担当者様宛に専用の請求書（お振込先記載）をメールにてご案内いたします。\n\n`;
-      body += `まずはすぐにご利用いただけるよう、アカウント発行の準備を進めております。\n準備が整い次第、初期パスワードと管理画面のURLをお送りいたしますカニ🦀\n`;
-    }
-  }
-  body += `\nご不明な点がございましたら、本メールにご返信ください。\n引き続きよろしくお願いいたします。\n\n`;
-  body += `--------------------------------------------------\n`;
-  body += `トリの巣ワークス メディカニ運営事務局\n`;
-  body += `〒107-0062 東京都港区南青山3丁目1番36号 青山丸竹ビル6F\n`;
-  body += `TEL: 070-3813-8742\n`;
-  body += `--------------------------------------------------`;
+  if (paymentMethod.indexOf('クレジットカード') !== -1) {
+    if (isYearly) {
+      body += `クレジットカード決済のお手続きをお願いいたします。\n以下の安全なStripe決済用リンクより、お手続きにお進みください。\n\n▼決済用リンク\n${stripeLink}\n\n`;
+    } else {
+      body += `お選びいただいた月払いプランは「最初の30日間無料トライアル」となります。\n現時点でのクレジットカード情報のご登録は【不要】ですのでご安心ください。\n以下の安全なStripeリンクより、トライアル開始（アカウント登録）のお手続きにお進みください。\n\n▼無料トライアル開始リンク\n${stripeLink}\n\n`;
+    }
+    body += `お手続きが完了次第、ご登録のメールアドレス宛に初期パスワードと管理画面のURLをお送りいたしますカニ🦀\n`;
+  } else {
+    // 銀行振込（請求書払い）の場合の出し分け
+    if (isYearly) {
+      body += `「${paymentMethod}」での決済を受け付けました。\n後ほど、経理ご担当者様宛に専用の請求書（一括お振込先記載）をメールにてお送りいたしますので、今しばらくお待ちくださいませ。\n\n`;
+      body += `ご入金が確認でき次第、初期パスワードと管理画面のURLをお送りいたします。\n`;
+    } else {
+      body += `お選びいただいた月払いプランは「最初の30日間無料トライアル」となります。\n無料期間中のため、現時点でのお振り込みは【不要】ですのでご安心ください。\n\n`;
+      body += `無料トライアル期間終了のタイミングで、経理ご担当者様宛に専用の請求書（お振込先記載）をメールにてご案内いたします。\n\n`;
+      body += `まずはすぐにご利用いただけるよう、アカウント発行の準備を進めております。\n準備が整い次第、初期パスワードと管理画面のURLをお送りいたしますカニ🦀\n`;
+    }
+  }
+  body += `\nご不明な点がございましたら、本メールにご返信ください。\n引き続きよろしくお願いいたします。\n\n`;
+  body += `--------------------------------------------------\n`;
+  body += `トリの巣ワークス メディカニ運営事務局\n`;
+  body += `〒107-0062 東京都港区南青山3丁目1番36号 青山丸竹ビル6F\n`;
+  body += `TEL: 070-3813-8742\n`;
+  body += `info@medikani.com\n`;
+  body += `--------------------------------------------------`;
 
-  // 5. 管理者（トリさん）宛の通知
-  const adminSubject = `【新規申込】メディカニ・プラスのお申し込みがありました（${companyName} 様）`;
-  let adminBody = `お申し込みフォームから新規受付がありました。\nスプレッドシートの「顧客マスタ」を確認し、初期パスワードの発行等の手続きを進めてください。\n\n`;
-  adminBody += `--------------------------------------------------\n`;
-  adminBody += `施設名: ${companyName}\n`;
-  adminBody += `お名前: ${personName} 様\n`;
-  adminBody += `プラン: ${cleanedFacilityType} (${cycleText})\n`;
-  adminBody += `決済方法: ${paymentMethod}\n`;
-  adminBody += `希望ID: ${requestedId}\n`;
-  adminBody += `メール: ${email}\n`;
-  adminBody += `電話番号: ${phone}\n`;
-  adminBody += `予想ユーザー数: ${expectedUsers}\n`;
-  adminBody += `--------------------------------------------------\n`;
-  if (message) {
-    adminBody += `備考:\n${message}\n`;
-  }
+  // 5. 管理者（トリさん）宛の通知
+  const adminSubject = `【新規申込】メディカニ・プラスのお申し込みがありました（${companyName} 様）`;
+  let adminBody = `お申し込みフォームから新規受付がありました。\nスプレッドシートの「顧客マスタ」を確認し、初期パスワードの発行等の手続きを進めてください。\n\n`;
+  adminBody += `--------------------------------------------------\n`;
+  adminBody += `施設名: ${companyName}\n`;
+  adminBody += `お名前: ${personName} 様\n`;
+  adminBody += `プラン: ${cleanedFacilityType} (${cycleText})\n`;
+  adminBody += `決済方法: ${paymentMethod}\n`;
+  adminBody += `希望ID: ${requestedId}\n`;
+  adminBody += `メール: ${email}\n`;
+  adminBody += `電話番号: ${phone}\n`;
+  adminBody += `予想ユーザー数: ${expectedUsers}\n`;
+  adminBody += `--------------------------------------------------\n`;
+  if (message) {
+    adminBody += `備考:\n${message}\n`;
+  }
 
-  // 送信実行（ユーザー宛と管理者宛）
-  sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, email, subject, body);
-  sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, "toriweb@gmail.com", adminSubject, adminBody);
+  // 送信実行（ユーザー宛と管理者宛）
+  sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, email, subject, body);
+  sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, "toriweb@gmail.com", adminSubject, adminBody);
 }
 
 /**
- * 【B】お問い合わせフォームの処理
- */
+ * 【B】お問い合わせフォームの処理
+ */
 function handleInquiryForm(e, RESEND_API_KEY, FROM_EMAIL) {
-  // 1. データの取得
-  const companyName = e.namedValues['会社名（任意）'] ? e.namedValues['会社名（任意）'][0] : "（未入力）";
-  const personName = e.namedValues['お名前'] ? e.namedValues['お名前'][0] : "";
-  const email = e.namedValues['返信用メールアドレス'] ? e.namedValues['返信用メールアドレス'][0] : "";
-  const phone = e.namedValues['お電話番号（任意）'] ? e.namedValues['お電話番号（任意）'][0] : "（未入力）";
-  const inquiryTag = e.namedValues['お問い合わせ項目'] ? e.namedValues['お問い合わせ項目'][0] : "";
-  const content = e.namedValues['お問い合わせ内容'] ? e.namedValues['お問い合わせ内容'][0] : "";
+  // 1. データの取得
+  const companyName = e.namedValues['会社名（任意）'] ? e.namedValues['会社名（任意）'][0] : "（未入力）";
+  const personName = e.namedValues['お名前'] ? e.namedValues['お名前'][0] : "";
+  const email = e.namedValues['返信用メールアドレス'] ? e.namedValues['返信用メールアドレス'][0] : "";
+  const phone = e.namedValues['お電話番号（任意）'] ? e.namedValues['お電話番号（任意）'][0] : "（未入力）";
+  const inquiryTag = e.namedValues['お問い合わせ項目'] ? e.namedValues['お問い合わせ項目'][0] : "";
+  const content = e.namedValues['お問い合わせ内容'] ? e.namedValues['お問い合わせ内容'][0] : "";
 
-  // 2. ユーザー宛の自動返信
-  const subject = "【メディカニ】お問い合わせを受け付けました";
-  let body = `${companyName}\n${personName} 様\n\nメディカニへのお問い合わせ、誠にありがとうございます。\n以下の内容で受け付けいたしました。\n\n`;
-  body += `--------------------------------------------------\n`;
-  body += `【お問い合わせ項目】 ${inquiryTag}\n`;
-  body += `【内容】\n${content}\n`;
-  body += `--------------------------------------------------\n\n`;
-  body += `内容を確認の上、担当者より改めてご連絡させていただきます。\n恐れ入りますが、今しばらくお待ちくださいませ。\n\n`;
-  body += `※本メールは自動返信でお送りしています。\nご不明な点がございましたら、このメールにそのまま返信してください。\n\n`;
-  body += `--------------------------------------------------\n`;
-  body += `トリの巣ワークス メディカニ運営事務局\n`;
-  body += `〒107-0062 東京都港区南青山3丁目1番36号 青山丸竹ビル6F\n`;
-  body += `TEL: 070-3813-8742\n`;
-  body += `--------------------------------------------------`;
+  // 2. ユーザー宛の自動返信
+  const subject = "【メディカニ】お問い合わせを受け付けました";
+  let body = `${companyName}\n${personName} 様\n\nメディカニへのお問い合わせ、誠にありがとうございます。\n以下の内容で受け付けいたしました。\n\n`;
+  body += `--------------------------------------------------\n`;
+  body += `【お問い合わせ項目】 ${inquiryTag}\n`;
+  body += `【内容】\n${content}\n`;
+  body += `--------------------------------------------------\n\n`;
+  body += `内容を確認の上、担当者より改めてご連絡させていただきます。\n恐れ入りますが、今しばらくお待ちくださいませ。\n\n`;
+  body += `※本メールは自動返信でお送りしています。\nご不明な点がございましたら、このメールにそのまま返信してください。\n\n`;
+  body += `--------------------------------------------------\n`;
+  body += `トリの巣ワークス メディカニ運営事務局\n`;
+  body += `〒107-0062 東京都港区南青山3丁目1番36号 青山丸竹ビル6F\n`;
+  body += `TEL: 070-3813-8742\n`;
+  body += `info@medikani.com\n`;
+  body += `--------------------------------------------------`;
 
-  // 3. 管理者（トリさん）宛の通知
-  const adminSubject = `【要対応】お問い合わせが入りました（${personName} 様）`;
-  let adminBody = `お問い合わせフォームから新規投稿がありました。\n\n`;
-  adminBody += `会社名: ${companyName}\nお名前: ${personName} 様\nメール: ${email}\n電話: ${phone}\n項目: ${inquiryTag}\n内容:\n${content}`;
+  // 3. 管理者（トリさん）宛の通知
+  const adminSubject = `【要対応】お問い合わせが入りました（${personName} 様）`;
+  let adminBody = `お問い合わせフォームから新規投稿がありました。\n\n`;
+  adminBody += `会社名: ${companyName}\nお名前: ${personName} 様\nメール: ${email}\n電話: ${phone}\n項目: ${inquiryTag}\n内容:\n${content}`;
 
-  // 送信実行
-  sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, email, subject, body);
-  sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, "toriweb@gmail.com", adminSubject, adminBody);
+  // 送信実行
+  sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, email, subject, body);
+  sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, "toriweb@gmail.com", adminSubject, adminBody);
 }
 
 /**
- * Resend APIを使用してメールを送信するヘルパー関数
- */
+ * 【C】紹介キャンペーンフォームの処理
+ */
+function handleReferralForm(e, RESEND_API_KEY, FROM_EMAIL) {
+  // 1. データの取得
+  const timestamp = e.namedValues['タイムスタンプ'] ? e.namedValues['タイムスタンプ'][0] : "";
+  const referrerName = e.namedValues['あなたのお名前'] ? e.namedValues['あなたのお名前'][0] : "";
+  const referrerFacility = e.namedValues['あなたのご施設（任意）'] ? e.namedValues['あなたのご施設（任意）'][0] : "";
+  const referrerEmail = e.namedValues['あなたのメールアドレス'] ? e.namedValues['あなたのメールアドレス'][0] : "";
+  const refereeFacility = e.namedValues['ご紹介先施設'] ? e.namedValues['ご紹介先施設'][0] : "";
+  const refereeName = e.namedValues['ご紹介先担当者'] ? e.namedValues['ご紹介先担当者'][0] : "";
+  const refereeEmail = e.namedValues['ご紹介先メールアドレス'] ? e.namedValues['ご紹介先メールアドレス'][0] : "";
+  const message = e.namedValues['何かご意見や備考あればお願いいたします'] ? e.namedValues['何かご意見や備考あればお願いいたします'][0] : "";
+
+  // 2. 「紹介進捗管理」シートへの転記
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const trackingSheet = ss.getSheetByName('紹介進捗管理');
+  
+  if (trackingSheet) {
+    const regDate = timestamp.split(' ')[0] || new Date().toLocaleDateString('ja-JP');
+    const newRow = [
+      regDate,            // A: 紹介発生日
+      referrerName,       // B: 紹介元お名前
+      referrerEmail,      // C: 紹介元のメールアドレス
+      refereeFacility,    // D: 紹介先施設名
+      refereeEmail,       // E: 紹介先メールアドレス
+      "案内済",            // F: ステータス (自動送信されるため)
+      message             // G: 備考
+    ];
+    trackingSheet.appendRow(newRow);
+  }
+
+  // 3. メール送信用データの取得
+  const props = PropertiesService.getScriptProperties();
+  const stripeCouponCode = props.getProperty('STRIPE_COUPON_CODE') || "クーポンコード未設定";
+
+  // 4. ご紹介先への自動返信
+  const refereeSubject = "【メディカニ】" + referrerName + "様より「メディカニ・プラス」のご紹介です✨";
+  let refereeBody = `${refereeName} 様\n\nお世話になっております。\nメディカニ事務局です。\n\n`;
+  refereeBody += `${referrerFacility}  ${referrerName} 様より、\n医薬品検索アプリ「メディカニ」のご紹介をいただきました✨\n\n`;
+  refereeBody += `メディカニは、現場での「そのお薬、うちならこれ」を\nスマホでスピーディーに解決するための検索ツールです。\n\n`;
+  refereeBody += `🎁 ご紹介特典のご案内\n`;
+  refereeBody += `今回のご紹介をきっかけに「メディカニ・プラス」をご契約いただきますと、\n`;
+  refereeBody += `特典として【Amazonギフトカード 2,000円分】をプレゼントいたします！\n\n`;
+  refereeBody += `※無料トライアル終了後、初回のご入金が確認できましたら、\n`;
+  refereeBody += `　本メールアドレス宛にギフトカードをお送りいたします。\n\n`;
+  refereeBody += `まずは以下のリンクから、その使い心地をぜひ体験してみてください🚀\nhttps://medikani.com/\n\n`;
+  refereeBody += `解説ページはこちらになります。\nhttps://medikani.com/info\n\n`;
+  refereeBody += `お申込みフォームはこちらになります。\nhttps://medikani.com/apply\n\n`;
+  refereeBody += `ご不明な点などございましたら、お気軽にお問い合わせください。\n今後ともよろしくお願いいたします。\n\n`;
+  refereeBody += `---------------------------------------\n`;
+  refereeBody += `トリの巣ワークス　メディカニ運営事務局\n`;
+  refereeBody += `〒107-0062 東京都港区南青山3丁目1番36号 青山丸竹ビル6F\n`;
+  refereeBody += `TEL：070-3813-8742\n`;
+  refereeBody += `info@medikani.com`;
+
+  // 5. ご紹介元への自動返信
+  const referrerSubject = "【メディカニ】ご紹介ありがとうございます（キャンペーン受付完了）🌟";
+  let referrerBody = `${referrerName} 様\n\nメディカニをご利用いただきありがとうございます！🌟\nこの度は、ご紹介キャンペーンへのご参加、誠にありがとうございます。\n\n`;
+  referrerBody += `以下の内容で、ご紹介の受付を完了いたしました。\n\n`;
+  referrerBody += `■ ご紹介先情報\n施設名：${refereeFacility}\n担当者：${refereeName} 様\n\n`;
+  referrerBody += `🎁 今後の特典送付の流れ\n1. ご紹介先様が「メディカニ・プラス」をご契約\n2. 無料トライアル終了後、初回の入金が確認できましたら、\n　 本メールアドレス宛に【Amazonギフトカード 2,000円分】をお送りいたします！\n\n`;
+  referrerBody += `（※ご紹介先様にも同様に2,000円分のギフトカードが送られます🎁）\n\n`;
+  referrerBody += `条件をクリアされましたら順次発送いたしますので、\n楽しみにお待ちいただけますと幸いです。\n\n`;
+  referrerBody += `引き続き、メディカニをよろしくお願いいたします。\n\n`;
+  referrerBody += `---------------------------------------\n`;
+  referrerBody += `トリの巣ワークス　メディカニ運営事務局\n`;
+  referrerBody += `〒107-0062 東京都港区南青山3丁目1番36号 青山丸竹ビル6F\n`;
+  referrerBody += `TEL：070-3813-8742\n`;
+  referrerBody += `info@medikani.com`;
+
+  // 6. 管理者（トリさん）宛の通知
+  const adminSubject = `【紹介キャンペーン】${referrerName}様よりご紹介がありました`;
+  let adminBody = `紹介キャンペーンフォームから新規投稿がありました。\n\n`;
+  adminBody += `【紹介元】\nお名前: ${referrerName} 様\n施設: ${referrerFacility}\nメール: ${referrerEmail}\n\n`;
+  adminBody += `【紹介先】\n施設: ${refereeFacility}\n担当者: ${refereeName} 様\nメール: ${refereeEmail}\n\n`;
+  adminBody += `備考:\n${message}`;
+
+  // 7. 送信実行
+  sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, refereeEmail, refereeSubject, refereeBody);
+  sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, referrerEmail, referrerSubject, referrerBody);
+  sendEmailWithResend(RESEND_API_KEY, FROM_EMAIL, "toriweb@gmail.com", adminSubject, adminBody);
+}
+
+/**
+ * Resend APIを使用してメールを送信するヘルパー関数
+ */
 function sendEmailWithResend(apiKey, from, to, subject, textBody) {
-  const url = "https://api.resend.com/emails";
-  const payload = { "from": from, "to": to, "subject": subject, "text": textBody };
-  const options = {
-    "method": "post",
-    "contentType": "application/json",
-    "headers": { "Authorization": "Bearer " + apiKey },
-    "payload": JSON.stringify(payload),
-    "muteHttpExceptions": true
-  };
-  const response = UrlFetchApp.fetch(url, options);
-  Logger.log(response.getContentText());
+  const url = "https://api.resend.com/emails";
+  const payload = { "from": from, "to": to, "subject": subject, "text": textBody };
+  const options = {
+    "method": "post",
+    "contentType": "application/json",
+    "headers": { "Authorization": "Bearer " + apiKey },
+    "payload": JSON.stringify(payload),
+    "muteHttpExceptions": true
+  };
+  const response = UrlFetchApp.fetch(url, options);
+  Logger.log(response.getContentText());
 }
