@@ -4,7 +4,34 @@ function getBestYJ(key, parts) {
   for (let p of parts) { const m = String(p).match(/[0-9]{5,7}[a-zA-Z][0-9]{3,4}/); if (m) return m[0]; }
   return String(parts[2] || "").replace(/[^a-zA-Z0-9]/g, "");
 }
+// ===== 🌟新規追加: カンマズレを防止して正しい規格と薬価を取得する関数 =====
+function extractDrugData(parts, yj) {
+  const yjIdx = parts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
+  let name = (parts[0] || "").trim();
+  let spec = parts[1] || "";
+  let price = "";
+  let type = "";
 
+  if (yjIdx > 1) {
+    let p1 = parts[yjIdx - 1] ? parts[yjIdx - 1].trim() : "";
+    let p2 = parts[yjIdx - 2] ? parts[yjIdx - 2].trim() : "";
+    
+    // YJコードの1つ前が薬価(数字やハイフン)かチェック
+    if (/^[0-9\.\-]+$/.test(p1) || p1 === "-") {
+      price = p1;
+      spec = parts.slice(1, yjIdx - 1).join("，"); // 分割された規格を結合
+    } else {
+      type = p1;
+      price = p2;
+      spec = parts.slice(1, Math.max(1, yjIdx - 2)).join("，");
+    }
+  } else {
+    price = parts[2] || "";
+    type = parts[3] || "";
+  }
+  return { name, spec: spec.trim(), price, type: type.trim() };
+}
+// ====================================================================
 // Webサービス: 医薬品検索（メディカニ・ハイブリッド検索＆個別メモ対応版　）
 // 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用), ASK_FORM_URL(問合せフォームURL), G_FORM_ID(フォームの施設ID項目), STRIPE_PORTAL_URL(StripeカスタマーポータルのURL)
 
@@ -1253,18 +1280,21 @@ export default {
           if (masterKey) {
             const mVal = await env.MEDI_KV.get(masterKey);
             if (mVal) {
-              const mParts = String(mVal).split(/[,\uFF0C]/);
-              parts[0] = mParts[0] || parts[0]; // 薬品名
-              parts[1] = mParts[1] || parts[1]; // 規格
+            const mParts = String(mVal).split(/[,\uFF0C]/);
+            parts[0] = mParts[0] || parts[0]; // 薬品名
+            parts[1] = mParts[1] || parts[1]; // 規格
+            if (mParts.length > 2) parts[2] = mParts[2];
             }
           }
         }
         // ==============================================================
       }
-      const rawType = (parts[3] || "").trim();
-      const isBrand = (yj && yj.length >= 11 && yj.charAt(10) === '1') || rawType.includes("先");
-      const cleanType = rawType.replace(/先発品?/g, "").trim();
-      return { key, name: (parts[0] || "").trim(), spec: (parts[1] || "").trim(), type: cleanType, yj: yj, isAdopted: isAdopted, isBrand: isBrand };
+
+      const extracted = extractDrugData(parts, yj);
+      const isBrand = (yj && yj.length >= 11 && yj.charAt(10) === '1') || parts.some(p => String(p).includes("先発"));
+      const cleanType = extracted.type.replace(/先発品?/g, "");
+      
+      return { key, name: extracted.name, spec: extracted.spec, type: cleanType, yj: yj, isAdopted: isAdopted, isBrand: isBrand, price: extracted.price };
     }));
     return results.filter(r => r !== null).sort((a, b) => b.isAdopted - a.isAdopted);
   },
@@ -1304,14 +1334,17 @@ export default {
             const mParts = String(mVal).split(/[,\uFF0C]/);
             parts[0] = mParts[0] || parts[0];
             parts[1] = mParts[1] || parts[1];
+            if (mParts.length > 2) parts[2] = mParts[2];
           }
         }
       }
       // ==============================================================
     }
-    const rawType = (parts[3] || "").trim();
-    const isBrand = (yj && yj.length >= 11 && yj.charAt(10) === '1') || rawType.includes("先");
-    const fullName = `${parts[0]||""} ${parts[1]||""} ${rawType.replace(/先発品?/g, "")}`.replace(/\s+/g, ' ').trim();
+// ===== 🌟修正: 抽出関数を使ってカンマズレを防止 =====
+    const extracted = extractDrugData(parts, yj);
+    const price = extracted.price; // これで詳細画面に薬価が渡せるようになります！
+    const isBrand = (yj && yj.length >= 11 && yj.charAt(10) === '1') || parts.some(p => String(p).includes("先発"));
+    const fullName = `${extracted.name} ${extracted.spec} ${extracted.type.replace(/先発品?/g, "")}`.replace(/\s+/g, ' ').trim();
     const yj7 = (yj && yj !== "NONE") ? yj.substring(0, 7) : null;
     let alts = [];
     if (yj7) {
@@ -1352,14 +1385,30 @@ export default {
         let p = String(v).split(/[,\uFF0C]/);
         const ayj = getBestYJ(k, p);
         const aIsAdopted = hospitalId ? k.startsWith(`${hospitalId}_`) : false;
-        if (aIsAdopted) {
-          const ayjIndex = p.findIndex(x => x.replace(/[^a-zA-Z0-9]/g, "") === ayj);
-          if (ayjIndex !== -1 && ayjIndex < p.length - 1) { p = p.slice(0, ayjIndex + 1); }
-        }
-        if (ayj && ayj.substring(0, 7) === yj7) {
-          const aRawType = (p[3]||"").trim();
-          const aIsBrand = (ayj && ayj.length >= 11 && ayj.charAt(10) === '1') || aRawType.includes("先");
-          return { key: k, name: (p[0]||"").trim(), spec: (p[1]||"").trim(), yj: ayj, isAdopted: aIsAdopted, isBrand: aIsBrand };
+if (aIsAdopted) {
+  const ayjIndex = p.findIndex(x => x.replace(/[^a-zA-Z0-9]/g, "") === ayj);
+  if (ayjIndex !== -1 && ayjIndex < p.length - 1) { p = p.slice(0, ayjIndex + 1); }
+  // ===== 🌟追加: 切替候補の採用薬でもマスタの薬品名と規格と薬価に差し替える =====
+  if (ayj && ayj !== "NONE") {
+    const masterKey = masterCategoryKeys.find(mk => mk.endsWith(`_${ayj}`) || mk.endsWith(ayj));
+    if (masterKey) {
+      const mVal = await env.MEDI_KV.get(masterKey);
+      if (mVal) {
+        const mP = String(mVal).split(/[,\uFF0C]/);
+        p[0] = mP[0] || p[0];
+        p[1] = mP[1] || p[1];
+        if (mP.length > 2) p[2] = mP[2]; // 💰 薬価もマスタから補完！
+      }
+    }
+  }
+  // ==============================================================
+}
+if (ayj && ayj.substring(0, 7) === yj7) {
+          // ===== 🌟修正: 切替候補でも抽出関数を使ってカンマズレを防止 =====
+          const extAlt = extractDrugData(p, ayj);
+          const aIsBrand = (ayj && ayj.length >= 11 && ayj.charAt(10) === '1') || p.some(x => String(x).includes("先発"));
+          
+          return { key: k, name: extAlt.name, spec: extAlt.spec, yj: ayj, isAdopted: aIsAdopted, isBrand: aIsBrand, price: extAlt.price };
         }
         return null;
       });
@@ -1372,7 +1421,7 @@ export default {
         return true;
       }).slice(0, 15);
     }
-    return { key: kvKey, label, fullName, yj, isAdopted, isBrand, comment, alts: alts.sort((a,b)=>b.isAdopted - a.isAdopted) };
+    return { key: kvKey, label, fullName, yj, isAdopted, isBrand, comment, price, alts: alts.sort((a,b)=>b.isAdopted - a.isAdopted) };
   },
 
   getAdminHTML(env, hospitalId, hospitalName = "") {
@@ -1622,6 +1671,7 @@ function getFormEmoji(yj, ctx = "") {
                   <div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">
                     \${i.isOtc ? '<span class="tag" style="background:#fff3e0;color:#e65100;border:1px solid #ffcc80;">市販薬</span>' : \`
                     \${i.isBrand ? '<span class="tag blue">先</span>' : ''}
+                    \${i.price && i.price !== '-' ? \`<span class="tag" style="background:#fff3cd;color:#856404;border:1px solid #ffe69c;">🪙\${i.price}</span>\` : ''}
                     \${i.yj && i.yj.startsWith('8') ? '<span class="tag red">麻</span>' : ''}
                     \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>'}
                     \`}
@@ -1648,6 +1698,7 @@ function getFormEmoji(yj, ctx = "") {
                   <div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">
                     \${i.isOtc ? '<span class="tag" style="background:#fff3e0;color:#e65100;border:1px solid #ffcc80;">市販薬</span>' : \`
                     \${i.isBrand ? '<span class="tag blue">先</span>' : ''}
+                    \${i.price && i.price !== '-' ? \`<span class="tag" style="background:#fff3cd;color:#856404;border:1px solid #ffe69c;">🪙\${i.price}</span>\` : ''}
                     \${i.yj && i.yj.startsWith('8') ? '<span class="tag red">麻</span>' : ''}
                     \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>'}
                     \`}
@@ -1688,7 +1739,7 @@ function getFormEmoji(yj, ctx = "") {
             if (d.isOtc) {
               hist.unshift({ key: key, isOtc: true, name: d.name || d.fullName, fullName: d.fullName, aiInfo: d.aiInfo, kataQuery: d.kataQuery });
             } else {
-              hist.unshift({ key: key, name: d.fullName, yj: d.yj, isAdopted: d.isAdopted, isBrand: d.isBrand });
+              hist.unshift({ key: key, name: d.fullName, yj: d.yj, isAdopted: d.isAdopted, isBrand: d.isBrand, price: d.price });
             }
 if (hist.length > 50) hist.pop(); 
             localStorage.setItem('yakumiru_history', JSON.stringify(hist));
@@ -1725,7 +1776,7 @@ let trackVal = 0;
               favs.unshift({ key: d.key, isOtc: true, name: d.name || d.fullName, fullName: d.fullName, aiInfo: d.aiInfo, kataQuery: d.kataQuery });
               saveHistory(d.key, d);
             } else {
-              favs.unshift({ key: d.key, name: d.fullName, yj: d.yj, isAdopted: d.isAdopted, isBrand: d.isBrand });
+              favs.unshift({ key: d.key, name: d.fullName, yj: d.yj, isAdopted: d.isAdopted, isBrand: d.isBrand, price: d.price });
             }
             if (starEl) starEl.innerText = '🌟';
             trackVal = 1;
@@ -1838,6 +1889,7 @@ let trackVal = 0;
                       <div style="flex:1; line-height:1.4;">\${getFormEmoji(i.yj, currentCat)} \${i.name}</div>
                       <div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">
                         \${i.isBrand ? '<span class="tag blue">先</span>' : ''}
+                        \${i.price && i.price !== '-' ? \`<span class="tag" style="background:#fff3cd;color:#856404;border:1px solid #ffe69c;">🪙\${i.price}</span>\` : ''}
                         \${i.yj && i.yj.startsWith('8') ? '<span class="tag red">麻</span>' : ''}
                         \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>'}
                       </div>
@@ -2021,7 +2073,10 @@ let trackVal = 0;
 
             document.getElementById('modalContent').innerHTML = \`
               <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
-                <h3 style="color:#0056b3; margin: 5px 15px 0 0; font-size:20px; flex:1; line-height:1.4; word-break: break-word;">\${getFormEmoji(d.yj, d.label)} \${d.fullName}</h3>
+                <h3 style="color:#0056b3; margin: 5px 15px 0 0; font-size:20px; flex:1; line-height:1.4; word-break: break-word;">
+                  \${getFormEmoji(d.yj, d.label)} \${d.fullName}
+                  \${d.price && d.price !== '-' ? \`<span style="font-size:16px; color:#856404; background:#fff3cd; padding:4px 8px; border-radius:8px; vertical-align:middle; margin-left:8px; border:1px solid #ffe69c; white-space:nowrap;">🪙\${d.price}</span>\` : ''}
+                </h3>
                 <span id="favStar" onclick="toggleFav()" style="font-size:28px; cursor:pointer; padding:0; margin-right: 25px; margin-top: 2px; line-height:1; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); flex-shrink:0;" title="お気に入りに登録/解除">\${isFav ? '🌟' : '⭐'}</span>
               </div>
               <p style="font-weight:bold; font-size:15px; margin-top:0; margin-bottom:15px; color:\${d.isAdopted?'#28a745':'#888'}">
@@ -2041,16 +2096,21 @@ let trackVal = 0;
               <hr style="border:none; border-top:1px dashed #ccc; margin:15px 0;">
               <p style="font-weight:bold; font-size:14px; margin-bottom:12px; color:#555;">🔄 同成分・切替候補カニ🦀</p>
               \${d.alts && d.alts.length ? d.alts.map(a => {
-                const aIsNarcotic = a.yj && a.yj.startsWith('8');
+               const aIsNarcotic = a.yj && a.yj.startsWith('8');
                 return \`
                 <a href="#" onclick="showDetail('\${a.key}'); return false;" class="alt-item \${a.isAdopted?'adopted':''}">
-                  <div class="alt-item-content">
-                    <span style="font-weight:bold;">\${getFormEmoji(a.yj, a.key)} \${a.name} <span style="font-weight:normal;color:#666;font-size:11px;">\${a.spec}</span></span>
-                    <span style="font-weight:bold;color:\${a.isAdopted?'#28a745':'#aaa'};">
-                      \${a.isBrand ? '<span class="tag blue" style="margin-right:5px;font-size:10px;">先</span>' : ''}
-                      \${aIsNarcotic ? '<span class="tag red" style="margin-right:5px;font-size:10px;">麻</span>' : ''}
-                      \${a.isAdopted?'🏥 採用':''} ❯
-                    </span>
+                  <div style="display:flex; flex-direction:column; gap:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                      <span style="font-weight:bold; line-height:1.3;">\${getFormEmoji(a.yj, a.key)} \${a.name} <span style="font-weight:normal;color:#666;font-size:11px;">\${a.spec}</span></span>
+                      <span style="font-weight:bold;color:\${a.isAdopted?'#28a745':'#aaa'}; white-space:nowrap; margin-left:8px;">
+                        \${a.isAdopted?'🏥 採用':''} ❯
+                      </span>
+                    </div>
+                    <div style="display:flex; gap:4px; align-items:center;">
+                       \${a.isBrand ? '<span class="tag blue" style="font-size:10px; padding:2px 6px;">先</span>' : ''}
+                       \${aIsNarcotic ? '<span class="tag red" style="font-size:10px; padding:2px 6px;">麻</span>' : ''}
+                       \${a.price && a.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#856404;border:1px solid #ffe69c;font-size:10px; padding:2px 6px;">🪙' + a.price + '</span>' : ''}
+                    </div>
                   </div>
                 </a>\`}).join('') : '<p style="font-size:13px; color:#999; text-align:center; padding:10px 0;">見つかりませんでしたカニ🦀💦</p>'}
               \${promoHTML}
