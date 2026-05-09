@@ -301,7 +301,7 @@ export default {
           let cursor = "";
           do {
             const list = await env.MEDI_KV.list({ prefix: `${metaHId}_`, limit: 1000, cursor: cursor || undefined });
-            realCount += list.keys.filter(k => !k.name.endsWith("_meta") && !k.name.endsWith("_pwd") && !k.name.endsWith("_userpwd") && !k.name.endsWith("_email") && !k.name.endsWith("_board") && !k.name.includes("_report_") && !k.name.includes("COMP_")).length;
+            realCount += list.keys.filter(k => !k.name.endsWith("_meta") && !k.name.endsWith("_pwd") && !k.name.endsWith("_userpwd") && !k.name.endsWith("_email") && !k.name.endsWith("_board") && !k.name.endsWith("_ranking") && !k.name.endsWith("_name") && !k.name.includes("_report_") && !k.name.includes("COMP_")).length;
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
           meta.count = realCount;
@@ -323,7 +323,7 @@ export default {
           let cursor = "";
           do {
             const list = await env.MEDI_KV.list({ prefix: `${listHId}_`, limit: 1000, cursor: cursor || undefined });
-            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_userpwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("_report_")));
+            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_userpwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("_report_") && !n.endsWith("_ranking")));
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
           return new Response(JSON.stringify({ keys: keys }), { headers: { "Content-Type": "application/json" } });
@@ -341,7 +341,8 @@ export default {
           do {
             const list = await env.MEDI_KV.list({ prefix: `${dHId}_`, limit: 1000, cursor: cursor || undefined });
             // ダウンロード時は絶対に COMP_ ゴミデータを排除する
-            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_userpwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("_report_") && !n.includes("COMP_")));
+            // ダウンロード時は絶対に COMP_ ゴミデータを排除する
+            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_userpwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("_report_") && !n.includes("COMP_") && !n.endsWith("_ranking")));
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
 
@@ -1291,7 +1292,7 @@ export default {
       }
 
       const extracted = extractDrugData(parts, yj);
-      const isBrand = (yj && yj.length >= 11 && yj.charAt(10) === '1') || parts.some(p => String(p).includes("先発"));
+      const isBrand = parts.some(p => String(p).includes("先発"));
       const cleanType = extracted.type.replace(/先発品?/g, "");
       
       return { key, name: extracted.name, spec: extracted.spec, type: cleanType, yj: yj, isAdopted: isAdopted, isBrand: isBrand, price: extracted.price };
@@ -1343,7 +1344,7 @@ export default {
 // ===== 🌟修正: 抽出関数を使ってカンマズレを防止 =====
     const extracted = extractDrugData(parts, yj);
     const price = extracted.price; // これで詳細画面に薬価が渡せるようになります！
-    const isBrand = (yj && yj.length >= 11 && yj.charAt(10) === '1') || parts.some(p => String(p).includes("先発"));
+    const isBrand = parts.some(p => String(p).includes("先発"));
     const fullName = `${extracted.name} ${extracted.spec} ${extracted.type.replace(/先発品?/g, "")}`.replace(/\s+/g, ' ').trim();
     const yj7 = (yj && yj !== "NONE") ? yj.substring(0, 7) : null;
     let alts = [];
@@ -1359,13 +1360,9 @@ export default {
           aCursor = list.list_complete ? "" : list.cursor;
         } while (aCursor);
       }
-      const prefix2 = (parts[0] || "").substring(0, 2);
-      const prefix3 = (parts[0] || "").substring(0, 3);
-      const keysToFetch = allCategoryKeys.filter(k => {
+ const keysToFetch = allCategoryKeys.filter(k => {
         if (k === kvKey) return false;
         if (yj7 && k.includes(yj7)) return true;
-        if (prefix3 && k.includes(prefix3)) return true;
-        if (prefix2 && k.includes(prefix2)) return true;
         return false;
       });
       const uniqueKeysToFetch = [];
@@ -1406,7 +1403,7 @@ if (aIsAdopted) {
 if (ayj && ayj.substring(0, 7) === yj7) {
           // ===== 🌟修正: 切替候補でも抽出関数を使ってカンマズレを防止 =====
           const extAlt = extractDrugData(p, ayj);
-          const aIsBrand = (ayj && ayj.length >= 11 && ayj.charAt(10) === '1') || p.some(x => String(x).includes("先発"));
+          const aIsBrand = p.some(x => String(x).includes("先発"));
           
           return { key: k, name: extAlt.name, spec: extAlt.spec, yj: ayj, isAdopted: aIsAdopted, isBrand: aIsBrand, price: extAlt.price };
         }
