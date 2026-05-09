@@ -4,28 +4,39 @@ function getBestYJ(key, parts) {
   for (let p of parts) { const m = String(p).match(/[0-9]{5,7}[a-zA-Z][0-9]{3,4}/); if (m) return m[0]; }
   return String(parts[2] || "").replace(/[^a-zA-Z0-9]/g, "");
 }
-// ===== 🌟新規追加: カンマズレを防止して正しい規格と薬価を取得する関数 =====
+// ===== 🌟修正: カンマズレを完全に防止して正しい規格・薬価・マークを取得する関数 =====
 function extractDrugData(parts, yj) {
   const yjIdx = parts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
   let name = (parts[0] || "").trim();
-  let spec = parts[1] || "";
+  let spec = "";
   let price = "";
   let type = "";
 
   if (yjIdx > 1) {
-    let preYjParts = parts.slice(1, yjIdx).map(p => p.trim());
+    // 空っぽのデータはあらかじめ消しておく
+    let preYjParts = parts.slice(1, yjIdx).map(p => p.trim()).filter(p => p !== "");
     
-    // 数字やハイフンだけの要素（＝薬価）の場所を自動で探す
+    // 1. まず数字やハイフンだけの要素（＝薬価）を探して抜き出す
     let priceIdx = preYjParts.findIndex(p => /^[0-9\.\-]+$/.test(p) || p === "-");
-    
     if (priceIdx !== -1) {
       price = preYjParts[priceIdx];
-      spec = preYjParts.slice(0, priceIdx).join("，"); // 薬価より前を規格として結合
-      type = preYjParts.slice(priceIdx + 1).join(" "); // 薬価より後をマーク(先発, 麻など)として結合
-    } else {
-      spec = preYjParts.join("，");
+      preYjParts.splice(priceIdx, 1); // 薬価を配列から取り除く
     }
+    
+    // 2. マーク（先発、麻、劇など）を探して分離する
+    let marks = [];
+    preYjParts = preYjParts.filter(p => {
+      if (p.includes("先発") || p === "麻" || p === "劇" || p === "局" || p.includes("後発")) {
+        marks.push(p);
+        return false; // マークだったら規格の配列からは消す
+      }
+      return true; // それ以外（規格）は残す
+    });
+    
+    spec = preYjParts.join("，"); // 残ったものを規格とする
+    type = marks.join(" "); // マークを結合
   } else {
+    spec = parts[1] || "";
     price = parts[2] || "";
     type = parts[3] || "";
   }
@@ -336,6 +347,21 @@ export default {
           const dHId = url.searchParams.get("h") || "";
           if (!dHId) return new Response("Error", { status: 400 });
 
+          // ===== 🌟追加: YJコードからマスタの正確な薬品名を引くための辞書を作る =====
+          let yjToMasterName = {};
+          for (const c of ["[内]", "[外]", "[注]"]) {
+            let mCursor = "";
+            do {
+              const list = await env.MEDI_KV.list({ prefix: c, limit: 1000, cursor: mCursor || undefined });
+              list.keys.forEach(k => {
+                const match = k.name.match(/^\[.*?\](.*)_([^_]+)$/);
+                if (match) yjToMasterName[match[2]] = match[1]; // match[2]がYJ、match[1]が薬品名
+              });
+              mCursor = list.list_complete ? "" : list.cursor;
+            } while (mCursor);
+          }
+          // ====================================================================
+
           let keys = [];
           let cursor = "";
           do {
@@ -358,8 +384,20 @@ export default {
                 
                 let p = valStr.split(/[,\uFF0C]/);
                 const yj = getBestYJ(k, p);
-                const name = (p[0] || "").replace(/"/g, '""');
-                const spec = (p[1] || "").replace(/"/g, '""');
+                
+                // ===== 🌟修正: マスタの名前を優先して取得する =====
+                const extracted = extractDrugData(p, yj);
+                
+                // YJコードをもとに辞書からマスタの正確な名前を取得（なければ抽出した名前）
+                const realName = yjToMasterName[yj] || extracted.name;
+                
+                // 🌟規格はくっつけず、マスタの薬品名だけをそのまま使う！
+                const name = realName.replace(/"/g, '""');
+                
+                // 規格の列にはそのまま規格を入れる
+                const spec = extracted.spec.replace(/"/g, '""');
+                // ==========================================================
+
                 let comment = "";
                 const yjIndex = p.findIndex(x => x.replace(/[^a-zA-Z0-9]/g, "") === yj);
                 if (yjIndex !== -1 && yjIndex < p.length - 1) {
@@ -617,7 +655,7 @@ export default {
         for (const mk of allMasterKeys) {
           const yj = mk.split('_').pop();
           // matchの () を増やして、[分類] と 薬品名 の両方をキャッチ！
-          const match = mk.match(/(\[.*?\])(.*?)_/);
+          const match = mk.match(/^(\[.*?\])(.*)_([^_]+)$/);
           if (yj && match) {
             // cat(分類) と name(薬品名) をセットにして辞書に登録
             yjToMasterData[yj] = { cat: match[1], name: match[2] };
@@ -1432,19 +1470,22 @@ export default {
         parts = parts.slice(0, yjIndex + 1);
       }
       // ===== 追加: 表示時のみマスタの薬品名と規格に差し替える =====
-      if (yj && yj !== "NONE") {
-        const masterKey = masterCategoryKeys.find(k => k.endsWith(`_${yj}`) || k.endsWith(yj));
-        if (masterKey) {
-          const mVal = await env.MEDI_KV.get(masterKey);
-          if (mVal) {
-            const mParts = String(mVal).split(/[,\uFF0C]/);
-            parts[0] = mParts[0] || parts[0];
-            parts[1] = mParts[1] || parts[1];
-            if (mParts.length > 2) parts[2] = mParts[2];
+      // ===== 🌟修正: 詳細画面でもマスタの情報で丸ごと上書きしてマークを復活させる =====
+          if (yj && yj !== "NONE") {
+            const masterKey = masterCategoryKeys.find(k => k.endsWith(`_${yj}`) || k.endsWith(yj));
+            if (masterKey) {
+              const mVal = await env.MEDI_KV.get(masterKey);
+              if (mVal) {
+                const mParts = String(mVal).split(/[,\uFF0C]/);
+                const mYjIdx = mParts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
+                if (mYjIdx !== -1) {
+                  // マスタのYJコードまでの全情報（薬価や先発、麻薬マーク等含む）をコピー
+                  parts = mParts.slice(0, mYjIdx + 1);
+                }
+              }
+            }
           }
-        }
-      }
-      // ==============================================================
+         // ==============================================================
     }
 // ===== 🌟修正: 抽出関数を使ってカンマズレを防止 =====
     const extracted = extractDrugData(parts, yj);
