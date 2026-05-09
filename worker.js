@@ -13,17 +13,17 @@ function extractDrugData(parts, yj) {
   let type = "";
 
   if (yjIdx > 1) {
-    let p1 = parts[yjIdx - 1] ? parts[yjIdx - 1].trim() : "";
-    let p2 = parts[yjIdx - 2] ? parts[yjIdx - 2].trim() : "";
+    let preYjParts = parts.slice(1, yjIdx).map(p => p.trim());
     
-    // YJコードの1つ前が薬価(数字やハイフン)かチェック
-    if (/^[0-9\.\-]+$/.test(p1) || p1 === "-") {
-      price = p1;
-      spec = parts.slice(1, yjIdx - 1).join("，"); // 分割された規格を結合
+    // 数字やハイフンだけの要素（＝薬価）の場所を自動で探す
+    let priceIdx = preYjParts.findIndex(p => /^[0-9\.\-]+$/.test(p) || p === "-");
+    
+    if (priceIdx !== -1) {
+      price = preYjParts[priceIdx];
+      spec = preYjParts.slice(0, priceIdx).join("，"); // 薬価より前を規格として結合
+      type = preYjParts.slice(priceIdx + 1).join(" "); // 薬価より後をマーク(先発, 麻など)として結合
     } else {
-      type = p1;
-      price = p2;
-      spec = parts.slice(1, Math.max(1, yjIdx - 2)).join("，");
+      spec = preYjParts.join("，");
     }
   } else {
     price = parts[2] || "";
@@ -592,14 +592,65 @@ export default {
     }
     // === 新規追加: ランキング集計API (ここまで) ===
 
-    // === 新規追加: CSVアップロード等の POST API (ここから) ===
+// === 新規追加: CSVアップロード等の POST API (ここから) ===
     if (request.method === "POST" && url.pathname.includes("/api/admin/upload")) {
       try {
         const uploadHId = url.searchParams.get("h") || ""; 
         const body = await request.json();
         const items = body.items || [];
-        const deletes = body.deletes || [];
+        let deletes = body.deletes || []; // 🌟 const を let に変更
         
+        // ===== 🌟ここから追加: YJコードからマスタの薬品名を探して強制上書き =====
+        // 1. 全マスタキーを裏側でサクッと取得
+        let allMasterKeys = [];
+        for (const c of ["[内]", "[外]", "[注]"]) {
+          let cursor = "";
+          do {
+            const list = await env.MEDI_KV.list({ prefix: c, limit: 1000, cursor: cursor || undefined });
+            allMasterKeys.push(...list.keys.map(k => k.name));
+            cursor = list.list_complete ? "" : list.cursor;
+          } while (cursor);
+        }
+
+       // 2. 「YJコード」から「正しい分類(cat)」と「正しい薬品名(name)」が出る辞書を作る
+        const yjToMasterData = {};
+        for (const mk of allMasterKeys) {
+          const yj = mk.split('_').pop();
+          // matchの () を増やして、[分類] と 薬品名 の両方をキャッチ！
+          const match = mk.match(/(\[.*?\])(.*?)_/);
+          if (yj && match) {
+            // cat(分類) と name(薬品名) をセットにして辞書に登録
+            yjToMasterData[yj] = { cat: match[1], name: match[2] };
+          }
+        }
+
+       // 3. CSVから来たアイテムを、マスタの分類と薬品名に上書き！
+        for (let item of items) {
+          let parts = item.val.split(",");
+          const yj = parts[4]; // CSVアップロード時は4番目にYJコードが入っています
+          if (yj && yjToMasterData[yj]) {
+            const masterName = yjToMasterData[yj].name;
+            const cat = yjToMasterData[yj].cat; // 🌟 これでKVのマスタ通りの正しい分類になる！
+
+            const newKey = `${uploadHId}_${cat}${masterName}_${yj}`;
+            // ===== 🌟ここが修正のポイント！ =====
+            // マスタの名前に変わってキーが変わった場合、古いキーが残ってダブってしまうため、古いキーを削除リストに追加してお掃除します
+            if (item.key !== newKey) {
+              deletes.push(item.key);
+            }
+            // ===================================
+
+            item.key = newKey; // 裏側のIDをマスタ名に
+            parts[0] = masterName; // 画面に出る薬品名もマスタ名に
+            item.val = parts.join(",");
+          }
+        }
+
+        // 4. 名前が変わったことで「削除対象」に間違って入ってしまったキーを救出
+        const putKeys = new Set(items.map(i => i.key));
+        deletes = deletes.filter(k => !putKeys.has(k));
+        // ===== 🌟ここまで追加 =====
+
         // KVの制限を考慮し、追加分を50件ずつチャンクで保存
         for (let i = 0; i < items.length; i += 50) {
           const chunk = items.slice(i, i + 50);
@@ -1327,20 +1378,22 @@ export default {
         if (yjIndex !== -1 && yjIndex < parts.length - 1) {
           parts = parts.slice(0, yjIndex + 1);
         }
-        // ===== 追加: 表示時のみマスタの薬品名と規格に差し替える =====
+  
+// ===== 🌟修正: 表示時のみマスタの情報で丸ごと上書きしてマークを復活させる =====
         if (yj && yj !== "NONE") {
           const masterKey = masterKeys.find(k => k.endsWith(`_${yj}`) || k.endsWith(yj));
           if (masterKey) {
             const mVal = await env.MEDI_KV.get(masterKey);
             if (mVal) {
-            const mParts = String(mVal).split(/[,\uFF0C]/);
-            parts[0] = mParts[0] || parts[0]; // 薬品名
-            parts[1] = mParts[1] || parts[1]; // 規格
-            if (mParts.length > 2) parts[2] = mParts[2];
+              const mParts = String(mVal).split(/[,\uFF0C]/);
+              const mYjIdx = mParts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
+              if (mYjIdx !== -1) {
+                // マスタのYJコードまでの全情報（薬価や先発マーク等含む）をコピー
+                parts = mParts.slice(0, mYjIdx + 1);
+              }
             }
           }
         }
-        // ==============================================================
       }
 
       const extracted = extractDrugData(parts, yj);
@@ -1438,15 +1491,16 @@ if (aIsAdopted) {
   const ayjIndex = p.findIndex(x => x.replace(/[^a-zA-Z0-9]/g, "") === ayj);
   if (ayjIndex !== -1 && ayjIndex < p.length - 1) { p = p.slice(0, ayjIndex + 1); }
   // ===== 🌟追加: 切替候補の採用薬でもマスタの薬品名と規格と薬価に差し替える =====
-  if (ayj && ayj !== "NONE") {
+if (ayj && ayj !== "NONE") {
     const masterKey = masterCategoryKeys.find(mk => mk.endsWith(`_${ayj}`) || mk.endsWith(ayj));
     if (masterKey) {
       const mVal = await env.MEDI_KV.get(masterKey);
       if (mVal) {
         const mP = String(mVal).split(/[,\uFF0C]/);
-        p[0] = mP[0] || p[0];
-        p[1] = mP[1] || p[1];
-        if (mP.length > 2) p[2] = mP[2]; // 💰 薬価もマスタから補完！
+        const mYjIdx = mP.findIndex(x => x.replace(/[^a-zA-Z0-9]/g, "") === ayj);
+        if (mYjIdx !== -1) {
+          p = mP.slice(0, mYjIdx + 1); // 先発マークなども全て補完！
+        }
       }
     }
   }
@@ -2778,7 +2832,11 @@ document.getElementById('csvFile').onchange = (e) => {
           uploadPayload = []; const tbody = document.querySelector('#previewTable tbody'); tbody.innerHTML = ''; const csvKeys = new Set();
           parsedData.forEach(row => {
             const yj = row[iY]; if(!yj||yj.length<7) return;
-            let cat = "[内]"; if("MPQRSTUVWX".includes(yj.charAt(7))) cat="[外]"; if("AH".includes(yj.charAt(7))) cat="[注]";
+            let cat = "[内]"; 
+            if("MPQRSTUVWX".includes(yj.charAt(7))) cat="[外]"; 
+            // 注射剤のYJコード8桁目は A, C, D, E, F, G, H があります
+            if("ACDEFGH".includes(yj.charAt(7))) cat="[注]";
+            
             const cleanName = row[iN] ? row[iN].replace(/,/g, '，') : "";
             const cleanSpec = iS !== -1 && row[iS] ? row[iS].replace(/,/g, '，') : "";
             const cleanMemo = iC1 !== -1 && row[iC1] ? row[iC1].replace(/,/g, '，') : "";
