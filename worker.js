@@ -1701,8 +1701,12 @@ function getFormEmoji(yj, ctx = "") {
                     \`}
                   </div>
                 </div>
-                <div style="font-size:12px; color:#ff9d00; margin-top:8px; font-weight:bold;">⭐️ お気に入りカニ🦀</div>
-              </div>\`
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+                  <div style="font-size:12px; color:#ff9d00; font-weight:bold;">⭐️ お気に入りカニ🦀</div>
+                  <!-- 👇 WAFに引っかからないようシンプルなonclickのみに変更 -->
+                  <div onclick="removeFromFavorites('\${i.key}', event)" style="font-size:20px; cursor:pointer; background:#fff3e0; border-radius:50%; width:34px; height:34px; display:flex; justify-content:center; align-items:center; border:1px solid #ffcc80;" title="お気に入りから削除する">🌟</div>
+                </div>
+              </div>\`;
             }).join('');
           }
         }
@@ -1785,7 +1789,27 @@ let trackVal = 0;
           if (currentCat === '[お気に入り]') renderFavorites();
         }
         // ==============================================================
-
+// === 追加：お気に入り一覧から直接削除する専用の関数 ===
+        function removeFromFavorites(key, event) {
+          // ① これが超重要！カード全体の「クリックして詳細を開く」という動きをここでストップさせます
+          event.stopPropagation(); 
+          
+          // ② 保存されているお気に入りリストを呼び出す
+          let favs = JSON.parse(localStorage.getItem('yakumiru_favorites') || '[]');
+          
+          // ③ クリックされた薬「以外」を残す ＝ クリックされた薬を削除する
+          favs = favs.filter(f => f.key !== key);
+          
+          // ④ 新しいリストを保存し直す
+          localStorage.setItem('yakumiru_favorites', JSON.stringify(favs));
+          
+          // ⑤ ランキングのカウントも裏でこっそり減らしておく
+          if (hId) fetch('/api/track?h=' + hId, { method: 'POST', body: JSON.stringify({ type: 'fav', key: key, val: -1 }) }).catch(e=>{});
+          
+          // ⑥ 画面を最新のお気に入り一覧に更新する
+          if (currentCat === '[お気に入り]') renderFavorites();
+        }
+        // ===================================================
         function search() {
           const q = document.getElementById('q').value.trim();
           const resDiv = document.getElementById('results');
@@ -1961,9 +1985,10 @@ let trackVal = 0;
           let item = hist.find(h => h.isOtc && h.fullName === query) || favs.find(f => f.isOtc && f.fullName === query);
           if (!item) return;
 
-          const displayName = item.name || query;
-          const otcKey = '[市販]' + displayName;
-          currentDetailData = { key: otcKey, isOtc: true, name: displayName, fullName: displayName, aiInfo: item.aiInfo, kataQuery: item.kataQuery };
+        const displayName = item.name || query;
+          // 👇 修正：名前からキーを再生成せず、保存されている正しいキーをそのまま使います！
+          const otcKey = item.key;
+          currentDetailData = { key: otcKey, isOtc: true, name: displayName, fullName: item.fullName || query, aiInfo: item.aiInfo, kataQuery: item.kataQuery };
           
           let infoHtml = item.aiInfo || "";
           
