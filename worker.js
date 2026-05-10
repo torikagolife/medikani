@@ -347,30 +347,15 @@ export default {
           const dHId = url.searchParams.get("h") || "";
           if (!dHId) return new Response("Error", { status: 400 });
 
-          // ===== 🌟追加: YJコードからマスタの正確な薬品名を引くための辞書を作る =====
-          let yjToMasterName = {};
-          for (const c of ["[内]", "[外]", "[注]"]) {
-            let mCursor = "";
-            do {
-              const list = await env.MEDI_KV.list({ prefix: c, limit: 1000, cursor: mCursor || undefined });
-              list.keys.forEach(k => {
-                const match = k.name.match(/^\[.*?\](.*)_([^_]+)$/);
-                if (match) yjToMasterName[match[2]] = match[1]; // match[2]がYJ、match[1]が薬品名
-              });
-              mCursor = list.list_complete ? "" : list.cursor;
-            } while (mCursor);
-          }
-          // ====================================================================
-
           let keys = [];
           let cursor = "";
           do {
             const list = await env.MEDI_KV.list({ prefix: `${dHId}_`, limit: 1000, cursor: cursor || undefined });
             // ダウンロード時は絶対に COMP_ ゴミデータを排除する
-            // ダウンロード時は絶対に COMP_ ゴミデータを排除する
             keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_userpwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("_report_") && !n.includes("COMP_") && !n.endsWith("_ranking")));
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
+          keys.sort();
 
           let csv = "\uFEFFYJコード,薬品名,規格,メモ\n"; // BOMを追加してExcelで文字化けしないようにする
           for (let i = 0; i < keys.length; i += 50) {
@@ -389,7 +374,7 @@ export default {
                 const extracted = extractDrugData(p, yj);
                 
                 // YJコードをもとに辞書からマスタの正確な名前を取得（なければ抽出した名前）
-                const realName = yjToMasterName[yj] || extracted.name;
+                const realName = extracted.name;
                 
                 // 🌟規格はくっつけず、マスタの薬品名だけをそのまま使う！
                 const name = realName.replace(/"/g, '""');
@@ -638,7 +623,7 @@ export default {
         const items = body.items || [];
         let deletes = body.deletes || []; // 🌟 const を let に変更
         
-        // ===== 🌟ここから追加: YJコードからマスタの薬品名を探して強制上書き =====
+       // ===== 🌟ここから追加: YJコードからマスタの薬品名を探して強制上書き =====
         // 1. 全マスタキーを裏側でサクッと取得
         let allMasterKeys = [];
         for (const c of ["[内]", "[外]", "[注]"]) {
@@ -650,45 +635,127 @@ export default {
           } while (cursor);
         }
 
-       // 2. 「YJコード」から「正しい分類(cat)」と「正しい薬品名(name)」が出る辞書を作る
-        const yjToMasterData = {};
-        for (const mk of allMasterKeys) {
-          const yj = mk.split('_').pop();
-          // matchの () を増やして、[分類] と 薬品名 の両方をキャッチ！
-          const match = mk.match(/^(\[.*?\])(.*)_([^_]+)$/);
-          if (yj && match) {
-            // cat(分類) と name(薬品名) をセットにして辞書に登録
-            yjToMasterData[yj] = { cat: match[1], name: match[2] };
-          }
-        }
+        // 2. 「完全一致用辞書」と「成分（前方7桁）による多数決用辞書」を作る
+        const yjToMasterKey = {};
+        const prefixStats = {}; // 例: { "1319702": { "[内]": 0, "[外]": 5, "[注]": 0 } }
 
-       // 3. CSVから来たアイテムを、マスタの分類と薬品名に上書き！
-        for (let item of items) {
-          let parts = item.val.split(",");
-          const yj = parts[4]; // CSVアップロード時は4番目にYJコードが入っています
-          if (yj && yjToMasterData[yj]) {
-            const masterName = yjToMasterData[yj].name;
-            const cat = yjToMasterData[yj].cat; // 🌟 これでKVのマスタ通りの正しい分類になる！
+        for (const mk of allMasterKeys) {
+          const yj = mk.split('_').pop();
+          const catMatch = mk.match(/^(\[.*?\])/);
+          const cat = catMatch ? catMatch[1] : null;
 
-            const newKey = `${uploadHId}_${cat}${masterName}_${yj}`;
-            // ===== 🌟ここが修正のポイント！ =====
-            // マスタの名前に変わってキーが変わった場合、古いキーが残ってダブってしまうため、古いキーを削除リストに追加してお掃除します
+          if (yj && cat) {
+            yjToMasterKey[yj] = mk;
+            // ③のための準備：前方7桁（成分コード）の分類をカウント
+            if (yj.length >= 7) {
+              const prefix = yj.substring(0, 7);
+              if (!prefixStats[prefix]) prefixStats[prefix] = { "[内]": 0, "[外]": 0, "[注]": 0 };
+              prefixStats[prefix][cat]++;
+            }
+          }
+        }
+
+        // 3. マスタの「値（Value）」を取得して、正式な薬品名を取り出す！
+        const yjToMasterName = {};
+        const fetchPromises = [];
+        for (let item of items) {
+          let parts = item.val.split(",");
+          const yj = getBestYJ(item.key, parts); // 🌟修正: parts[4]決め打ちをやめ、カンマズレ対策関数を使う！
+          if (yj && yj !== "NONE" && yjToMasterKey[yj] && !yjToMasterName[yj]) {
+            yjToMasterName[yj] = "loading"; // 重複取得を防ぐ
+            fetchPromises.push(
+              env.MEDI_KV.get(yjToMasterKey[yj]).then(val => {
+                if (val) {
+                  // ✨ここでKVの値（Value）の1番目からフルネームをバッチリ取得！
+                  yjToMasterName[yj] = String(val).split(/[,\uFF0C]/)[0].trim();
+                }
+              })
+            );
+          }
+        }
+        await Promise.all(fetchPromises);
+
+        // 4. CSVから来たアイテムを、3段構えで分類判定し、薬品名を上書き！
+        for (let item of items) {
+          let parts = item.val.split(",");
+          const yj = getBestYJ(item.key, parts);
+          
+          let cat = "[内]"; // 何も当てはまらなかった時の最終デフォルト
+          let masterName = parts[0];
+          let updated = false;
+
+          if (yj && yj !== "NONE") {
+            // ① 完全一致するマスタがある場合（従来通り）
+            if (yjToMasterKey[yj]) {
+              const masterKey = yjToMasterKey[yj];
+              const catMatch = masterKey.match(/^(\[.*?\])/);
+              cat = catMatch ? catMatch[1] : "[内]";
+              masterName = yjToMasterName[yj] || parts[0];
+              updated = true;
+            } else {
+              // ==========================================
+              // 🌟マスタに完全一致しない場合の推測ロジック（3段構え）🌟
+              // ==========================================
+              let guessedCat = null;
+              
+              // ② YJコードの8桁目のアルファベットによる推測（B,C,Fは内服。M,P,Q,R,S等は外用）
+              if (yj.length >= 8) {
+                const f = yj.charAt(7).toUpperCase();
+                if (["B", "C", "F"].includes(f)) {
+                  guessedCat = "[内]";
+                } else if (["M", "P", "Q", "R", "S", "T", "U", "V", "W", "J"].includes(f)) {
+                  guessedCat = "[外]";
+                }
+              }
+
+              // ③ アルファベットで決まらない場合、同成分（前方7桁）が多い分類を採用（多数決）
+              if (!guessedCat && yj.length >= 7) {
+                const prefix = yj.substring(0, 7);
+                if (prefixStats[prefix]) {
+                  const stats = prefixStats[prefix];
+                  let maxCount = 0;
+                  for (const c of ["[内]", "[外]", "[注]"]) {
+                    if (stats[c] > maxCount) {
+                      maxCount = stats[c];
+                      guessedCat = c;
+                    }
+                  }
+                }
+              }
+
+              if (guessedCat) {
+                cat = guessedCat;
+                updated = true; // 推測で分類が決まったので更新フラグを立てる
+              }
+            }
+          }
+
+          if (updated || item.key !== `${uploadHId}_${cat}${masterName}_${yj}`) {
+            const newKey = `${uploadHId}_${cat}${masterName}_${yj}`;
+            
             if (item.key !== newKey) {
               deletes.push(item.key);
             }
-            // ===================================
-
-            item.key = newKey; // 裏側のIDをマスタ名に
+            // CSVの薬品名で作られたかもしれない間違った分類のキーを全滅させる
+            deletes.push(`${uploadHId}_[内]${parts[0]}_${yj}`);
+            deletes.push(`${uploadHId}_[外]${parts[0]}_${yj}`);
+            deletes.push(`${uploadHId}_[注]${parts[0]}_${yj}`);
+            
+            // 新しい名前（マスタの名前）で分類だけ間違っているパターンも全滅させる
+            deletes.push(`${uploadHId}_[内]${masterName}_${yj}`);
+            deletes.push(`${uploadHId}_[外]${masterName}_${yj}`);
+            deletes.push(`${uploadHId}_[注]${masterName}_${yj}`);
+            
+            item.key = newKey; // 裏側のIDを正しい分類とマスタ名に
             parts[0] = masterName; // 画面に出る薬品名もマスタ名に
             item.val = parts.join(",");
           }
         }
 
-        // 4. 名前が変わったことで「削除対象」に間違って入ってしまったキーを救出
+        // 5. 名前が変わったことで「削除対象」に間違って入ってしまったキーを救出
         const putKeys = new Set(items.map(i => i.key));
         deletes = deletes.filter(k => !putKeys.has(k));
         // ===== 🌟ここまで追加 =====
-
         // KVの制限を考慮し、追加分を50件ずつチャンクで保存
         for (let i = 0; i < items.length; i += 50) {
           const chunk = items.slice(i, i + 50);
@@ -2872,14 +2939,14 @@ document.getElementById('csvFile').onchange = (e) => {
           if(iN===-1||iY===-1) return alert('必須列を選択してくださいカニ🦀');
           uploadPayload = []; const tbody = document.querySelector('#previewTable tbody'); tbody.innerHTML = ''; const csvKeys = new Set();
           parsedData.forEach(row => {
-            const yj = row[iY]; if(!yj||yj.length<7) return;
-            let cat = "[内]"; 
-            if("MPQRSTUVWX".includes(yj.charAt(7))) cat="[外]"; 
-            // 注射剤のYJコード8桁目は A, C, D, E, F, G, H があります
-            if("ACDEFGH".includes(yj.charAt(7))) cat="[注]";
-            
-            const cleanName = row[iN] ? row[iN].replace(/,/g, '，') : "";
-            const cleanSpec = iS !== -1 && row[iS] ? row[iS].replace(/,/g, '，') : "";
+            const yj = row[iY]; if(!yj||yj.length<7) return;
+            
+            // YJコードの桁数での推測を廃止し、一時的に[内]をセットします。
+            // （アップロード時にサーバー側でKVマスタを探し、正しい分類に上書きされます！）
+            let cat = "[内]"; 
+            
+            const cleanName = row[iN] ? row[iN].replace(/,/g, '，') : "";
+            const cleanSpec = iS !== -1 && row[iS] ? row[iS].replace(/,/g, '，') : "";
             const cleanMemo = iC1 !== -1 && row[iC1] ? row[iC1].replace(/,/g, '，') : "";
             const key = \`\${hId}_\${cat}\${cleanName}_\${yj}\`;
             const val = \`\${cleanName},\${cleanSpec},-,,\${yj},\${cleanMemo}\`;
