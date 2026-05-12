@@ -1963,7 +1963,7 @@ function getFormEmoji(yj, ctx = "") {
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
                   <div style="font-size:12px; color:#ff9d00; font-weight:bold;">⭐️ お気に入りカニ🦀</div>
                   <!-- 👇 WAFに引っかからないようシンプルなonclickのみに変更 -->
-                  <div onclick="removeFromFavorites('\${i.key}', event)" style="font-size:20px; cursor:pointer; background:#fff3e0; border-radius:50%; width:34px; height:34px; display:flex; justify-content:center; align-items:center; border:1px solid #ffcc80;" title="お気に入りから削除する">🌟</div>
+                  <div onclick="removeFromFavorites('\${i.key}', event)" style="font-size:20px; cursor:pointer; background:#fff3e0; border-radius:50%; width:34px; height:34px; display:flex; justify-content:center; align-items:center; border:1px solid #ffcc80;" title="お気に入りから削除する">⭐️</div>
                 </div>
               </div>\`;
             }).join('');
@@ -2015,7 +2015,7 @@ if (hist.length > 50) hist.pop();
           return favs.some(f => f.key === key);
         }
         
-        // === 修正: インラインでのお気に入り追加に対応、履歴への同時保存機能を追加 ===
+         // === 修正: インラインでのお気に入り追加に対応、履歴への同時保存機能を追加 ===
         function toggleFav(isInline = false) {
           if (isInline && window.lastOtcResult) {
             currentDetailData = window.lastOtcResult;
@@ -2026,10 +2026,16 @@ if (hist.length > 50) hist.pop();
           let idx = favs.findIndex(f => f.key === d.key);
           const starEl = isInline ? document.getElementById('inlineFavStar') : document.getElementById('favStar');
           
-let trackVal = 0;
+          let trackVal = 0;
           if (idx >= 0) {
             favs.splice(idx, 1);
-            if (starEl) starEl.innerText = '⭐';
+            if (starEl) {
+              if (isInline) {
+                starEl.innerHTML = '<span style="color:#eed25c; font-size:36px; font-weight:bold; line-height:1;">☆</span>';
+              } else {
+                starEl.innerHTML = '<span style="color:#eed25c; font-size:36px; font-weight:bold; line-height:1; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.1));">☆</span> <span style="color:gray; font-size:11pt; font-weight:bold; line-height:1;">お気に入り追加</span>';
+              }
+            }
             trackVal = -1;
           } else {
             if (d.isOtc) {
@@ -2038,7 +2044,13 @@ let trackVal = 0;
             } else {
               favs.unshift({ key: d.key, name: d.fullName, yj: d.yj, isAdopted: d.isAdopted, isBrand: d.isBrand, price: d.price });
             }
-            if (starEl) starEl.innerText = '🌟';
+            if (starEl) {
+              if (isInline) {
+                starEl.innerText = '⭐️';
+              } else {
+                starEl.innerHTML = '<span style="font-size:28px; line-height:1; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.1));">⭐️</span> <span style="color:gray; font-size:11pt; font-weight:bold; line-height:1;">お気に入り済</span>';
+              }
+            }
             trackVal = 1;
           }
           localStorage.setItem('yakumiru_favorites', JSON.stringify(favs));
@@ -2160,7 +2172,7 @@ let trackVal = 0;
                 resDiv.innerHTML = '<div class="card" style="border-left-color:#e83e8c;">' +
                   '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">' +
                     '<div style="font-weight:bold; color:#e83e8c;">👩‍⚕️ メディカニくんの解説 🦀✨</div>' +
-                    '<span id="inlineFavStar" onclick="toggleFav(true)" style="font-size:24px; cursor:pointer; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); line-height:1;" title="お気に入りに登録/解除">' + (isFav ? '🌟' : '⭐') + '</span>' +
+                    '<span id="inlineFavStar" onclick="toggleFav(true)" style="font-size:24px; cursor:pointer; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); line-height:1;" title="お気に入りに登録/解除">' + (isFav ? '⭐️' : '☆') + '</span>' +
                   '</div>' +
                   '<div style="font-size:14px; background:#fff0f5; padding:12px; border-radius:10px; margin-bottom:12px; line-height:1.6; white-space:pre-wrap; border: 1px solid #ffd1dc;">' + infoHtml + '</div>' +
                   '<a href="https://www.google.com/search?q=' + encodeURIComponent(searchKw + ' 医療用 同成分') + '" class="btn btn-google" target="_blank" style="display:flex;">🔍 Googleで処方薬を探す</a>' +
@@ -2270,9 +2282,12 @@ let trackVal = 0;
           const isFav = isFavorite(otcKey);
 
           document.getElementById('modalContent').innerHTML = \`
+            <div id="favStar" onclick="toggleFav()" style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:8px; padding:4px 8px 4px 0; user-select:none;" title="お気に入りに登録/解除">
+              \${isFav ? '<span style="font-size:28px; line-height:1; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.1));">⭐️</span> <span style="color:gray; font-size:11pt; font-weight:bold; line-height:1;">お気に入り済</span>' 
+                      : '<span style="color:#eed25c; font-size:34px; font-weight:bold; line-height:1; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.1));">☆</span> <span style="color:gray; font-size:11pt; font-weight:bold; line-height:1;">お気に入り追加</span>'}
+            </div>
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
-              <h3 style="color:#e83e8c; margin: 5px 15px 0 0; font-size:20px; flex:1; line-height:1.4; word-break: break-word;">🛒 \${displayName}</h3>
-              <span id="favStar" onclick="toggleFav()" style="font-size:28px; cursor:pointer; padding:0; margin-right: 25px; margin-top: 2px; line-height:1; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); flex-shrink:0;" title="お気に入りに登録/解除">\${isFav ? '🌟' : '⭐'}</span>
+              <h3 style="color:#e83e8c; margin: 0 15px 0 0; font-size:20px; flex:1; line-height:1.4; word-break: break-word;">🛒 \${displayName}</h3>
             </div>
             <p style="font-weight:bold; font-size:15px; margin-top:0; margin-bottom:15px; color:#888">
               市販薬のAI推測結果カニ🦀
@@ -2360,12 +2375,15 @@ let trackVal = 0;
             const safeDrugName = d.fullName.replace(/'/g, "\\'");
 
             document.getElementById('modalContent').innerHTML = \`
+              <div id="favStar" onclick="toggleFav()" style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:8px; padding:4px 8px 4px 0; user-select:none;" title="お気に入りに登録/解除">
+                \${isFav ? '<span style="font-size:28px; line-height:1; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.1));">⭐️</span> <span style="color:gray; font-size:11pt; font-weight:bold; line-height:1;">お気に入り済</span>' 
+                        : '<span style="color:#eed25c; font-size:34px; font-weight:bold; line-height:1; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.1));">☆</span> <span style="color:gray; font-size:11pt; font-weight:bold; line-height:1;">お気に入り追加</span>'}
+              </div>
               <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
-                <h3 style="color:#0056b3; margin: 5px 15px 0 0; font-size:20px; flex:1; line-height:1.4; word-break: break-word;">
+                <h3 style="color:#0056b3; margin: 0 15px 0 0; font-size:20px; flex:1; line-height:1.4; word-break: break-word;">
                   \${getFormEmoji(d.yj, d.label)} \${d.fullName}
                   \${d.price && d.price !== '-' ? \`<span style="font-size:16px; color:#333; background:#fff3cd; padding:4px 8px; border-radius:8px; vertical-align:middle; margin-left:8px; border:1px solid #ffe69c; white-space:nowrap;"><span style="color:#e65100;">￥</span>\${d.price}</span>\` : ''}
                 </h3>
-                <span id="favStar" onclick="toggleFav()" style="font-size:28px; cursor:pointer; padding:0; margin-right: 25px; margin-top: 2px; line-height:1; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); flex-shrink:0;" title="お気に入りに登録/解除">\${isFav ? '🌟' : '⭐'}</span>
               </div>
               <p style="font-weight:bold; font-size:15px; margin-top:0; margin-bottom:15px; color:\${d.isAdopted?'#28a745':'#888'}">
                 \${d.isBrand ? '<span class="tag blue" style="margin-right:5px;">先</span>' : ''}
