@@ -1676,7 +1676,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
       :root { --main-orange: #ff9d00; --bg: #fff9f0; }
       html { background: #333; display: flex; justify-content: center; }
       body { max-width: 500px; width: 100%; background: ${bgColor}; font-family: sans-serif; margin: 0; min-height: 100vh; box-shadow: 0 0 50px rgba(0,0,0,0.5); position: relative; transition: background 0.3s ease; }
-      .header { background: ${headerBgColor}; padding: 15px; text-align: center; border-bottom: 3px solid var(--main-orange); border-radius: 0 0 15px 15px; transition: background 0.3s ease; }
+      .header { background: ${headerBgColor}; padding: 15px; text-align: center; border-radius: 0 0 15px 15px; transition: background 0.3s ease; }
       .header h1 { margin: 0; font-size: 22px; color: var(--main-orange); display: flex; align-items: center; justify-content: center; gap: 8px; }
       .search-box { padding: 15px; background: #fff; position: sticky; top: 0; z-index: 10; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border-radius: 0 0 15px 15px; margin-bottom: 10px; }
       .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 15px; }
@@ -1744,7 +1744,11 @@ if (ayj && ayj.substring(0, 7) === yj7) {
       <div id="sysHelpData" style="display:none;">${env.HELP_TEXT || "環境変数 HELP_TEXT に使い方の説明などを設定してください。"}</div>
       <div class="header" style="display:flex; justify-content:space-between; align-items:center;">
         <div style="width:38px;"></div> <div style="display:flex; flex-direction:column; align-items:center;">
-          <h1 style="margin:0;"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/medikanilogo.png" alt="メディカニ 医薬品検索" style="height: 50px; max-width: 100%; object-fit: contain;"></h1>
+          <h1 style="margin:0;">
+            <a href="/${hospitalId}" style="display: flex; align-items: center; justify-content: center;">
+              <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/medikanilogo.png" alt="メディカニ 医薬品検索" style="height: 50px; max-width: 100%; object-fit: contain; border: none;">
+            </a>
+          </h1>
           ${hospitalName ? `<div style="margin-top: 8px; display: inline-block; background: rgba(255,255,255,0.7); color: #d63384; font-size: 13px; font-weight: bold; padding: 4px 12px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">🏥 ${hospitalName}</div>` : ''}
         </div>
         <button class="hamburger-btn" onclick="toggleMenu()">☰</button>
@@ -1777,8 +1781,8 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           <div id="topHistoryArea" style="margin-top:10px;"></div>
           <div id="boardArea"></div>
           <a href="${env.INTRO_FORM_URL || '#'}" target="_blank" style="display:block; margin-top:15px; padding:15px; background:linear-gradient(135deg, #ff9d00, #ff5722); color:#fff; border-radius:15px; text-decoration:none; font-weight:bold; box-shadow:0 4px 10px rgba(255,87,34,0.3); text-align:center;">
-            <div style="font-size:15px; margin-bottom:5px;">【ご紹介キャンペーン🎁】</div>
-            <div style="font-size:12px; line-height:1.4;">メディカニ・プラス🦀をあなたの職場やお知り合いの施設にご紹介で、あなたとご紹介先にAmazonギフトカード2,000円分プレゼント！✨️</div>
+            <div style="font-size:15px; margin-bottom:5px;">🦀紹介で🎁 あなたと紹介先両方に</div>
+            <div style="font-size:15px; line-height:1.4;">Amazonギフトカード2,000円分プレゼント！✨️</div>
           </a>
           ${infoManageHTML}
         </div>
