@@ -1900,7 +1900,7 @@ function getFormEmoji(yj, ctx = "") {
                   <div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">
                     \${i.isOtc ? '<span class="tag" style="background:#fff3e0;color:#e65100;border:1px solid #ffcc80;">市販薬</span>' : \`
                     \${i.isBrand ? '<span class="tag blue">先</span>' : ''}
-                    \${i.price && i.price !== '-' ? \`<span class="tag" style="background:#fff3cd;color:#856404;border:1px solid #ffe69c;">🪙\${i.price}</span>\` : ''}
+                    \${i.price && i.price !== '-' ? \`<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>\${i.price}</span>\` : ''}
                     \${i.yj && i.yj.startsWith('8') ? '<span class="tag red">麻</span>' : ''}
                     \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>'}
                     \`}
@@ -1927,7 +1927,7 @@ function getFormEmoji(yj, ctx = "") {
                   <div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">
                     \${i.isOtc ? '<span class="tag" style="background:#fff3e0;color:#e65100;border:1px solid #ffcc80;">市販薬</span>' : \`
                     \${i.isBrand ? '<span class="tag blue">先</span>' : ''}
-                    \${i.price && i.price !== '-' ? \`<span class="tag" style="background:#fff3cd;color:#856404;border:1px solid #ffe69c;">🪙\${i.price}</span>\` : ''}
+                    \${i.price && i.price !== '-' ? \`<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>\${i.price}</span>\` : ''}
                     \${i.yj && i.yj.startsWith('8') ? '<span class="tag red">麻</span>' : ''}
                     \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>'}
                     \`}
@@ -2149,7 +2149,7 @@ let trackVal = 0;
                       <div style="flex:1; line-height:1.4;">\${getFormEmoji(i.yj, currentCat)} \${i.name}</div>
                       <div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">
                         \${i.isBrand ? '<span class="tag blue">先</span>' : ''}
-                        \${i.price && i.price !== '-' ? \`<span class="tag" style="background:#fff3cd;color:#856404;border:1px solid #ffe69c;">🪙\${i.price}</span>\` : ''}
+                        \${i.price && i.price !== '-' ? \`<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>\${i.price}</span>\` : ''}
                         \${i.yj && i.yj.startsWith('8') ? '<span class="tag red">麻</span>' : ''}
                         \${i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>'}
                       </div>
@@ -2336,7 +2336,7 @@ let trackVal = 0;
               <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
                 <h3 style="color:#0056b3; margin: 5px 15px 0 0; font-size:20px; flex:1; line-height:1.4; word-break: break-word;">
                   \${getFormEmoji(d.yj, d.label)} \${d.fullName}
-                  \${d.price && d.price !== '-' ? \`<span style="font-size:16px; color:#856404; background:#fff3cd; padding:4px 8px; border-radius:8px; vertical-align:middle; margin-left:8px; border:1px solid #ffe69c; white-space:nowrap;">🪙\${d.price}</span>\` : ''}
+                  \${d.price && d.price !== '-' ? \`<span style="font-size:16px; color:#333; background:#fff3cd; padding:4px 8px; border-radius:8px; vertical-align:middle; margin-left:8px; border:1px solid #ffe69c; white-space:nowrap;"><span style="color:#e65100;">￥</span>\${d.price}</span>\` : ''}
                 </h3>
                 <span id="favStar" onclick="toggleFav()" style="font-size:28px; cursor:pointer; padding:0; margin-right: 25px; margin-top: 2px; line-height:1; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1)); flex-shrink:0;" title="お気に入りに登録/解除">\${isFav ? '🌟' : '⭐'}</span>
               </div>
@@ -2370,7 +2370,7 @@ let trackVal = 0;
                     <div style="display:flex; gap:4px; align-items:center;">
                        \${a.isBrand ? '<span class="tag blue" style="font-size:10px; padding:2px 6px;">先</span>' : ''}
                        \${aIsNarcotic ? '<span class="tag red" style="font-size:10px; padding:2px 6px;">麻</span>' : ''}
-                       \${a.price && a.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#856404;border:1px solid #ffe69c;font-size:10px; padding:2px 6px;">🪙' + a.price + '</span>' : ''}
+                       \${a.price && a.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;font-size:10px; padding:2px 6px;"><span style="color:#e65100;">￥</span>' + a.price + '</span>' : ''}
                     </div>
                   </div>
                 </a>\`}).join('') : '<p style="font-size:13px; color:#999; text-align:center; padding:10px 0;">見つかりませんでしたカニ🦀💦</p>'}
