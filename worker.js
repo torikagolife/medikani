@@ -459,7 +459,13 @@ export default {
       // === 新規追加: 管理画面と管理用API (ここまで) ===
       
       // メイン画面の表示
-      return new Response(this.getAdminHTML(env, hospitalId, hospitalName), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+      let globalInfo = "";
+      try {
+        globalInfo = await env.MEDI_KV.get("GLOBAL_INFO") || "";
+      } catch(e) { console.log("KV Get Error", e); }
+      
+      // メイン画面の表示（第4引数に globalInfo を追加）
+      return new Response(this.getAdminHTML(env, hospitalId, hospitalName, globalInfo), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
 
     // === 新規追加: 報告投稿API (ユーザー側) ===
@@ -1635,7 +1641,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
     return { key: kvKey, label, fullName, yj, isAdopted, isBrand, comment, price, alts: alts.sort((a,b)=>b.isAdopted - a.isAdopted) };
   },
 
-  getAdminHTML(env, hospitalId, hospitalName = "") {
+  getAdminHTML(env, hospitalId, hospitalName = "", globalInfo = "") {
     const isHospitalMode = hospitalId !== "";
     const bgColor = isHospitalMode ? "#fff0f5" : "var(--bg)";
     const headerBgColor = isHospitalMode ? "#ffe4e1" : "#fff"; 
@@ -1648,6 +1654,17 @@ if (ayj && ayj.substring(0, 7) === yj7) {
     const tipsStr = env.KANI_TIPS || "メディカニくんですよろしくカニ！🦀";
     const tipsArray = tipsStr.split(';');
     const randomTip = tipsArray[Math.floor(Math.random() * tipsArray.length)];
+
+    // 🌟プラスなうと同じピンク（#ff8da1）でお知らせ枠を作成
+    const infoManageHTML = globalInfo ? `
+      <div class="card" style="border-left: 6px solid #ff8da1; margin-top: 15px; background: #fff5f7;">
+        <div style="font-weight: bold; color: #d63384; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+          <span style="background: #ff8da1; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 4px;">公式</span>
+          📢 運営からのお知らせ
+        </div>
+        <div style="font-size: 14px; line-height: 1.6; white-space: pre-wrap; color: #444;">${globalInfo}</div>
+      </div>
+    ` : "";
 
     return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
@@ -1750,6 +1767,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
             <div style="font-size:15px; margin-bottom:5px;">【ご紹介キャンペーン🎁】</div>
             <div style="font-size:12px; line-height:1.4;">メディカニ・プラス🦀をあなたの職場やお知り合いの施設にご紹介で、あなたとご紹介先にAmazonギフトカード2,000円分プレゼント！✨️</div>
           </a>
+          ${infoManageHTML}
         </div>
       </div>
       <div id="modalOverlay" onclick="closeModal(event)"><div class="modal" onclick="event.stopPropagation()">
@@ -2070,9 +2088,10 @@ let trackVal = 0;
             return;
           }
           
-          // 検索文字が空になったらデフォルト表示（カニのつぶやき ＋ お知らせ）に戻す
+          // 検索文字が空になったらデフォルト表示に戻す
           if (q.length === 0) {
-            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="topHistoryArea" style="margin-top:10px;"></div><div id="boardArea">' + (window.boardHTML || '') + '</div>' + introCampaignHTML + '</div>';
+            // 📢 infoManageHTML を boardArea の後ろに追加
+            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="topHistoryArea" style="margin-top:10px;"></div><div id="boardArea">' + (window.boardHTML || '') + '</div>' + introCampaignHTML + \`${infoManageHTML}\` + '</div>';
             renderTopHistory(currentCat);
             return;
           }
