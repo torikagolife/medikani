@@ -1732,14 +1732,31 @@ if (ayj && ayj.substring(0, 7) === yj7) {
       .report-radio-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px; }
       .report-radio-label { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #444; background: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #eee; cursor: pointer; }
       .report-radio-label input[type="radio"] { width: auto; margin: 0; }
+      /* === 新規追加: ハンバーガーメニュー用スタイル === */
+      .hamburger-btn { background: none; border: none; font-size: 28px; cursor: pointer; color: var(--main-orange); padding: 5px; }
+      .menu-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; display: none; opacity: 0; transition: opacity 0.3s; }
+      .side-menu { position: fixed; top: 0; right: -250px; width: 200px; height: 100%; background: #fff; z-index: 1001; box-shadow: -4px 0 15px rgba(0,0,0,0.1); transition: right 0.3s ease; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+      .side-menu-close { text-align: right; font-size: 28px; cursor: pointer; color: #999; margin-bottom: 5px; line-height: 1; }
+      .menu-item { background: #f4f7f6; border: none; padding: 15px; border-radius: 10px; font-size: 14px; font-weight: bold; cursor: pointer; text-align: left; color: #555; display: flex; align-items: center; gap: 10px; transition: background 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+      .menu-item:active { background: #e2e6e5; }
     </style></head>
     <body>
       <div id="sysHelpData" style="display:none;">${env.HELP_TEXT || "環境変数 HELP_TEXT に使い方の説明などを設定してください。"}</div>
-      <div class="header">
-        <h1>
-          <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/medikanilogo.png" alt="メディカニ 医薬品検索" style="height: 50px; max-width: 100%; object-fit: contain;">
-        </h1>
-        ${hospitalName ? `<div style="margin-top: 8px; display: inline-block; background: rgba(255,255,255,0.7); color: #d63384; font-size: 13px; font-weight: bold; padding: 4px 12px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">🏥 ${hospitalName}</div>` : ''}
+      <div class="header" style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="width:38px;"></div> <div style="display:flex; flex-direction:column; align-items:center;">
+          <h1 style="margin:0;"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/medikanilogo.png" alt="メディカニ 医薬品検索" style="height: 50px; max-width: 100%; object-fit: contain;"></h1>
+          ${hospitalName ? `<div style="margin-top: 8px; display: inline-block; background: rgba(255,255,255,0.7); color: #d63384; font-size: 13px; font-weight: bold; padding: 4px 12px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">🏥 ${hospitalName}</div>` : ''}
+        </div>
+        <button class="hamburger-btn" onclick="toggleMenu()">☰</button>
+      </div>
+      
+      <div class="menu-overlay" id="menuOverlay" onclick="toggleMenu()"></div>
+      <div class="side-menu" id="sideMenu">
+        <div class="side-menu-close" onclick="toggleMenu()">×</div>
+        <button class="menu-item" onclick="setCat('[履歴]', null); toggleMenu();">🕒 履歴</button>
+        <button class="menu-item" onclick="setCat('[お気に入り]', null); toggleMenu();">⭐️ お気に入り</button>
+        <button class="menu-item" style="${demoBtnStyle}" onclick="setCat('[デモ]', null); toggleMenu();">${demoBtnLabel}</button>
+        <button class="menu-item" onclick="setCat('[ヘルプ]', null); toggleMenu();">❓ ヘルプ</button>
       </div>
       <div class="search-box">
         <div class="tabs">
@@ -1747,10 +1764,6 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           <button class="tab" onclick="setCat('[外]', this)">🩹 外用</button>
           <button class="tab" onclick="setCat('[注]', this)">💉 注射</button>
           <button class="tab" onclick="setCat('[市販]', this)">🛒 市販薬</button>
-          <button class="tab" onclick="setCat('[履歴]', this)">🕒 履歴</button>
-          <button class="tab" onclick="setCat('[お気に入り]', this)">⭐️ お気に入り</button>
-          <button class="tab" style="${demoBtnStyle}" onclick="setCat('[デモ]', this)">${demoBtnLabel}</button>
-          <button class="tab" onclick="setCat('[ヘルプ]', this)">❓ ヘルプ</button>
         </div>
         <input type="text" id="q" placeholder="🔍 お薬名（かな・カナ３文字〜）..." oninput="search()">
       </div>
@@ -1849,8 +1862,22 @@ if (ayj && ayj.substring(0, 7) === yj7) {
         function setCat(cat, el) { 
           currentCat = cat; 
           document.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); 
-          el.classList.add('active'); 
+          if (el) { el.classList.add('active'); } // エラー防止：elがある時だけ色を変える
           search(); 
+        }
+        
+        // 👇新規追加: メニューを開閉するアニメーション処理👇
+        function toggleMenu() {
+          const menu = document.getElementById('sideMenu');
+          const overlay = document.getElementById('menuOverlay');
+          if (menu.style.right === '0px') {
+            menu.style.right = '-250px';
+            overlay.style.opacity = '0';
+            setTimeout(() => overlay.style.display = 'none', 300);
+          } else {
+            overlay.style.display = 'block';
+            setTimeout(() => { overlay.style.opacity = '1'; menu.style.right = '0px'; }, 10);
+          }
         }
         function searchAlt(kw) {
           document.getElementById('q').value = kw;
@@ -2378,7 +2405,7 @@ let trackVal = 0;
               <div style="margin-top:20px; text-align:center;">
                 <a href="https://medikani.com/info" target="_blank" style="display:inline-block; width:100%; background:#e3f2fd; color:#0056b3; padding:12px; border-radius:12px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a>
               </div>
-              \${!hId ? \`<div onclick="closeModal(); setCat('[デモ]', document.querySelectorAll('.tab')[6]);" style="margin-top:15px; text-align:center; padding:15px; background:#fff0f5; border-radius:12px; border:1px dashed #ffb6c1; cursor:pointer; transition: opacity 0.2s;"><span style="color:#d63384;font-weight:bold;font-size:13px;">🦀メディカニ・プラスは採用薬が切替候補に出るカニ💚</span><br><span style="color:#fff;background:#e83e8c;font-size:14px;text-decoration:none;margin-top:10px;padding:10px 20px;border-radius:25px;display:inline-block;font-weight:bold;box-shadow:0 4px 6px rgba(232,62,140,0.3);">✨ プラス体験はこちら ✨</span></div>\` : ''}
+              \${!hId ? \`<div onclick="closeModal(); setCat('[デモ]', null);" style="margin-top:15px; text-align:center; padding:15px; background:#fff0f5; border-radius:12px; border:1px dashed #ffb6c1; cursor:pointer; transition: opacity 0.2s;"><span style="color:#d63384;font-weight:bold;font-size:13px;">🦀メディカニ・プラスは採用薬が切替候補に出るカニ💚</span><br><span style="color:#fff;background:#e83e8c;font-size:14px;text-decoration:none;margin-top:10px;padding:10px 20px;border-radius:25px;display:inline-block;font-weight:bold;box-shadow:0 4px 6px rgba(232,62,140,0.3);">✨ プラス体験はこちら ✨</span></div>\` : ''}
             \`;
           } catch(e) {
             document.getElementById('modalContent').innerHTML = '<p style="text-align:center;padding:20px;color:#dc3545;font-weight:bold;">⚠️ 詳細を開けませんでしたカニ🦀💦</p>';
