@@ -1655,7 +1655,6 @@ if (ayj && ayj.substring(0, 7) === yj7) {
     const tipsArray = tipsStr.split(';');
     const randomTip = tipsArray[Math.floor(Math.random() * tipsArray.length)];
 
-    // 🌟プラスなうと同じピンク（#ff8da1）でお知らせ枠を作成
     const infoManageHTML = globalInfo ? `
       <div class="card" style="border-left: 6px solid #ff8da1; margin-top: 15px; background: #fff5f7;">
         <div style="font-weight: bold; color: #d63384; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
@@ -1665,6 +1664,16 @@ if (ayj && ayj.substring(0, 7) === yj7) {
         <div style="font-size: 14px; line-height: 1.6; white-space: pre-wrap; color: #444;">${globalInfo}</div>
       </div>
     ` : "";
+
+    // 👇ここから追加：トップ画面とハンバーガーメニュー用の表示分岐（ノーマルモード ＋ デモHPTEST1のみ）
+    const officialSiteHTML = (!isHospitalMode || hospitalId === "HPTEST1") 
+      ? `<a href="https://medikani.com/info" target="_blank" style="display:block; margin-top:15px; padding:15px; background:#e3f2fd; color:#0056b3; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; text-align:center; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a>`
+      : "";
+
+    const signMenuItem = (!isHospitalMode || hospitalId === "HPTEST1") 
+      ? `<a href="${env.SIGN_FORM_URL || '#'}" target="_blank" class="menu-item" style="text-decoration:none; display:flex; background:#e8f5e9; color:#28a745; border:1px solid #c8e6c9;">📝 プラスに申し込む</a>` 
+      : "";
+    // 👆ここまで追加
 
     return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
@@ -1676,7 +1685,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
       :root { --main-orange: #ff9d00; --bg: #fff9f0; }
       html { background: #333; display: flex; justify-content: center; }
       body { max-width: 500px; width: 100%; background: ${bgColor}; font-family: sans-serif; margin: 0; min-height: 100vh; box-shadow: 0 0 50px rgba(0,0,0,0.5); position: relative; transition: background 0.3s ease; }
-      .header { background: ${headerBgColor}; padding: 15px; text-align: center; border-radius: 0 0 15px 15px; transition: background 0.3s ease; }
+      .header { background: ${headerBgColor}; padding: 8px; text-align: center; border-radius: 0 0 15px 15px; transition: background 0.3s ease; }
       .header h1 { margin: 0; font-size: 22px; color: var(--main-orange); display: flex; align-items: center; justify-content: center; gap: 8px; }
       .search-box { padding: 15px; background: #fff; position: sticky; top: 0; z-index: 10; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border-radius: 0 0 15px 15px; margin-bottom: 10px; }
       .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 15px; }
@@ -1749,7 +1758,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
               <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/medikanilogo.png" alt="メディカニ 医薬品検索" style="height: 50px; max-width: 100%; object-fit: contain; border: none;">
             </a>
           </h1>
-          ${hospitalName ? `<div style="margin-top: 8px; display: inline-block; background: rgba(255,255,255,0.7); color: #d63384; font-size: 13px; font-weight: bold; padding: 4px 12px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">🏥 ${hospitalName}</div>` : ''}
+          ${hospitalName ? `<div style="margin-top: 4px; display: inline-block; background: rgba(255,255,255,0.7); color: #d63384; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">🏥 ${hospitalName}</div>` : ''}
         </div>
         <button class="hamburger-btn" onclick="toggleMenu()">☰</button>
       </div>
@@ -1761,7 +1770,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
         <button class="menu-item" onclick="setCat('[お気に入り]', null); toggleMenu();">⭐️ お気に入り</button>
         <button class="menu-item" style="${demoBtnStyle}" onclick="setCat('[デモ]', null); toggleMenu();">${demoBtnLabel}</button>
         <button class="menu-item" onclick="setCat('[ヘルプ]', null); toggleMenu();">❓ ヘルプ</button>
-      </div>
+        ${signMenuItem} </div>
       <div class="search-box">
         <div class="tabs">
           <button class="tab active" onclick="setCat('[内]', this)">💊 内服</button>
@@ -1785,7 +1794,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
             <div style="font-size:15px; line-height:1.4;">Amazonギフトカード2,000円分プレゼント！✨️</div>
           </a>
           ${infoManageHTML}
-        </div>
+          ${officialSiteHTML} </div>
       </div>
       <div id="modalOverlay" onclick="closeModal(event)"><div class="modal" onclick="event.stopPropagation()">
         <span class="modal-close" onclick="closeModal()">×</span>
@@ -1836,8 +1845,8 @@ if (ayj && ayj.substring(0, 7) === yj7) {
 
         const introCampaignHTML = \`
           <a href="${env.INTRO_FORM_URL || '#'}" target="_blank" style="display:block; margin-top:15px; padding:15px; background:linear-gradient(135deg, #ff9d00, #ff5722); color:#fff; border-radius:15px; text-decoration:none; font-weight:bold; box-shadow:0 4px 10px rgba(255,87,34,0.3); text-align:center;">
-            <div style="font-size:15px; margin-bottom:5px;">【ご紹介キャンペーン🎁】</div>
-            <div style="font-size:12px; line-height:1.4;">メディカニ・プラス🦀をあなたの職場やお知り合いの施設にご紹介で、あなたとご紹介先にAmazonギフトカード2,000円分プレゼント！✨️</div>
+            <div style="font-size:15px; margin-bottom:5px;">🦀紹介で🎁 あなたと紹介先両方に</div>
+            <div style="font-size:15px; line-height:1.4;">Amazonギフトカード2,000円分プレゼント！✨️</div>
           </a>
         \`;
 
@@ -2110,8 +2119,8 @@ if (hist.length > 50) hist.pop();
                   <a href="/\${hId}/admin" style="background:#fff0f5; color:#d63384; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #ffcdd2;">⚙️ 管理画面を開く</a>
                   <a href="https://medikani.com/info" target="_blank" style="background:#e3f2fd; color:#0056b3; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb;">ℹ️ 公式サイトで詳しく見る</a>
                             <a href="${env.INTRO_FORM_URL || '#'}" target="_blank" style="display:block; margin-top:15px; padding:15px; background:linear-gradient(135deg, #ff9d00, #ff5722); color:#fff; border-radius:15px; text-decoration:none; font-weight:bold; box-shadow:0 4px 10px rgba(255,87,34,0.3); text-align:center;">
-            <div style="font-size:15px; margin-bottom:5px;">【ご紹介キャンペーン🎁】</div>
-            <div style="font-size:12px; line-height:1.4;">メディカニ・プラス🦀をあなたの職場やお知り合いの施設にご紹介で、あなたとご紹介先にAmazonギフトカード2,000円分プレゼント！✨️</div>
+            <div style="font-size:15px; margin-bottom:5px;">🦀紹介で🎁 あなたと紹介先両方に</div>
+            <div style="font-size:15px; line-height:1.4;">Amazonギフトカード2,000円分プレゼント！✨️</div>
           </a>
           </div>
               </div>\`;
@@ -2134,7 +2143,7 @@ if (hist.length > 50) hist.pop();
           // 検索文字が空になったらデフォルト表示に戻す
           if (q.length === 0) {
             // 📢 infoManageHTML を boardArea の後ろに追加
-            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="topHistoryArea" style="margin-top:10px;"></div><div id="boardArea">' + (window.boardHTML || '') + '</div>' + introCampaignHTML + \`${infoManageHTML}\` + '</div>';
+            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="topHistoryArea" style="margin-top:10px;"></div><div id="boardArea">' + (window.boardHTML || '') + '</div>' + introCampaignHTML + \`${infoManageHTML}\` + \`${officialSiteHTML}\`+ '</div>';
             renderTopHistory(currentCat);
             return;
           }
