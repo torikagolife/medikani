@@ -529,6 +529,12 @@ export default {
           if (boardArr.length > 50) boardArr.pop(); // 最大50件保持
         } else if (body.action === "delete") {
           boardArr = boardArr.filter(b => b.id !== body.id);
+        } else if (body.action === "edit") {
+          // 🌟修正：ここを追加！対象のIDを探してメッセージを上書きする
+          const target = boardArr.find(b => b.id === body.id);
+          if (target) {
+            target.message = body.message;
+          }
         }
 
         await env.MEDI_KV.put(`${bHId}_board`, JSON.stringify(boardArr));
@@ -2231,7 +2237,16 @@ if (hist.length > 50) hist.pop();
         fetch('/api/board?h=' + hId).then(r=>r.json()).then(data => {
           if (data && data.length > 0) {
             window.boardHTML = '<div style="margin-top:15px; font-weight:bold; color:var(--main-orange);">📢 お知らせ</div>' + 
-              data.map(b => \`<div class="card" style="border-left-color:var(--main-orange); margin-top:10px;"><div style="font-size:12px; color:#888; margin-bottom:5px;">🕒 \${b.date}</div><div style="font-size:14px; line-height:1.6; white-space:pre-wrap;">\${b.message}</div></div>\`).join('');
+              data.map(b => {
+                // 正規表現のバックスラッシュをエスケープ（\を二重化）
+                const parsedMessage = (b.message || "").replace(/\\[\\[\\[💊 (.*?)\\|(.*?)\\]\\]\\]/g, (match, name, key) => {
+                  const safeKey = String(key).replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                  const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                  // バッククォートをやめてシングルクォートの結合に変更
+                  return '<a href="#" onclick="showDetail(\\'' + safeKey + '\\'); return false;" style="color:#0056b3; font-weight:bold; text-decoration:underline;">💊 ' + safeName + '</a>';
+                });
+                return '<div class="card" style="border-left-color:var(--main-orange); margin-top:10px;"><div style="font-size:12px; color:#888; margin-bottom:5px;">🕒 ' + b.date + '</div><div style="font-size:14px; line-height:1.6; white-space:pre-wrap;">' + parsedMessage + '</div></div>';
+              }).join('');
           }
           // 初期表示時（検索欄が空の時）に流し込む
           if (document.getElementById('q').value.trim().length === 0 && document.getElementById('boardArea')) {
@@ -2597,8 +2612,19 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           </div>
         </div>
 
+        <div id="boardEditModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:2000; justify-content:center; align-items:center;">
+          <div style="background:#fff; width:90%; max-width:400px; padding:25px; border-radius:15px; position:relative;">
+            <h3 style="margin-top:0; color:#28a745;">お知らせの編集</h3>
+            <textarea id="editBoardMessage" style="width:100%; height:120px; padding:10px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box; font-family:sans-serif; margin-bottom:15px;"></textarea>
+            <div style="display:flex; gap:10px;">
+              <button onclick="saveBoardEdit()" id="btnSaveBoard" style="flex:1; padding:12px; background:#28a745; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">保存する</button>
+              <button onclick="closeBoardEdit()" style="flex:1; padding:12px; background:#eee; color:#333; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">キャンセル</button>
+            </div>
+          </div>
+        </div>
+
         <div class="card">
-          <h2>📥 CSV/Excelデータのアップロード</h2>
+          <h2>📥 CSV/Excelデータのアップロード</h2>
           <p style="font-size:12px; color:#666; margin-bottom:15px;">一括更新はこちら。フル更新と追加更新が出来るよ🦀</p>
           <label class="dropzone" id="dropzone">
             <div style="font-size:24px; margin-bottom:10px;">📄</div>
@@ -3100,17 +3126,13 @@ document.getElementById('csvFile').onchange = (e) => {
         }
 
         function insertBoardLink(key, name) {
-          const textarea = document.getElementById('boardMessage');
-          
-          // textareaに埋め込むHTMLタグの属性が壊れないようエスケープ
-          const safeKey = String(key).replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-          // 挿入するHTMLタグ（Workerでの展開回避のためバッククォートと$をバックスラッシュで保護）
-          const linkText = \`<a href="#" onclick="showDetail('\${safeKey}'); return false;" style="color:#0056b3; font-weight:bold; text-decoration:underline;">💊 \${safeName}</a>\`;
-          
-          // カーソル位置を取得して、その場所にリンクテキストを挿入
-          const start = textarea.selectionStart;
+          const textarea = document.getElementById('boardMessage');
+          
+          // バッククォートをやめて通常の文字列結合に変更（サーバー側での誤展開を防止）
+          const linkText = "[[[💊 " + name + "|" + key + "]]]";
+          
+          // カーソル位置を取得して、その場所にリンクテキストを挿入
+          const start = textarea.selectionStart;
           const end = textarea.selectionEnd;
           const text = textarea.value;
           textarea.value = text.substring(0, start) + linkText + text.substring(end);
@@ -3122,19 +3144,82 @@ document.getElementById('csvFile').onchange = (e) => {
         // 👆ここまで追加
 
               
+        
+        let currentBoardData = [];
+        let currentEditBoardId = null;
+
         function loadBoard() {
           fetch('/api/board?h=' + hId).then(r=>r.json()).then(data => {
+            currentBoardData = data || [];
             const list = document.getElementById('boardList');
             if(!data || data.length===0) { list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">お知らせはまだありませんカニ🦀</p>'; return; }
-            list.innerHTML = data.map(b => \`
-              <div class="admin-item" style="flex-direction:column; align-items:flex-start;">
-                <div style="font-size:11px; color:#888; margin-bottom:4px;">\${b.date}</div>
-                <div style="font-size:13px; margin-bottom:8px; white-space:pre-wrap; width:100%;">\${b.message}</div>
-                <button class="btn-small btn-delete" onclick="deleteBoard(\${b.id})">削除</button>
-              </div>
-            \`).join('');
+            list.innerHTML = data.map(b => {
+              // 画面表示用（正規表現のエスケープ）
+              const parsedMessage = (b.message || "").replace(/\\[\\[\\[💊 (.*?)\\|(.*?)\\]\\]\\]/g, (match, name, key) => {
+                const safeKey = String(key).replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                return '<a href="#" onclick="showDetail(\\'' + safeKey + '\\'); return false;" style="color:#0056b3; font-weight:bold; text-decoration:underline;">💊 ' + safeName + '</a>';
+              });
+              
+              // テンプレートリテラルのエラーを防ぐため通常の文字列結合を使用
+              return '<div class="admin-item" style="flex-direction:column; align-items:flex-start;">' +
+                '<div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-bottom:4px;">' +
+                  '<div style="font-size:11px; color:#888;">' + b.date + '</div>' +
+                  '<button class="btn-small" style="background:#ff9d00; color:#fff;" onclick="copyBoardAnnounce(' + b.id + ')">📋 案内コピー</button>' +
+                '</div>' +
+                '<div style="font-size:13px; margin-bottom:8px; white-space:pre-wrap; width:100%;">' + parsedMessage + '</div>' +
+                '<div style="display:flex; gap:8px;">' +
+                  '<button class="btn-small btn-edit" onclick="openBoardEdit(' + b.id + ')">編集</button>' +
+                  '<button class="btn-small btn-delete" onclick="deleteBoard(' + b.id + ')">削除</button>' +
+                '</div>' +
+              '</div>';
+            }).join('');
           });
         }
+        
+        function copyBoardAnnounce(id) {
+          const target = currentBoardData.find(b => b.id === id);
+          if (!target) return;
+          // コピー用も正規表現のエスケープを修正
+          const plainText = (target.message || "").replace(/\\[\\[\\[💊 (.*?)\\|(.*?)\\]\\]\\]/g, "💊 $1");
+          const copyText = plainText + "\\n\\nメディカニ🦀の掲示板をご覧下さい\\nhttps://medikani.com/" + hId;
+          
+          navigator.clipboard.writeText(copyText).then(() => {
+            alert('案内文をクリップボードにコピーしましたカニ！🦀\\nメールやLINEなどに貼り付けてください。');
+          }).catch(() => {
+            alert('コピーに失敗しましたカニ🦀💦');
+          });
+        }
+
+        function openBoardEdit(id) {
+          const target = currentBoardData.find(b => b.id === id);
+          if (!target) return;
+          currentEditBoardId = id;
+          document.getElementById('editBoardMessage').value = target.message;
+          document.getElementById('boardEditModal').style.display = 'flex';
+        }
+
+        function closeBoardEdit() {
+          document.getElementById('boardEditModal').style.display = 'none';
+        }
+
+        async function saveBoardEdit() {
+          const message = document.getElementById('editBoardMessage').value.trim();
+          if(!message) return;
+          const btn = document.getElementById('btnSaveBoard');
+          btn.disabled = true;
+          const res = await fetch('/api/admin/board?h=' + hId, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ action: 'edit', id: currentEditBoardId, message })
+          });
+          if((await res.json()).success) {
+            alert('編集を保存しましたカニ！🦀');
+            closeBoardEdit();
+            loadBoard();
+          }
+          btn.disabled = false;
+        }
+
         async function postBoard() {
           const message = document.getElementById('boardMessage').value.trim();
           if(!message) return;
