@@ -1932,10 +1932,11 @@ function getFormEmoji(yj, ctx = "") {
             resDiv.innerHTML = '<div class="no-results">📭 まだメディカニくんが見たお薬はないみたいです 🦀<br><span style="font-size:12px;color:#aaa;">検索するとここに履歴が残ります✨</span></div>';
           } else {
             resDiv.innerHTML = hist.map(i => {
-              const displayName = i.name || i.fullName || "名称不明";
-              return \`
-              <div class="card \${i.isAdopted ? 'adopted' : ''}" onclick="\${i.isOtc ? \`showOtcDetail('\${i.fullName.replace(/'/g, "\\\\'")}')\` : \`showDetail('\${i.key}')\`}">
-                <div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; gap:8px;">
+                const displayName = i.name || i.fullName || "名称不明";
+                const onClickStr = i.isOtc ? "showOtcDetail('" + i.fullName.replace(/'/g, "\\\\'") + "')" : "showDetail('" + i.key + "')";
+                return \`
+                <div class="card \${i.isAdopted ? 'adopted' : ''}" onclick="\${onClickStr}">
+                  <div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; gap:8px;">
                   <div style="flex:1; line-height:1.4;">\${i.isOtc ? '🛒' : getFormEmoji(i.yj, i.key)} \${displayName}</div>
                   <div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">
                     \${i.isOtc ? '<span class="tag" style="background:#fff3e0;color:#e65100;border:1px solid #ffcc80;">市販薬</span>' : \`
@@ -1959,10 +1960,11 @@ function getFormEmoji(yj, ctx = "") {
             resDiv.innerHTML = '<div class="no-results">⭐️ お気に入りはまだありませんカニ🦀<br><span style="font-size:12px;color:#aaa;">お薬の詳細画面で「⭐」を押すと登録できるよ！</span></div>';
           } else {
             resDiv.innerHTML = favs.map(i => {
-              const displayName = i.name || i.fullName || "名称不明";
-              return \`
-              <div class="card \${i.isAdopted ? 'adopted' : ''}" onclick="\${i.isOtc ? \`showOtcDetail('\${i.fullName.replace(/'/g, "\\\\'")}')\` : \`showDetail('\${i.key}')\`}">
-                <div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; gap:8px;">
+                const displayName = i.name || i.fullName || "名称不明";
+                const onClickStr = i.isOtc ? "showOtcDetail('" + i.fullName.replace(/'/g, "\\\\'") + "')" : "showDetail('" + i.key + "')";
+                return \`
+                <div class="card \${i.isAdopted ? 'adopted' : ''}" onclick="\${onClickStr}">
+                  <div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; gap:8px;">
                   <div style="flex:1; line-height:1.4;">\${i.isOtc ? '🛒' : getFormEmoji(i.yj, i.key)} \${displayName}</div>
                   <div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">
                     \${i.isOtc ? '<span class="tag" style="background:#fff3e0;color:#e65100;border:1px solid #ffcc80;">市販薬</span>' : \`
@@ -1999,7 +2001,8 @@ function getFormEmoji(yj, ctx = "") {
           let chipsHTML = filtered.map(h => {
              let n = h.name || h.fullName || "名称不明";
              let shortName = n.split(' ')[0];
-             return \`<div class="top-hist-chip" onclick="\${h.isOtc ? \`showOtcDetail('\${h.fullName.replace(/'/g, "\\\\'")}')\` : \`showDetail('\${h.key}')\`}">\${h.isOtc ? '🛒' : getFormEmoji(h.yj, h.key)} \${shortName}</div>\`;
+             const onClickStr = h.isOtc ? "showOtcDetail('" + h.fullName.replace(/'/g, "\\\\'") + "')" : "showDetail('" + h.key + "')";
+             return \`<div class="top-hist-chip" onclick="\${onClickStr}">\${h.isOtc ? '🛒' : getFormEmoji(h.yj, h.key)} \${shortName}</div>\`;
           }).join('');
           
           let catName = cat.replace(/\\[|\\]/g, '');
@@ -2625,6 +2628,15 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
         <div class="card" style="border-top: 4px solid #28a745;">
           <h2>📢 掲示板（お知らせ）管理</h2>
           <p style="font-size:12px; color:#666; margin-bottom:10px;">検索画面のトップに表示されるお知らせを投稿できますカニ🦀</p>
+
+          <div style="background:#f8f9fa; padding:10px; border-radius:8px; margin-bottom:10px; border:1px solid #eee;">
+            <label style="font-size:12px; font-weight:bold; color:#666; margin-bottom:5px; display:block;">🔗 お薬リンクを挿入（本文にタグが入ります）</label>
+            <div style="display:flex; gap:8px; margin-bottom:5px;">
+              <input type="text" id="boardDrugSearchQ" placeholder="お薬を検索..." style="flex:1; padding:8px; border:1px solid #ccc; border-radius:6px;" onkeydown="if(event.key==='Enter') boardDrugSearch()">
+              <button onclick="boardDrugSearch()" style="padding:8px 15px; background:var(--main-blue); color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">検索</button>
+            </div>
+            <div id="boardDrugSearchResults" class="admin-item-list" style="margin-top:0; border-top:none; max-height:150px; overflow-y:auto;"></div>
+          </div>
           <textarea id="boardMessage" placeholder="お知らせ内容を入力してください..." style="width:100%; height:80px; padding:10px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box; font-family:sans-serif; margin-bottom:10px;"></textarea>
           <button onclick="postBoard()" style="width:100%; padding:12px; background:#28a745; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer; margin-bottom:20px; transition: transform 0.1s;">📢 投稿する</button>
           
@@ -3055,6 +3067,61 @@ document.getElementById('csvFile').onchange = (e) => {
         };
 
         // --- 新規追加: 掲示板機能 (ここから) ---
+
+        // 👇ここから追加：掲示板用のお薬検索とリンク挿入機能
+        async function boardDrugSearch() {
+          const q = document.getElementById('boardDrugSearchQ').value.trim();
+          if(!q) return;
+          const list = document.getElementById('boardDrugSearchResults');
+          list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">検索中...🦀</p>';
+          
+          // 検索APIを叩く
+    const res = await fetch(\`/api/search?c=all&q=\${encodeURIComponent(q)}&h=\${hId}\`);
+          const data = await res.json();
+          
+          // 採用薬のみに絞り込み
+          const adoptedData = data.filter(i => !i.key.includes('[市販]'));
+          if(!adoptedData.length) { 
+            list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">お薬が見つかりませんでしたカニ🦀</p>'; 
+            return; 
+          }
+          
+         // 個別追加機能と全く同じシンプルな描画に変更！
+          list.innerHTML = adoptedData.map(i => \`
+            <div class="admin-item">
+              <div class="admin-item-info">
+                <b>\${i.name}</b><br><small>\${i.spec}</small>
+              </div>
+              <div class="admin-item-actions">
+                <button class="btn-small" style="background:#28a745; color:#fff;" onclick="insertBoardLink('\${i.key.replace(/'/g, "\\\\'")}', '\${i.name.replace(/'/g, "\\\\'")}')">挿入</button>
+              </div>
+            </div>
+          \`).join('');
+        }
+
+        function insertBoardLink(key, name) {
+          const textarea = document.getElementById('boardMessage');
+          
+          // textareaに埋め込むHTMLタグの属性が壊れないようエスケープ
+          const safeKey = String(key).replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const safeName = String(name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+          // 挿入するHTMLタグ（Workerでの展開回避のためバッククォートと$をバックスラッシュで保護）
+          const linkText = \`<a href="#" onclick="showDetail('\${safeKey}'); return false;" style="color:#0056b3; font-weight:bold; text-decoration:underline;">💊 \${safeName}</a>\`;
+          
+          // カーソル位置を取得して、その場所にリンクテキストを挿入
+          const start = textarea.selectionStart;
+          const end = textarea.selectionEnd;
+          const text = textarea.value;
+          textarea.value = text.substring(0, start) + linkText + text.substring(end);
+          
+          // 挿入後にカーソルをリンクの後ろに移動してフォーカスを戻す
+          textarea.focus();
+          textarea.selectionStart = textarea.selectionEnd = start + linkText.length;
+        }
+        // 👆ここまで追加
+
+              
         function loadBoard() {
           fetch('/api/board?h=' + hId).then(r=>r.json()).then(data => {
             const list = document.getElementById('boardList');
