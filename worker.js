@@ -2237,7 +2237,7 @@ if (hist.length > 50) hist.pop();
         fetch('/api/board?h=' + hId).then(r=>r.json()).then(data => {
           if (data && data.length > 0) {
             window.boardHTML = '<div style="margin-top:15px; font-weight:bold; color:var(--main-orange);">📢 お知らせ</div>' + 
-              data.map(b => {
+              data.slice(0, 5).map(b => {
                 // 正規表現のバックスラッシュをエスケープ（\を二重化）
                 const parsedMessage = (b.message || "").replace(/\\[\\[\\[💊 (.*?)\\|(.*?)\\]\\]\\]/g, (match, name, key) => {
                   const safeKey = String(key).replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
