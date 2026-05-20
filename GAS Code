@@ -134,19 +134,23 @@ function syncAllSheetsToKV() {
 
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
+      // ★修正箇所: A列（ユーザーがスプレッドシートで作ったフルネームキー）を直接取得する
+      const sheetKey = String(row[0] || "").trim(); 
       const csvValue = String(row[1] || "").trim();
-      if (!csvValue) continue;
+      
+      // A列のキーか、B列のデータが空ならスキップ
+      if (!csvValue || !sheetKey) continue;
 
       const parts = csvValue.split(",");
       if (parts.length < 3) continue;
 
+      // COMP_ 用にYJコードだけは一番最後から取得する
       const yjCode = parts[parts.length - 1].trim();
-      const kanaName = parts[0].trim();
-      let cleanName = kanaName;
-      const match = kanaName.match(/[\u30A0-\u30FF\u30FCa-zA-ZＡ-Ｚａ-ｚ]+/);
-      if (match) cleanName = match[0];
 
-      const key = `${label}${cleanName}_${yjCode}`;
+      // ★修正箇所: スプレッドシートのA列のキーに [内] などのラベルを付けて最終キーにする
+      // 例: "[注]" + "複方オキシコドン注射液_8119500A1015"
+      const key = `${label}${sheetKey}`;
+      
       if (keySet.has(key)) continue;
       keySet.add(key);
       allBody.push({ key: key, value: csvValue.replace(/,/g, "，") });
@@ -225,4 +229,85 @@ function syncAllSheetsToKV() {
   }
   
   Browser.msgBox(`【マスターデータ 同期完了】\n\n${successCount} 件のデータを更新しました。`);
+}
+
+/**
+ * 🌟 マニュアルシートの編集を監視（C2:メール送信 / F2:お知らせ更新）
+ */
+function onManualEdit(e) {
+  const ss = e.source;
+  const sheet = ss.getActiveSheet();
+  const range = e.range;
+
+  if (sheet.getName() !== "マニュアル") return;
+
+  const addr = range.getA1Notation();
+  
+  // --- メール送信トリガー (C2) ---
+  if (addr === "C2" && range.getValue() === "送信") {
+    sendBulkEmailsFromMaster();
+    range.clearContent();
+  }
+
+  // --- 運営からのお知らせ更新トリガー (F2) 🌟追加 ---
+  if (addr === "F2" && range.getValue() === "更新") {
+    const infoText = sheet.getRange("E2").getValue();
+    const success = updateSingleKV("GLOBAL_INFO", infoText);
+    
+    if (success) {
+      SpreadsheetApp.getActiveSpreadsheet().toast("アプリのお知らせを更新したカニ！🦀", "更新完了");
+      range.clearContent();
+    } else {
+      SpreadsheetApp.getUi().alert("KVの更新に失敗しました。プロパティ設定を確認してくださいカニ🦀");
+    }
+  }
+}
+
+/**
+ * 📧 顧客マスタから対象を抽出してメールを送る心臓部
+ */
+function sendBulkEmailsFromMaster() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const manualSheet = ss.getSheetByName("マニュアル");
+  const masterSheet = ss.getSheetByName("顧客マスタ");
+
+  // マニュアルシートから設定を読み込む
+  const targetStatus = manualSheet.getRange("A2").getValue(); // A2: 送信対象のステータス
+  const mailBody = manualSheet.getRange("B2").getValue();    // B2: 本文
+  const signature = manualSheet.getRange("D2").getValue();   // D2: 署名
+  
+  // 署名を合体させる
+  const fullBody = mailBody + "\n\n--\n" + signature;
+  
+  // 顧客マスタのデータを取得
+  const data = masterSheet.getDataRange().getValues();
+  
+  // 🌟重要: 顧客マスタの「メールアドレス」が何列目か指定してください
+  // 現在 I列が施設ID(8) なので、とりあえず J列(9) と仮定しています。適宜直してください。
+  const EMAIL_COL = 19; 
+  const STATUS_COL = 1; // B列: ステータス (0始まりで1)
+
+  let count = 0;
+  
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const status = String(row[STATUS_COL]).trim();
+    const email = String(row[EMAIL_COL]).trim();
+
+    // ステータスが一致し、かつメールアドレスが入っている場合のみ送信
+    if (status === targetStatus && email !== "") {
+      try {
+        GmailApp.sendEmail(email, "【メディカニ】運営からのお知らせ", fullBody, {
+          from: "info@medikani.com", // 🌟info@medikani.comをエイリアス登録している必要あり
+          name: "メディカニ運営事務局"
+        });
+        count++;
+      } catch (err) {
+        Logger.log("送信失敗: " + email + " / " + err.message);
+      }
+    }
+  }
+
+  // 完了報告（管理者にだけわかるように右下に通知を出す）
+  SpreadsheetApp.getActiveSpreadsheet().toast(count + " 件の送信が完了したカニ！🦀", "メール送信完了");
 }
