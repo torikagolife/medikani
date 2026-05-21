@@ -4,7 +4,7 @@ function getBestYJ(key, parts) {
   for (let p of parts) { const m = String(p).match(/[0-9]{5,7}[a-zA-Z][0-9]{3,4}/); if (m) return m[0]; }
   return String(parts[2] || "").replace(/[^a-zA-Z0-9]/g, "");
 }
-// ===== 🌟修正: カンマズレを完全に防止して正しい規格・薬価・マークを取得する関数 =====
+// ===== 🌟修正: カンマズレを完全に防止して正しい規格・薬価・マークを取得する関数　 =====
 function extractDrugData(parts, yj) {
   const yjIdx = parts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
   let name = (parts[0] || "").trim();
