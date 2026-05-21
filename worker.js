@@ -1672,9 +1672,20 @@ if (ayj && ayj.substring(0, 7) === yj7) {
     ` : "";
 
     // 👇ここから追加：トップ画面とハンバーガーメニュー用の表示分岐（ノーマルモード ＋ デモHPTEST1のみ）
-    const officialSiteHTML = (!isHospitalMode || hospitalId === "HPTEST1") 
-      ? `<a href="https://medikani.com/info" target="_blank" style="display:block; margin-top:15px; padding:15px; background:#e3f2fd; color:#0056b3; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; text-align:center; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a>`
-      : "";
+    
+    // 🌟新規追加：ベータ版申し込みの宣伝ボタン（プラスなうと同じピンクのデザイン）
+    const betaPromoHTML = (!isHospitalMode || hospitalId === "HPTEST1") 
+      ? `<div style="margin-top: 15px; padding: 15px; background: #fff0f5; border: 1px dashed #ffb6c1; border-radius: 15px; text-align: center;">
+           <div style="font-size: 13px; color: #d63384; font-weight: bold; margin-bottom: 10px;">🦀 自施設の採用薬を検索できる機能を先行体験！✨</div>
+           <a href="${env.BETA_FORM_URL || '#'}" target="_blank" style="display: block; background: #ff8da1; color: #fff; border: 1px solid #ff7b95; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: bold; box-shadow: 0 4px 6px rgba(255,141,161,0.3);">
+             📝 ベータ版プラス無料申込
+           </a>
+         </div>`
+      : "";
+
+    const officialSiteHTML = (!isHospitalMode || hospitalId === "HPTEST1") 
+      ? `<a href="https://medikani.com/info" target="_blank" style="display:block; margin-top:15px; padding:15px; background:#e3f2fd; color:#0056b3; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; text-align:center; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a>`
+      : "";
 
     const signMenuItem = (!isHospitalMode || hospitalId === "HPTEST1") 
       ? `<a href="${env.BETA_FORM_URL || '#'}" target="_blank" class="menu-item" style="text-decoration:none; display:flex; background:#e8f5e9; color:#28a745; border:1px solid #c8e6c9;">📝 ベータ版プラス無料申込</a>` 
@@ -1794,8 +1805,8 @@ if (ayj && ayj.substring(0, 7) === yj7) {
             <div class="kani-bubble">${randomTip}</div>
           </div>
           <div id="topHistoryArea" style="margin-top:10px;"></div>
-          <div id="boardArea"></div>
-                    ${infoManageHTML}
+          <div id="boardArea"></div>
+          ${betaPromoHTML} ${infoManageHTML}
           ${officialSiteHTML} </div>
       </div>
       <div id="modalOverlay" onclick="closeModal(event)"><div class="modal" onclick="event.stopPropagation()">
@@ -2138,7 +2149,7 @@ if (hist.length > 50) hist.pop();
           // 検索文字が空になったらデフォルト表示に戻す
           if (q.length === 0) {
             // 📢 infoManageHTML を boardArea の後ろに追加
-            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="topHistoryArea" style="margin-top:10px;"></div><div id="boardArea">' + (window.boardHTML || '') + '</div>' + introCampaignHTML + \`${infoManageHTML}\` + \`${officialSiteHTML}\`+ '</div>';
+            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="topHistoryArea" style="margin-top:10px;"></div><div id="boardArea">' + (window.boardHTML || '') + '</div>' + introCampaignHTML + \`${betaPromoHTML}\` + \`${infoManageHTML}\` + \`${officialSiteHTML}\`+ '</div>';
             renderTopHistory(currentCat);
             return;
           }
