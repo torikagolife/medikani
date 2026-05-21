@@ -4,7 +4,7 @@ function getBestYJ(key, parts) {
   for (let p of parts) { const m = String(p).match(/[0-9]{5,7}[a-zA-Z][0-9]{3,4}/); if (m) return m[0]; }
   return String(parts[2] || "").replace(/[^a-zA-Z0-9]/g, "");
 }
-// ===== 🌟修正: カンマズレを完全に防止して正しい規格・薬価・マークを取得する関数　 =====
+// ===== 🌟修正: カンマズレを完全に防止して正しい規格・薬価・マークを取得する関数 =====
 function extractDrugData(parts, yj) {
   const yjIdx = parts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
   let name = (parts[0] || "").trim();
@@ -1672,14 +1672,14 @@ if (ayj && ayj.substring(0, 7) === yj7) {
     ` : "";
 
     // 👇ここから追加：トップ画面とハンバーガーメニュー用の表示分岐（ノーマルモード ＋ デモHPTEST1のみ）
-    const officialSiteHTML = (!isHospitalMode || hospitalId === "HPTEST1") 
-      ? `<a href="https://medikani.com/info" target="_blank" style="display:block; margin-top:15px; padding:15px; background:#e3f2fd; color:#0056b3; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; text-align:center; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a>`
-      : "";
+    const officialSiteHTML = (!isHospitalMode || hospitalId === "HPTEST1") 
+      ? `<a href="https://medikani.com/info" target="_blank" style="display:block; margin-top:15px; padding:15px; background:#e3f2fd; color:#0056b3; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; text-align:center; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a>`
+      : "";
 
-    const signMenuItem = (!isHospitalMode || hospitalId === "HPTEST1") 
-      ? `<a href="${env.SIGN_FORM_URL || '#'}" target="_blank" class="menu-item" style="text-decoration:none; display:flex; background:#e8f5e9; color:#28a745; border:1px solid #c8e6c9;">📝 プラスに申し込む</a>` 
-      : "";
-    // 👆ここまで追加
+    const signMenuItem = (!isHospitalMode || hospitalId === "HPTEST1") 
+      ? `<a href="${env.BETA_FORM_URL || '#'}" target="_blank" class="menu-item" style="text-decoration:none; display:flex; background:#e8f5e9; color:#28a745; border:1px solid #c8e6c9;">📝 ベータ版プラス無料申込</a>` 
+      : "";
+    // 👆ここまで追加
 
     return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
@@ -1794,12 +1794,8 @@ if (ayj && ayj.substring(0, 7) === yj7) {
             <div class="kani-bubble">${randomTip}</div>
           </div>
           <div id="topHistoryArea" style="margin-top:10px;"></div>
-          <div id="boardArea"></div>
-          <a href="${env.INTRO_FORM_URL || '#'}" target="_blank" style="display:block; margin-top:15px; padding:15px; background:linear-gradient(135deg, #ff9d00, #ff5722); color:#fff; border-radius:15px; text-decoration:none; font-weight:bold; box-shadow:0 4px 10px rgba(255,87,34,0.3); text-align:center;">
-            <div style="font-size:15px; margin-bottom:5px;">🦀紹介で🎁 あなたと紹介先両方に</div>
-            <div style="font-size:15px; line-height:1.4;">Amazonギフトカード2,000円分プレゼント！✨️</div>
-          </a>
-          ${infoManageHTML}
+          <div id="boardArea"></div>
+                    ${infoManageHTML}
           ${officialSiteHTML} </div>
       </div>
       <div id="modalOverlay" onclick="closeModal(event)"><div class="modal" onclick="event.stopPropagation()">
@@ -1849,24 +1845,18 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           </div>
         \`;
 
-        const introCampaignHTML = \`
-          <a href="${env.INTRO_FORM_URL || '#'}" target="_blank" style="display:block; margin-top:15px; padding:15px; background:linear-gradient(135deg, #ff9d00, #ff5722); color:#fff; border-radius:15px; text-decoration:none; font-weight:bold; box-shadow:0 4px 10px rgba(255,87,34,0.3); text-align:center;">
-            <div style="font-size:15px; margin-bottom:5px;">🦀紹介で🎁 あなたと紹介先両方に</div>
-            <div style="font-size:15px; line-height:1.4;">Amazonギフトカード2,000円分プレゼント！✨️</div>
-          </a>
-        \`;
+        // 🌟紹介キャンペーン一時停止のため空にする
+const introCampaignHTML = '';
 
-        const signFormHTML = \`
-          <a href="${env.SIGN_FORM_URL || '#'}" target="_blank" style="display:block; margin-top:5px; padding:15px; background:#28a745; color:#fff; border-radius:15px; text-decoration:none; font-weight:bold; box-shadow:0 4px 10px rgba(40,167,69,0.3); text-align:center; font-size:15px;">
-            📝 メディカニ・プラスに申し込む
-          </a>
-        \`;
+// 🌟環境変数とテキストをベータ版に変更
+const signFormHTML = \`
+  <a href="${env.BETA_FORM_URL || '#'}" target="_blank" style="display:block; margin-top:5px; padding:15px; background:#28a745; color:#fff; border-radius:15px; text-decoration:none; font-weight:bold; box-shadow:0 4px 10px rgba(40,167,69,0.3); text-align:center; font-size:15px;">
+    📝 ベータ版プラス無料申込
+  </a>
+\`;
 
-        const simpleIntroHTML = \`
-          <a href="${env.INTRO_FORM_URL || '#'}" target="_blank" style="display:block; margin-bottom:10px; padding:12px; background:#fff3e0; color:#e65100; border-radius:12px; text-decoration:none; font-weight:bold; border:1px solid #ffcc80; box-sizing:border-box; font-size:13px;">
-            🎁 プラスご紹介キャンペーン中 ✨
-          </a>
-        \`;
+// 🌟紹介キャンペーン一時停止のため空にする
+const simpleIntroHTML = '';
 
         function copyShareText() {
           const textArea = document.getElementById('shareText');
@@ -2124,14 +2114,10 @@ if (hist.length > 50) hist.pop();
                 <h3 style="color:var(--main-orange);">✅ プラスモード動作中カニ🦀</h3>
                 <p style="font-size:14px; color:#666; margin-top:10px;">現在、施設「${hospitalName ? hospitalName : hospitalId}」の専用環境で動作しています。<br>採用薬や、限定メモが優先表示されますカニ🦀</p>
                 <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
-                  <a href="/" style="background:#eee; color:#555; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🌍 一般モードに戻る</a>
-                  <a href="/\${hId}/admin" style="background:#fff0f5; color:#d63384; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #ffcdd2;">⚙️ 管理画面を開く</a>
-                  <a href="https://medikani.com/info" target="_blank" style="background:#e3f2fd; color:#0056b3; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb;">ℹ️ 公式サイトで詳しく見る</a>
-                            <a href="${env.INTRO_FORM_URL || '#'}" target="_blank" style="display:block; margin-top:15px; padding:15px; background:linear-gradient(135deg, #ff9d00, #ff5722); color:#fff; border-radius:15px; text-decoration:none; font-weight:bold; box-shadow:0 4px 10px rgba(255,87,34,0.3); text-align:center;">
-            <div style="font-size:15px; margin-bottom:5px;">🦀紹介で🎁 あなたと紹介先両方に</div>
-            <div style="font-size:15px; line-height:1.4;">Amazonギフトカード2,000円分プレゼント！✨️</div>
-          </a>
-          </div>
+                  <a href="/" style="background:#eee; color:#555; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🌍 一般モードに戻る</a>
+                  <a href="/\${hId}/admin" style="background:#fff0f5; color:#d63384; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #ffcdd2;">⚙️ 管理画面を開く</a>
+                  <a href="https://medikani.com/info" target="_blank" style="background:#e3f2fd; color:#0056b3; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb;">ℹ️ 公式サイトで詳しく見る</a>
+                            </div>
               </div>\`;
             } else {
               resDiv.innerHTML = \`<div class="no-results" style="background:white; border-radius:20px; padding:30px; border:2px dashed var(--main-orange);">
@@ -2727,12 +2713,11 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
         </div>
         ` : ''}
 
-        <div class="card" style="border-top: 4px solid #495057;">
-          <h2>💳 契約変更・退会手続き</h2>
-          <p style="font-size:12px; color:#666; margin-bottom:15px;">クレジットカード情報の変更や、メディカニ・プラスの解約（退会）はStripeの決済管理画面からお手続きできますカニ🦀</p>
-          <!-- ↓ココを修正！環境変数が設定されていない場合はアラートを出します -->
-          <a href="${env.STRIPE_PORTAL_URL || '#'}" target="_blank" class="btn" onclick="if(this.getAttribute('href')==='#'){alert('StripeポータルのURLが環境変数(STRIPE_PORTAL_URL)に設定されていませんカニ🦀'); return false;}" style="background:#495057; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none; margin-top:0;">🚪 退会・変更はこちら</a>
-        </div>
+        <div class="card" style="border-top: 4px solid #495057; display: none;">
+          <h2>💳 契約変更・退会手続き</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:15px;">クレジットカード情報の変更や、メディカニ・プラスの解約（退会）はStripeの決済管理画面からお手続きできますカニ🦀</p>
+          <a href="${env.STRIPE_PORTAL_URL || '#'}" target="_blank" class="btn" onclick="if(this.getAttribute('href')==='#'){alert('StripeポータルのURLが環境変数(STRIPE_PORTAL_URL)に設定されていませんカニ🦀'); return false;}" style="background:#495057; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none; margin-top:0;">🚪 退会・変更はこちら</a>
+        </div>
 
         <div style="text-align:center; margin-top:20px; margin-bottom:40px;"><a href="/${hospitalId}" style="color:#0056b3; font-weight:bold; text-decoration:none;">🌍 実際の検索画面へ戻る</a></div>
       </div>
