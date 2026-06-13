@@ -1644,7 +1644,38 @@ if (ayj && ayj.substring(0, 7) === yj7) {
         return true;
       }).slice(0, 15);
     }
-    return { key: kvKey, label, fullName, yj, isAdopted, isBrand, comment, price, alts: alts.sort((a,b)=>b.isAdopted - a.isAdopted) };
+
+    // ===== 🌟追加: 先ほど作ったPMDA辞書(KV)から、効能と用法をサクッと取得する =====
+    let pmdaEfficacy = "";
+    let pmdaUsage = "";
+    if (yj && yj !== "NONE" && env.PMDA_DB) {
+      try {
+        // ① まずは12桁完全一致で探す
+        let pmdaVal = await env.PMDA_DB.get(yj);
+        
+        // ② 見つからなければ、前方9桁（成分・剤形が同じ兄弟薬）を探す
+        if (!pmdaVal && yj.length >= 9) {
+          const list9 = await env.PMDA_DB.list({ prefix: yj.substring(0, 9), limit: 1 });
+          if (list9.keys.length > 0) pmdaVal = await env.PMDA_DB.get(list9.keys[0].name);
+        }
+        
+        // ③ それでも見つからなければ、前方7桁（成分が同じ親戚）を探す
+        if (!pmdaVal && yj.length >= 7) {
+          const list7 = await env.PMDA_DB.list({ prefix: yj.substring(0, 7), limit: 1 });
+          if (list7.keys.length > 0) pmdaVal = await env.PMDA_DB.get(list7.keys[0].name);
+        }
+
+        if (pmdaVal) {
+          const pmdaData = JSON.parse(pmdaVal);
+          pmdaEfficacy = pmdaData.efficacy || "";
+          pmdaUsage = pmdaData.usage || "";
+        }
+      } catch(e) { console.log("PMDA DB Error", e); }
+    }
+    // =========================================================================
+
+    // 🌟最後に pmdaEfficacy と pmdaUsage を結果に含めて画面に返す！
+    return { key: kvKey, label, fullName, yj, isAdopted, isBrand, comment, price, pmdaEfficacy, pmdaUsage, alts: alts.sort((a,b)=>b.isAdopted - a.isAdopted) };
   },
 
   getAdminHTML(env, hospitalId, hospitalName = "", globalInfo = "") {
@@ -1678,7 +1709,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
       ? `<div style="margin-top: 15px; padding: 15px; background: #fff0f5; border: 1px dashed #ffb6c1; border-radius: 15px; text-align: center;">
            <div style="font-size: 13px; color: #d63384; font-weight: bold; margin-bottom: 10px;">🦀 自施設の採用薬を検索できる機能を先行体験！✨</div>
            <a href="${env.BETA_FORM_URL || '#'}" target="_blank" style="display: block; background: #ff8da1; color: #fff; border: 1px solid #ff7b95; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: bold; box-shadow: 0 4px 6px rgba(255,141,161,0.3);">
-             📝 ベータ版プラス無料申込
+             📝 ベータ版プラスモニター申込
            </a>
          </div>`
       : "";
@@ -2399,8 +2430,18 @@ if (hist.length > 50) hist.pop();
               </div>
             \` : '';
 
+            // ===== 🌟追加: PMDAの効能・用法を綺麗にデザインして表示するHTMLを作る =====
+            // 修正: サーバー側ですでに <br> に変換済みなので、ここでは出力するだけにします！
+            const pmdaHTML = (d.pmdaEfficacy || d.pmdaUsage) ? \`
+              <div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:12px; padding:15px; margin-bottom:15px; font-size:13px; line-height:1.6; color:#333;">
+                \${d.pmdaEfficacy ? \`<div style="color:#0056b3; font-weight:bold; margin-bottom:4px;">💊 効能・効果</div><div style="margin-bottom:12px;">\${d.pmdaEfficacy}</div>\` : ''}
+                \${d.pmdaUsage ? \`<div style="color:#28a745; font-weight:bold; margin-bottom:4px;">🕒 用法・用量</div><div>\${d.pmdaUsage}</div>\` : ''}
+              </div>
+            \` : '';
+            // =========================================================================
+
             // 薬品名をエスケープ（シングルクォーテーション等でのJSエラー防止）
-            const safeDrugName = d.fullName.replace(/'/g, "\\'");
+            const safeDrugName = d.fullName.replace(/'/g, "\\\\'");
 
             document.getElementById('modalContent').innerHTML = \`
               <div id="favStar" onclick="toggleFav()" style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:8px; padding:4px 8px 4px 0; user-select:none;" title="お気に入りに登録/解除">
@@ -2419,9 +2460,7 @@ if (hist.length > 50) hist.pop();
                 \${d.isAdopted?'🏥 採用薬ですカニ！🦀':'🏠 未採用のお薬ですカニ🦀'}
               </p>
               \${commentHTML}
-
-              \${hId ? \`<button onclick="openReportModal('\${d.yj}', '\${safeDrugName}')" style="width:100%; padding:10px; background:#fff; border:1px solid #dc3545; border-radius:8px; color:#dc3545; margin-bottom:15px; font-size:13px; font-weight:bold; cursor:pointer; box-shadow:0 2px 4px rgba(220,53,69,0.1);">🚨 現場の知見を報告する / 採用漏れ申請</button>\` : ''}
-
+              \${pmdaHTML} \${hId ? \`<button onclick="openReportModal('\${d.yj}', '\${safeDrugName}')" style="width:100%; padding:10px; background:#fff; border:1px solid #dc3545; border-radius:8px; color:#dc3545; margin-bottom:15px; font-size:13px; font-weight:bold; cursor:pointer; box-shadow:0 2px 4px rgba(220,53,69,0.1);">🚨 現場の知見を報告する / 採用漏れ申請</button>\` : ''}
               <div style="margin-bottom:15px;">
                 <button id="btnAiAdvice" onclick="fetchAIAdvice('\${safeDrugName}')" style="width:100%; background:#fff3e0; color:#e65100; border:1px solid #ffcc80; padding:10px; border-radius:8px; font-weight:bold; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:8px; box-shadow:0 2px 4px rgba(255,157,0,0.1); transition:all 0.2s;">🤖 メディカニくんに薬効 and 注意点を聞く</button>
                 <div id="aiAdviceArea" style="display:none; background:#fff9f0; border:1px solid #ffe0b2; border-radius:8px; padding:12px; margin-top:8px; font-size:13px; color:#444; line-height:1.6; white-space:pre-wrap;"></div>
@@ -2719,7 +2758,7 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
         ${env.ASK_FORM_URL ? `
         <div class="card" style="border-top: 4px solid #6c757d;">
           <h2>📞 お問い合わせ</h2>
-          <p style="font-size:12px; color:#666; margin-bottom:15px;">システムの不具合やご質問、ご要望などはこちらからご連絡くださいカニ🦀</p>
+          <p style="font-size:12px; color:#666; margin-bottom:15px;">システムの不具合やご質問、ご要望、退会希望などはこちらからご連絡くださいカニ🦀</p>
           <a href="${env.ASK_FORM_URL}${env.ASK_FORM_URL.includes('?') ? '&' : '?'}${env.G_FORM_ID || ''}=${hospitalId}" target="_blank" class="btn" style="background:#6c757d; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none; margin-top:0;">✉️ お問い合わせフォームを開く</a>
         </div>
         ` : ''}
