@@ -1648,6 +1648,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
     // ===== 🌟追加: 先ほど作ったPMDA辞書(KV)から、効能と用法をサクッと取得する =====
     let pmdaEfficacy = "";
     let pmdaUsage = "";
+    let pmdaWarnings = null; // ✨追加：詳細データを格納する変数
     if (yj && yj !== "NONE" && env.PMDA_DB) {
       try {
         // ① まずは12桁完全一致で探す
@@ -1667,15 +1668,23 @@ if (ayj && ayj.substring(0, 7) === yj7) {
 
         if (pmdaVal) {
           const pmdaData = JSON.parse(pmdaVal);
-          pmdaEfficacy = pmdaData.efficacy || "";
-          pmdaUsage = pmdaData.usage || "";
+          // ✨修正：新しいデータ構造（summaryとwarningsに分かれた形）に対応！
+          if (pmdaData.summary) {
+            pmdaEfficacy = pmdaData.summary.efficacy || "";
+            pmdaUsage = pmdaData.summary.usage || "";
+            pmdaWarnings = pmdaData.warnings || null;
+          } else {
+            // 古いデータが残っていてもエラーにならないように配慮
+            pmdaEfficacy = pmdaData.efficacy || "";
+            pmdaUsage = pmdaData.usage || "";
+          }
         }
       } catch(e) { console.log("PMDA DB Error", e); }
     }
     // =========================================================================
 
-    // 🌟最後に pmdaEfficacy と pmdaUsage を結果に含めて画面に返す！
-    return { key: kvKey, label, fullName, yj, isAdopted, isBrand, comment, price, pmdaEfficacy, pmdaUsage, alts: alts.sort((a,b)=>b.isAdopted - a.isAdopted) };
+    // 🌟最後に pmdaWarnings も結果に含めて画面に返す！
+    return { key: kvKey, label, fullName, yj, isAdopted, isBrand, comment, price, pmdaEfficacy, pmdaUsage, pmdaWarnings, alts: alts.sort((a,b)=>b.isAdopted - a.isAdopted) };
   },
 
   getAdminHTML(env, hospitalId, hospitalName = "", globalInfo = "") {
@@ -2440,6 +2449,44 @@ if (hist.length > 50) hist.pop();
             \` : '';
             // =========================================================================
 
+            // ===== 🌟追加: 添付文書の詳細アコーディオンを作る（文字列の外に出しました！） =====
+            let pmdaDetailHTML = '';
+            if (d.pmdaWarnings) {
+              const w = d.pmdaWarnings;
+              const details = [
+                { title: "🚫 禁忌", text: w.contraindications },
+                { title: "⚠️ 警告", text: w.warnings },
+                { title: "❗️ 重要な基本的注意", text: w.important_precautions },
+                { title: "👥 特定の背景を有する患者", text: w.specific_populations },
+                { title: "🔄 相互作用", text: w.interactions },
+                { title: "🤢 副作用", text: w.adverse_events },
+                { title: "📦 製剤・包装情報", text: w.composition_and_packaging }
+              ].filter(item => item.text && item.text.trim() !== ""); // 空の項目は除外
+
+              if (details.length > 0) {
+                const detailItemsHTML = details.map(item => \`
+                  <div style="margin-bottom:15px;">
+                    <div style="color:#d63384; font-weight:bold; margin-bottom:4px; border-bottom:1px dashed #ffd1dc; padding-bottom:4px;">\${item.title}</div>
+                    <div style="font-size:13px; line-height:1.6; color:#444;">\${item.text.replace(/\\n/g, '<br>')}</div>
+                  </div>
+                \`).join('');
+
+                pmdaDetailHTML = \`
+                  <div style="margin-bottom:15px;">
+                    <details style="background:#fff5f7; border:1px solid #ffd1dc; border-radius:8px; padding:10px; transition:all 0.3s;">
+                      <summary style="font-weight:bold; color:#d63384; cursor:pointer; outline:none; display:flex; align-items:center; justify-content: center; gap:5px; font-size:14px;">
+                        📖 添付文書の詳細を見る 🔍️ <span style="font-size:11px; color:#888; font-weight:normal;"></span>
+                      </summary>
+                      <div style="margin-top:15px; padding-top:10px; border-top:1px dashed #ffd1dc;">
+                        \${detailItemsHTML}
+                      </div>
+                    </details>
+                  </div>
+                \`;
+              }
+            }
+            // =========================================================
+
             // 薬品名をエスケープ（シングルクォーテーション等でのJSエラー防止）
             const safeDrugName = d.fullName.replace(/'/g, "\\\\'");
 
@@ -2460,7 +2507,9 @@ if (hist.length > 50) hist.pop();
                 \${d.isAdopted?'🏥 採用薬ですカニ！🦀':'🏠 未採用のお薬ですカニ🦀'}
               </p>
               \${commentHTML}
-              \${pmdaHTML} \${hId ? \`<button onclick="openReportModal('\${d.yj}', '\${safeDrugName}')" style="width:100%; padding:10px; background:#fff; border:1px solid #dc3545; border-radius:8px; color:#dc3545; margin-bottom:15px; font-size:13px; font-weight:bold; cursor:pointer; box-shadow:0 2px 4px rgba(220,53,69,0.1);">🚨 現場の知見を報告する / 採用漏れ申請</button>\` : ''}
+              \${pmdaHTML}
+              \${pmdaDetailHTML}
+              \${hId ? \`<button onclick="openReportModal('\${d.yj}', '\${safeDrugName}')" style="width:100%; padding:10px; background:#fff; border:1px solid #dc3545; border-radius:8px; color:#dc3545; margin-bottom:15px; font-size:13px; font-weight:bold; cursor:pointer; box-shadow:0 2px 4px rgba(220,53,69,0.1);">🚨 現場の知見を報告する / 採用漏れ申請</button>\` : ''}
               <div style="margin-bottom:15px;">
                 <button id="btnAiAdvice" onclick="fetchAIAdvice('\${safeDrugName}')" style="width:100%; background:#fff3e0; color:#e65100; border:1px solid #ffcc80; padding:10px; border-radius:8px; font-weight:bold; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:8px; box-shadow:0 2px 4px rgba(255,157,0,0.1); transition:all 0.2s;">🤖 メディカニくんに薬効 and 注意点を聞く</button>
                 <div id="aiAdviceArea" style="display:none; background:#fff9f0; border:1px solid #ffe0b2; border-radius:8px; padding:12px; margin-top:8px; font-size:13px; color:#444; line-height:1.6; white-space:pre-wrap;"></div>
