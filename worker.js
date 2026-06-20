@@ -1445,8 +1445,16 @@ export default {
       }
     }
 
-    const matchedMaster = masterKeys.filter(k => k.includes(hiraQuery));
-    const matchedAdopted = adoptedKeys.filter(k => k.includes(hiraQuery));
+    // ===== 🌟修正: 前方一致（']'の直後に検索ワードがある）を優先して並び替え =====
+    const prefixSort = (a, b) => {
+      const aIsPrefix = a.includes(']' + hiraQuery) ? 1 : 0;
+      const bIsPrefix = b.includes(']' + hiraQuery) ? 1 : 0;
+      return bIsPrefix - aIsPrefix; // 1（前方一致）が配列の上に来るようにする
+    };
+
+    const matchedMaster = masterKeys.filter(k => k.includes(hiraQuery)).sort(prefixSort);
+    const matchedAdopted = adoptedKeys.filter(k => k.includes(hiraQuery)).sort(prefixSort);
+    // ==========================================================
 
     let finalKeys = [];
     if (hospitalId) {
@@ -1495,7 +1503,17 @@ export default {
       
       return { key, name: extracted.name, spec: extracted.spec, type: cleanType, yj: yj, isAdopted: isAdopted, isBrand: isBrand, price: extracted.price };
     }));
-    return results.filter(r => r !== null).sort((a, b) => b.isAdopted - a.isAdopted);
+    
+    // ===== 🌟修正: 採用薬を優先しつつ、前方一致をさらに優先して並び替え =====
+    return results.filter(r => r !== null).sort((a, b) => {
+      // 1. まずは採用薬かどうかで分ける（採用薬が上）
+      if (b.isAdopted !== a.isAdopted) return b.isAdopted - a.isAdopted;
+      // 2. 採用状況が同じなら、前方一致を上にする
+      const aIsPrefix = a.key.includes(']' + hiraQuery) ? 1 : 0;
+      const bIsPrefix = b.key.includes(']' + hiraQuery) ? 1 : 0;
+      return bIsPrefix - aIsPrefix;
+    });
+    // ==========================================================
   },
 
   async handleWebDetail(kvKey, hospitalId, env) {
