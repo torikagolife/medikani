@@ -1726,6 +1726,8 @@ if (ayj && ayj.substring(0, 7) === yj7) {
     // 👇新規追加: メニュー用の「公式サイトへ」ボタンと、プラス体験ボタンの遷移先
     const officialMenuItem = `<a href="https://medikani.com/info" target="_blank" class="menu-item" style="text-decoration:none; display:flex; background:#e3f2fd; color:#0056b3; border:1px solid #bbdefb;">ℹ️ 公式サイトへ</a>`;
     const demoBtnUrl = isHospitalMode ? `/${hospitalId}` : "/HPTEST1";
+    // 🌟追加: プラスモード時に表示する管理画面へのリンク
+    const adminMenuItem = isHospitalMode ? `<a href="/${hospitalId}/admin" class="menu-item" style="text-decoration:none; display:flex; background:#f4f4f4; color:#333; border:1px solid #ccc;">⚙️ 管理画面</a>` : "";
     // 👆ここまで追加
 
     return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
@@ -1825,6 +1827,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
         <button class="menu-item" onclick="setCat('[ヘルプ]', null); toggleMenu();">❓ ヘルプ</button>
         ${signMenuItem}
         ${officialMenuItem}
+        ${adminMenuItem}
       </div>
       <div class="search-box">
         <div class="tabs">
@@ -3200,8 +3203,8 @@ document.getElementById('csvFile').onchange = (e) => {
           const target = currentBoardData.find(b => b.id === id);
           if (!target) return;
           // コピー用も正規表現のエスケープを修正
-          const plainText = (target.message || "").replace(/\\[\\[\\[💊 (.*?)\\|(.*?)\\]\\]\\]/g, "💊 $1");
-          const copyText = plainText + "\\n\\nメディカニ🦀の掲示板をご覧下さい\\nhttps://medikani.com/" + hId;
+          const plainText = (target.message || "").replace(/\\[\\[\\[💊 (.*?)\\|(.*?)\\]\\]\\]/g, "$1");
+          const copyText = plainText + "\\n\\nメディカニの掲示板をご覧下さい\\nhttps://medikani.com/" + hId;
           
           navigator.clipboard.writeText(copyText).then(() => {
             alert('案内文をクリップボードにコピーしましたカニ！🦀\\nメールやLINEなどに貼り付けてください。');
