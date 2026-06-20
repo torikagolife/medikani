@@ -1706,14 +1706,12 @@ if (ayj && ayj.substring(0, 7) === yj7) {
     ` : "";
 
     // 👇ここから追加：トップ画面とハンバーガーメニュー用の表示分岐（ノーマルモード ＋ デモHPTEST1のみ）
-    
-    // 🌟新規追加：ベータ版申し込みの宣伝ボタン（プラスなうと同じピンクのデザイン）
-    const betaPromoHTML = (!isHospitalMode || hospitalId === "HPTEST1") 
+    // 🌟修正：プラス体験とモニター申込を1つの枠に統合し、色味を調整
+    const combinedPromoHTML = (!isHospitalMode || hospitalId === "HPTEST1") 
       ? `<div style="margin-top: 15px; padding: 15px; background: #fff0f5; border: 1px dashed #ffb6c1; border-radius: 15px; text-align: center;">
-           <div style="font-size: 13px; color: #d63384; font-weight: bold; margin-bottom: 10px;">🦀 自施設の採用薬を検索できる機能を先行体験！✨</div>
-           <a href="${env.BETA_FORM_URL || '#'}" target="_blank" style="display: block; background: #ff8da1; color: #fff; border: 1px solid #ff7b95; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: bold; box-shadow: 0 4px 6px rgba(255,141,161,0.3);">
-             📝 ベータ版プラスモニター申込
-           </a>
+           <div style="font-size: 13px; color: #d63384; font-weight: bold; margin-bottom: 12px;">🦀 自施設の採用薬を検索できる機能を先行体験！✨</div>
+           ${!isHospitalMode ? `<a href="/HPTEST1" style="display: block; background: #ff8da1; color: #fff; border: 1px solid #ff7b95; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: bold; box-shadow: 0 4px 6px rgba(255,141,161,0.3); margin-bottom: 10px;">✨ プラス体験はこちら</a>` : ""}
+           <a href="${env.BETA_FORM_URL || '#'}" target="_blank" style="display: block; background: #ffa755; color: #fff; border: 1px solid #f89634; padding: 12px; border-radius: 10px; text-decoration: none; font-weight: bold; box-shadow: 0 4px 6px rgba(255,167,85,0.3);">📝 ベータ版プラスモニター申込</a>
          </div>`
       : "";
 
@@ -1721,10 +1719,14 @@ if (ayj && ayj.substring(0, 7) === yj7) {
       ? `<a href="https://medikani.com/info" target="_blank" style="display:block; margin-top:15px; padding:15px; background:#e3f2fd; color:#0056b3; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; text-align:center; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a>`
       : "";
 
-    const signMenuItem = (!isHospitalMode || hospitalId === "HPTEST1") 
-      ? `<a href="${env.BETA_FORM_URL || '#'}" target="_blank" class="menu-item" style="text-decoration:none; display:flex; background:#e8f5e9; color:#28a745; border:1px solid #c8e6c9;">📝 ベータ版プラス無料申込</a>` 
-      : "";
-    // 👆ここまで追加
+    const signMenuItem = (!isHospitalMode || hospitalId === "HPTEST1") 
+      ? `<a href="${env.BETA_FORM_URL || '#'}" target="_blank" class="menu-item" style="text-decoration:none; display:flex; background:#e8f5e9; color:#28a745; border:1px solid #c8e6c9;">📝 ベータ版プラス無料申込</a>` 
+      : "";
+
+    // 👇新規追加: メニュー用の「公式サイトへ」ボタンと、プラス体験ボタンの遷移先
+    const officialMenuItem = `<a href="https://medikani.com/info" target="_blank" class="menu-item" style="text-decoration:none; display:flex; background:#e3f2fd; color:#0056b3; border:1px solid #bbdefb;">ℹ️ 公式サイトへ</a>`;
+    const demoBtnUrl = isHospitalMode ? `/${hospitalId}` : "/HPTEST1";
+    // 👆ここまで追加
 
     return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
@@ -1819,9 +1821,11 @@ if (ayj && ayj.substring(0, 7) === yj7) {
         <div class="side-menu-close" onclick="toggleMenu()">×</div>
         <button class="menu-item" onclick="setCat('[履歴]', null); toggleMenu();">🕒 履歴</button>
         <button class="menu-item" onclick="setCat('[お気に入り]', null); toggleMenu();">⭐️ お気に入り</button>
-        <button class="menu-item" style="${demoBtnStyle}" onclick="setCat('[デモ]', null); toggleMenu();">${demoBtnLabel}</button>
+        <a href="${demoBtnUrl}" class="menu-item" style="text-decoration:none; display:flex; ${demoBtnStyle}" onclick="toggleMenu();">${demoBtnLabel}</a>
         <button class="menu-item" onclick="setCat('[ヘルプ]', null); toggleMenu();">❓ ヘルプ</button>
-        ${signMenuItem} </div>
+        ${signMenuItem}
+        ${officialMenuItem}
+      </div>
       <div class="search-box">
         <div class="tabs">
           <button class="tab active" onclick="setCat('[内]', this)">💊 内服</button>
@@ -1840,7 +1844,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           </div>
           <div id="topHistoryArea" style="margin-top:10px;"></div>
           <div id="boardArea"></div>
-          ${betaPromoHTML} ${infoManageHTML}
+          ${combinedPromoHTML} ${infoManageHTML}
           ${officialSiteHTML} </div>
       </div>
       <div id="modalOverlay" onclick="closeModal(event)"><div class="modal" onclick="event.stopPropagation()">
@@ -2151,39 +2155,11 @@ if (hist.length > 50) hist.pop();
           if (currentCat === '[履歴]') { clearTimeout(timer); renderHistory(); return; }
           if (currentCat === '[お気に入り]') { clearTimeout(timer); renderFavorites(); return; }
 
-          if (currentCat === '[デモ]') {
-            clearTimeout(timer);
-            document.getElementById('loading').style.display = 'none';
-            if (hId) {
-              resDiv.innerHTML = \`<div class="no-results" style="background:white; border-radius:20px; padding:30px; border:2px dashed var(--main-orange);">
-                <h3 style="color:var(--main-orange);">✅ プラスモード動作中カニ🦀</h3>
-                <p style="font-size:14px; color:#666; margin-top:10px;">現在、施設「${hospitalName ? hospitalName : hospitalId}」の専用環境で動作しています。<br>採用薬や、限定メモが優先表示されますカニ🦀</p>
-                <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
-                  <a href="/" style="background:#eee; color:#555; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🌍 一般モードに戻る</a>
-                  <a href="/\${hId}/admin" style="background:#fff0f5; color:#d63384; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #ffcdd2;">⚙️ 管理画面を開く</a>
-                  <a href="https://medikani.com/info" target="_blank" style="background:#e3f2fd; color:#0056b3; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb;">ℹ️ 公式サイトで詳しく見る</a>
-                            </div>
-              </div>\`;
-            } else {
-              resDiv.innerHTML = \`<div class="no-results" style="background:white; border-radius:20px; padding:30px; border:2px dashed var(--main-orange);">
-                <h3 style="color:var(--main-orange);">✨ メディカニ・プラス体験版</h3>
-                <p style="font-size:14px; color:#666; margin-top:10px;">施設ごとの「採用薬」や「メモ」を表示できる法人向け機能のデモですカニ🦀</p>
-                <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
-                  <a href="/HPTEST1" style="background:var(--main-orange); color:white; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold;">🏥 デモ施設のプラスモードを試す</a>
-                  <a href="https://medikani.com/info" target="_blank" style="background:#e3f2fd; color:#0056b3; padding:15px; border-radius:15px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb;">ℹ️ 公式サイトで詳しく見る</a>
-                  \${signFormHTML}
-                  \${introCampaignHTML}
-                </div>
-                <p style="font-size:11px; color:#aaa; margin-top:15px;">※実際に触ってみて体験して欲しいカニ🦀</p>
-              </div>\`;
-            }
-            return;
-          }
-          
+                   
           // 検索文字が空になったらデフォルト表示に戻す
           if (q.length === 0) {
             // 📢 infoManageHTML を boardArea の後ろに追加
-            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="topHistoryArea" style="margin-top:10px;"></div><div id="boardArea">' + (window.boardHTML || '') + '</div>' + introCampaignHTML + \`${betaPromoHTML}\` + \`${infoManageHTML}\` + \`${officialSiteHTML}\`+ '</div>';
+            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="topHistoryArea" style="margin-top:10px;"></div><div id="boardArea">' + (window.boardHTML || '') + '</div>' + introCampaignHTML + \`${combinedPromoHTML}\` + \`${infoManageHTML}\` + \`${officialSiteHTML}\`+ '</div>';
             renderTopHistory(currentCat);
             return;
           }
@@ -2325,10 +2301,11 @@ if (hist.length > 50) hist.pop();
             <div style="font-size:14px; background:#fff0f5; padding:12px; border-radius:10px; margin-bottom:12px; line-height:1.6; white-space:pre-wrap; border: 1px solid #ffd1dc;">\${infoHtml}</div>
             <div class="btn-group"><a href="https://www.google.com/search?q=\${encodeURIComponent(searchKw + ' 医療用 同成分')}" class="btn btn-google" target="_blank" style="display:flex;">🔍 Googleで処方薬を探す</a></div>
             \${promoHTML}
-            <div style="margin-top:20px; text-align:center;">
-              <a href="https://medikani.com/info" target="_blank" style="display:inline-block; width:100%; background:#e3f2fd; color:#0056b3; padding:12px; border-radius:12px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a>
-            </div>
-          \`;
+              <div style="margin-top:20px; text-align:center;">
+                <a href="https://medikani.com/info" target="_blank" style="display:inline-block; width:100%; background:#e3f2fd; color:#0056b3; padding:12px; border-radius:12px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a>
+              </div>
+              \${combinedPromoHTML}
+            \`;
           document.getElementById('modalOverlay').style.display = 'flex';
         }
 
@@ -2497,7 +2474,7 @@ if (hist.length > 50) hist.pop();
               <div style="margin-top:20px; text-align:center;">
                 <a href="https://medikani.com/info" target="_blank" style="display:inline-block; width:100%; background:#e3f2fd; color:#0056b3; padding:12px; border-radius:12px; text-decoration:none; font-weight:bold; border:1px solid #bbdefb; box-sizing:border-box;">ℹ️ 公式サイトで詳しく見る</a>
               </div>
-              \${!hId ? \`<div onclick="closeModal(); setCat('[デモ]', null);" style="margin-top:15px; text-align:center; padding:15px; background:#fff0f5; border-radius:12px; border:1px dashed #ffb6c1; cursor:pointer; transition: opacity 0.2s;"><span style="color:#d63384;font-weight:bold;font-size:13px;">🦀メディカニ・プラスは採用薬が切替候補に出るカニ💚</span><br><span style="color:#fff;background:#e83e8c;font-size:14px;text-decoration:none;margin-top:10px;padding:10px 20px;border-radius:25px;display:inline-block;font-weight:bold;box-shadow:0 4px 6px rgba(232,62,140,0.3);">✨ プラス体験はこちら ✨</span></div>\` : ''}
+              \${!hId ? \`<a href="/HPTEST1" style="display:block; margin-top:15px; text-align:center; padding:15px; background:#fff0f5; border-radius:12px; border:1px dashed #ffb6c1; cursor:pointer; text-decoration:none; transition: opacity 0.2s;"><span style="color:#d63384;font-weight:bold;font-size:13px;">🦀メディカニ・プラスは採用薬が切替候補に出るカニ💚</span><br><span style="color:#fff;background:#e83e8c;font-size:14px;text-decoration:none;margin-top:10px;padding:10px 20px;border-radius:25px;display:inline-block;font-weight:bold;box-shadow:0 4px 6px rgba(232,62,140,0.3);">✨ プラス体験はこちら ✨</span></a>\` : ''}
             \`;
           } catch(e) {
             document.getElementById('modalContent').innerHTML = '<p style="text-align:center;padding:20px;color:#dc3545;font-weight:bold;">⚠️ 詳細を開けませんでしたカニ🦀💦</p>';
