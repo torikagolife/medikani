@@ -1,3 +1,5 @@
+// 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用), ASK_FORM_URL(問合せフォームURL), G_FORM_ID(フォームの施設ID項目), STRIPE_PORTAL_URL(StripeカスタマーポータルのURL)
+
 function hiraToKata(str) { return str.replace(/[\u3041-\u3096]/g, m => String.fromCharCode(m.charCodeAt(0) + 0x60)); }
 function getBestYJ(key, parts) {
   if (key && key.includes("_")) { const yj = key.split("_").pop(); if (/^[0-9a-zA-Z]{7,12}$/.test(yj)) return yj; }
@@ -43,8 +45,61 @@ function extractDrugData(parts, yj) {
   return { name, spec: spec.trim(), price, type: type.trim() };
 }
 // ====================================================================
-// Webサービス: 医薬品検索（メディカニ・ハイブリッド検索＆個別メモ対応版　）
 // 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用), ASK_FORM_URL(問合せフォームURL), G_FORM_ID(フォームの施設ID項目), STRIPE_PORTAL_URL(StripeカスタマーポータルのURL)
+// ===== 🌟新規追加: 採用薬の1本化JSONを再構築する強力な関数 =====
+async function rebuildAdoptedJson(hId, env) {
+  let currentKeys = [];
+  let cursorStr = "";
+  
+  // 1. その施設の採用薬キーを全件取得（システム用のキーは除外）
+  do {
+    const list = await env.MEDI_KV.list({ prefix: `${hId}_`, limit: 1000, cursor: cursorStr || undefined });
+    currentKeys.push(...list.keys.map(k => k.name).filter(n => 
+      !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_userpwd") && 
+      !n.endsWith("_email") && !n.endsWith("_board") && !n.endsWith("_ranking") && 
+      !n.endsWith("_name") && !n.includes("_report_") && !n.includes("COMP_") && 
+      !n.endsWith("_adopted_list_json")
+    ));
+    cursorStr = list.list_complete ? "" : list.cursor;
+  } while (cursorStr);
+
+  const allDrugList = [];
+  
+  // 2. 50件ずつKVから中身（Value）を取得して配列に詰め込む
+  for (let i = 0; i < currentKeys.length; i += 50) {
+    const chunk = currentKeys.slice(i, i + 50);
+    const vals = await Promise.all(chunk.map(k => env.MEDI_KV.get(k)));
+    
+    chunk.forEach((k, idx) => {
+      if (vals[idx]) {
+        let parts = String(vals[idx]).split(/[,\uFF0C]/);
+        const yj = getBestYJ(k, parts);
+        const ext = extractDrugData(parts, yj);
+        const catMatch = k.match(/\[(内|外|注)\]/);
+        
+        allDrugList.push({
+          key: k,
+          cat: catMatch ? catMatch[0] : "[内]",
+          name: ext.name,
+          spec: ext.spec,
+          type: ext.type.replace(/先発品?/g, ""),
+          yj: yj,
+          price: ext.price,
+          isBrand: parts.some(p => String(p).includes("先発")),
+          isAdopted: true
+        });
+      }
+    });
+  }
+  
+  // 3. YJコード順（昇順）に綺麗に並び替える
+  allDrugList.sort((a, b) => (a.yj || "").localeCompare(b.yj || ""));
+  
+  // 4. 完成した巨大配列を1つのJSONとして一発保存！
+  await env.MEDI_KV.put(`${hId}_adopted_list_json`, JSON.stringify(allDrugList));
+}
+// ==============================================================
+
 
 export default {
   async fetch(request, env) {
@@ -227,7 +282,27 @@ export default {
         } catch(e) { return new Response(JSON.stringify({ favRank: [], viewRank: [] }), { status: 500 }); }
       }
       // === 新規追加: ランキングデータ取得 API (ここまで) ===
-      
+      // === 🌟新規追加: 採用薬一覧取得 API （あいうえお順） ===
+      if (url.pathname.includes("/api/adopted-list")) {
+        try {
+          const hId = url.searchParams.get("h") || "";
+          const cat = url.searchParams.get("c") || ""; // "[内]", "[外]", "[注]"
+          if (!hId || !env.MEDI_KV) return new Response("[]", { headers: { "Content-Type": "application/json" } });
+          
+          const jsonStr = await env.MEDI_KV.get(`${hId}_adopted_list_json`);
+          if (!jsonStr) return new Response("[]", { headers: { "Content-Type": "application/json" } });
+          
+          let list = JSON.parse(jsonStr);
+          // 指定された区分（内服・外用・注射）だけでフィルターをかける
+          if (cat) {
+            list = list.filter(d => d.cat === cat);
+          }
+          // 💊 トリさんリクエスト：薬品名を綺麗にあいうえお順（昇順）にソート
+          list.sort((a, b) => (a.name || "").localeCompare(b.name || "", 'ja'));
+          return new Response(JSON.stringify(list), { headers: { "Content-Type": "application/json" } });
+        } catch(e) { return new Response("[]", { status: 500 }); }
+      }
+
       // 検索API (Web用)
       if (url.pathname.includes("/api/search")) {
         try {
@@ -786,6 +861,10 @@ export default {
         const meta = { lastUpdated: new Date().toISOString(), count: finalCount };
         await env.MEDI_KV.put(`${uploadHId}_meta`, JSON.stringify(meta));
         
+        // ===== 🌟追加: ここでさっき作った最強関数を呼んでJSONを最新化！ =====
+        await rebuildAdoptedJson(uploadHId, env);
+        // ==========================================================
+
         return new Response(JSON.stringify({ success: true, count: finalCount }), { headers: { "Content-Type": "application/json" } });
       } catch (e) {
         return new Response(JSON.stringify({ error: e.message }), { status: 500 });
@@ -2008,6 +2087,12 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           <button class="tab" onclick="setCat('[市販]', this)">🛒 市販薬</button>
         </div>
         <input type="text" id="q" placeholder="🔍 お薬名（かな・カナ３文字〜）..." oninput="search()">
+        
+        <div id="adoptedButtons" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px;">
+          <button onclick="loadAdoptedList('[内]')" style="padding: 8px 4px; background: #f0fafd; border: 1.5px dashed #4dd0e1; border-radius: 10px; font-size: 11px; font-weight: bold; color: #00838f; cursor: pointer; outline: none;">採用💊 内服</button>
+          <button onclick="loadAdoptedList('[外]')" style="padding: 8px 4px; background: #f0fafd; border: 1.5px dashed #4dd0e1; border-radius: 10px; font-size: 11px; font-weight: bold; color: #00838f; cursor: pointer; outline: none;">採用🩹 外用</button>
+          <button onclick="loadAdoptedList('[注]')" style="padding: 8px 4px; background: #f0fafd; border: 1.5px dashed #4dd0e1; border-radius: 10px; font-size: 11px; font-weight: bold; color: #00838f; cursor: pointer; outline: none;">採用💉 注射</button>
+        </div>
       </div>
       <div id="loading">🦀 メディカニくんが一生懸命探しています... 💦</div>
       <div class="results" id="results">
@@ -2046,10 +2131,82 @@ if (ayj && ayj.substring(0, 7) === yj7) {
         
         <button id="btnSubmitReport" onclick="submitReport()" style="width:100%; padding:12px; background:#dc3545; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer; transition: transform 0.1s;">🚀 報告を送信する</button>
       </div></div>
-      <script>
+      
+        <script>
         const hId = "${hospitalId}";
         let currentCat = '[内]'; let timer = null;
         let currentDetailData = null; 
+
+        // 🌟新規追加: 採用一覧表示・追加読み込み（50件ページネーション）用の処理
+        let adoptedFullList = [];
+        let adoptedDisplayCount = 0;
+        let currentAdoptedCat = '';
+
+        async function loadAdoptedList(cat) {
+          document.getElementById('q').value = ''; // 検索窓に入っている文字を綺麗にする
+          currentAdoptedCat = cat;
+          document.getElementById('loading').style.display = 'block';
+          const resDiv = document.getElementById('results');
+          resDiv.innerHTML = '';
+          
+          try {
+            const res = await fetch('/api/adopted-list?c=' + encodeURIComponent(cat) + '&h=' + hId);
+            adoptedFullList = await res.json();
+            document.getElementById('loading').style.display = 'none';
+            adoptedDisplayCount = 0;
+            
+            if (adoptedFullList.length === 0) {
+              resDiv.innerHTML = '<div class="no-results">📭 該当する採用薬が登録されていませんカニ🦀</div>';
+              return;
+            }
+            renderAdoptedMore(true); // 最初の50件を描画
+          } catch(e) {
+            document.getElementById('loading').style.display = 'none';
+            resDiv.innerHTML = '<div class="no-results">⚠️ データの読み込みに失敗しましたカニ🦀💦</div>';
+          }
+        }
+
+        function renderAdoptedMore(isFirst = false) {
+          const resDiv = document.getElementById('results');
+          // 役目を終えた古い「もっと見る」ボタンを画面から消去
+          const oldBtn = document.getElementById('btnAdoptedMore');
+          if (oldBtn) oldBtn.remove();
+
+          const start = adoptedDisplayCount;
+          const end = Math.min(start + 50, adoptedFullList.length);
+          const chunk = adoptedFullList.slice(start, end);
+          adoptedDisplayCount = end;
+
+          // 検索結果と全く同じカードデザインを組み立てる
+          // 🌟修正: シングルクォーテーションを守るためのバックスラッシュを \\' に強化してエラーを完全消滅させました！
+          const html = chunk.map(i => {
+            return '<div class="card adopted" onclick="showDetail(\\'' + i.key + '\\')">' +
+              '<div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; font-size:15px; gap:8px;">' +
+                '<div style="flex:1; line-height:1.4;">' + getFormEmoji(i.yj, currentAdoptedCat) + ' ' + i.name + '</div>' +
+                '<div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">' +
+                  (i.isBrand ? '<span class="tag blue">先</span>' : '') +
+                  (i.price && i.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>' + i.price + '</span>' : '') +
+                  (i.yj && i.yj.startsWith('8') ? '<span class="tag red">麻</span>' : '') +
+                  '<span class="tag green">🏥 採用</span>' +
+                '</div>' +
+              '</div>' +
+              '<div style="font-size:12px; color:#888; margin-top:8px;">📦 ' + i.spec + ' ' + (i.type ? '/ ' + i.type : '') + '</div>' +
+            '</div>';
+          }).join('');
+
+          if (isFirst) {
+            resDiv.innerHTML = html;
+          } else {
+            // 2回目以降（追加読み込み）は、スクロール位置を崩さず一番下にお薬を継ぎ足す
+            resDiv.insertAdjacentHTML('beforeend', html);
+          }
+
+          // まだ残りのデータがあれば「もっと見る」ボタンを一番下に配置
+          if (adoptedDisplayCount < adoptedFullList.length) {
+            const moreBtnHtml = '<button id="btnAdoptedMore" onclick="renderAdoptedMore()" style="width:100%; padding:12px; background:#f0fafd; border:1.5px dashed #4dd0e1; border-radius:12px; color:#00838f; font-weight:bold; cursor:pointer; margin-top:15px; outline:none; transition: transform 0.1s;">もっと見る🦀 （' + adoptedDisplayCount + ' / ' + adoptedFullList.length + ' 件を表示中）</button>';
+            resDiv.insertAdjacentHTML('beforeend', moreBtnHtml);
+          }
+        }
         
         // 報告用グローバル変数
         let currentReportYj = "";
