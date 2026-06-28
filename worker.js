@@ -1747,8 +1747,11 @@ export default {
       const extracted = extractDrugData(parts, yj);
       const isBrand = parts.some(p => String(p).includes("先発"));
       const cleanType = extracted.type.replace(/先発品?/g, "");
+      // 👇追加: keyから成分名を取り出す（上部で定義済みの getComponentPart を利用）
+      const compName = getComponentPart(key);
       
-      return { key, name: extracted.name, spec: extracted.spec, type: cleanType, yj: yj, isAdopted: isAdopted, isBrand: isBrand, price: extracted.price };
+      // 👇修正: component: compName を結果の最後に追加
+      return { key, name: extracted.name, spec: extracted.spec, type: cleanType, yj: yj, isAdopted: isAdopted, isBrand: isBrand, price: extracted.price, component: compName };
     }));
     
     // ===== 🌟修正: 採用薬を優先しつつ、前方一致をさらに優先して並び替え =====
@@ -3246,18 +3249,25 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           const data = await res.json();
           const adoptedData = data.filter(i => i.isAdopted);
           if(!adoptedData.length) { list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">採用薬が見つかりませんでしたカニ🦀</p>'; return; }
-          list.innerHTML = adoptedData.map(i => \`
-            <div class="admin-item">
-              <div class="admin-item-info">
-                <b>\${i.name}</b><br><small>\${i.spec}</small>
-              </div>
-              <div class="admin-item-actions">
-                <button class="btn-small btn-edit" onclick="openAdminEdit('\${i.key.replace(/'/g, "\\\\'")}', '\${i.name.replace(/'/g, "\\\\'")}')">編集</button>
-                <button class="btn-small btn-delete" onclick="adminDeleteItem('\${i.key.replace(/'/g, "\\\\'")}')">削除</button>
-              </div>
+      // 👇修正: 通常の検索結果と同じように、先発・薬価・成分名・規格をリッチに表示！
+      list.innerHTML = adoptedData.map(i => \`
+        <div class="admin-item" style="align-items:flex-start;">
+          <div class="admin-item-info" style="line-height:1.5;">
+            <b style="font-size:15px; color:#333;">\${i.name}</b>
+            <div style="display:flex; gap:4px; margin:4px 0; flex-wrap:wrap; align-items:center;">
+              \${i.isBrand ? '<span class="tag blue" style="font-size:10px; padding:2px 6px;">先発</span>' : ''}
+              \${i.price && i.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;font-size:10px; padding:2px 6px;"><span style="color:#e65100;">￥</span>' + i.price + '</span>' : ''}
+              \${i.component ? '<span style="font-size:11px; color:#0056b3; background:#e3f2fd; padding:2px 6px; border-radius:4px; border:1px solid #bbdefb;">🧬 ' + i.component + '</span>' : ''}
             </div>
-          \`).join('');
-        }
+            <div style="font-size:12px; color:#666;">📦 \${i.spec} \${i.type ? '/ ' + i.type : ''}</div>
+          </div>
+          <div class="admin-item-actions" style="display:flex; flex-direction:column; gap:6px;">
+            <button class="btn-small btn-edit" onclick="openAdminEdit('\${i.key.replace(/'/g, "\\\\'")}', '\${i.name.replace(/'/g, "\\\\'")}')">編集</button>
+            <button class="btn-small btn-delete" onclick="adminDeleteItem('\${i.key.replace(/'/g, "\\\\'")}')">削除</button>
+          </div>
+        </div>
+      \`).join('');
+    }
 
         // 管理画面用検索（個別追加用：未採用マスターのみ）
         async function adminAddSearch() {
@@ -3269,17 +3279,24 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           const data = await res.json();
           const masterData = data.filter(i => !i.isAdopted && !i.key.includes('[市販]'));
           if(!masterData.length) { list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">追加できる未採用薬が見つかりませんでしたカニ🦀</p>'; return; }
-          list.innerHTML = masterData.map(i => \`
-            <div class="admin-item">
-              <div class="admin-item-info">
-                <b>\${i.name}</b><br><small>\${i.spec}</small>
-              </div>
-              <div class="admin-item-actions">
-                <button class="btn-small" style="background:#28a745; color:#fff;" onclick="openAdminAdd('\${i.key.replace(/'/g, "\\\\'")}', '\${i.name.replace(/'/g, "\\\\'")}')">追加</button>
-              </div>
+      // 👇修正: こちらもリッチ表示に変更して、追加する薬の情報をわかりやすく！
+      list.innerHTML = masterData.map(i => \`
+        <div class="admin-item" style="align-items:flex-start;">
+          <div class="admin-item-info" style="line-height:1.5;">
+            <b style="font-size:15px; color:#333;">\${i.name}</b>
+            <div style="display:flex; gap:4px; margin:4px 0; flex-wrap:wrap; align-items:center;">
+              \${i.isBrand ? '<span class="tag blue" style="font-size:10px; padding:2px 6px;">先発</span>' : ''}
+              \${i.price && i.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;font-size:10px; padding:2px 6px;"><span style="color:#e65100;">￥</span>' + i.price + '</span>' : ''}
+              \${i.component ? '<span style="font-size:11px; color:#0056b3; background:#e3f2fd; padding:2px 6px; border-radius:4px; border:1px solid #bbdefb;">🧬 ' + i.component + '</span>' : ''}
             </div>
-          \`).join('');
-        }
+            <div style="font-size:12px; color:#666;">📦 \${i.spec} \${i.type ? '/ ' + i.type : ''}</div>
+          </div>
+          <div class="admin-item-actions" style="display:flex; flex-direction:column; gap:6px;">
+            <button class="btn-small" style="background:#28a745; color:#fff;" onclick="openAdminAdd('\${i.key.replace(/'/g, "\\\\'")}', '\${i.name.replace(/'/g, "\\\\'")}')">追加</button>
+          </div>
+        </div>
+      \`).join('');
+    }
 
         function openAdminEdit(key, name) {
           currentEditKey = key;
@@ -3506,23 +3523,29 @@ document.getElementById('csvFile').onchange = (e) => {
           
           // 採用薬のみに絞り込み
           const adoptedData = data.filter(i => !i.key.includes('[市販]'));
-          if(!adoptedData.length) { 
-            list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">お薬が見つかりませんでしたカニ🦀</p>'; 
-            return; 
-          }
-          
-         // 個別追加機能と全く同じシンプルな描画に変更！
-          list.innerHTML = adoptedData.map(i => \`
-            <div class="admin-item">
-              <div class="admin-item-info">
-                <b>\${i.name}</b><br><small>\${i.spec}</small>
-              </div>
-              <div class="admin-item-actions">
-                <button class="btn-small" style="background:#28a745; color:#fff;" onclick="insertBoardLink('\${i.key.replace(/'/g, "\\\\'")}', '\${i.name.replace(/'/g, "\\\\'")}')">挿入</button>
-              </div>
+      if(!adoptedData.length) { 
+        list.innerHTML = '<p style="padding:15px; font-size:13px; color:#999;">お薬が見つかりませんでしたカニ🦀</p>'; 
+        return; 
+      }
+      
+      // 👇修正: 掲示板のお薬検索もリッチ表示に統一して見やすく！
+      list.innerHTML = adoptedData.map(i => \`
+        <div class="admin-item" style="align-items:flex-start;">
+          <div class="admin-item-info" style="line-height:1.5;">
+            <b style="font-size:15px; color:#333;">\${i.name}</b>
+            <div style="display:flex; gap:4px; margin:4px 0; flex-wrap:wrap; align-items:center;">
+              \${i.isBrand ? '<span class="tag blue" style="font-size:10px; padding:2px 6px;">先発</span>' : ''}
+              \${i.price && i.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;font-size:10px; padding:2px 6px;"><span style="color:#e65100;">￥</span>' + i.price + '</span>' : ''}
+              \${i.component ? '<span style="font-size:11px; color:#0056b3; background:#e3f2fd; padding:2px 6px; border-radius:4px; border:1px solid #bbdefb;">🧬 ' + i.component + '</span>' : ''}
             </div>
-          \`).join('');
-        }
+            <div style="font-size:12px; color:#666;">📦 \${i.spec} \${i.type ? '/ ' + i.type : ''}</div>
+          </div>
+          <div class="admin-item-actions" style="display:flex; flex-direction:column; gap:6px;">
+            <button class="btn-small" style="background:#28a745; color:#fff;" onclick="insertBoardLink('\${i.key.replace(/'/g, "\\\\'")}', '\${i.name.replace(/'/g, "\\\\'")}')">挿入</button>
+          </div>
+        </div>
+      \`).join('');
+    }
 
         function insertBoardLink(key, name) {
           const textarea = document.getElementById('boardMessage');
