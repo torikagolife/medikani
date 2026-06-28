@@ -920,6 +920,152 @@ export default {
       } catch(e) { return new Response(JSON.stringify({error: e.message}), { status: 500 }); }
     }
 
+    // ===== 🌟新規追加: メディカニレーダー用API (自施設採用薬との照合処理版) =====
+    if (request.method === "POST" && url.pathname.includes("/api/admin/radar")) {
+      try {
+        const radarHId = url.searchParams.get("h") || "";
+        
+        // 1. GASが保存してくれた最新のPMDA改訂情報をKVから取得する
+        const alertStr = await env.MEDI_KV.get("GLOBAL_PMDA_ALERT");
+        if (!alertStr) {
+          return new Response(JSON.stringify({ success: true, html: "<p style='color:#28a745; font-weight:bold;'>✅ 現在、レーダーが検知した新しい改訂指示情報はありませんカニ！🦀</p>" }), { headers: { "Content-Type": "application/json" } });
+        }
+        const alertData = JSON.parse(alertStr); // date, url, drugs が入っている
+        
+        // 2. 自施設の採用薬キーの一覧をKVから全部引っ張ってくる
+        let adoptedKeys = [];
+        let cursor = "";
+        do {
+          const list = await env.MEDI_KV.list({ prefix: `${radarHId}_`, limit: 1000, cursor: cursor || undefined });
+          adoptedKeys.push(...list.keys.map(k => k.name));
+          cursor = list.list_complete ? "" : list.cursor;
+        } while (cursor);
+        
+        // パスワードやメタデータなどのシステム用キーを除外して純粋な採用薬だけにする
+        adoptedKeys = adoptedKeys.filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_userpwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.endsWith("_ranking") && !n.endsWith("_name") && !n.includes("_report_") && !n.includes("COMP_"));
+
+        // 🌟【追加】採用薬のYJコードをもとに、PMDA_DBから添付文書データをあらかじめ一括取得する
+        const adoptedDrugInfos = [];
+        if (env.PMDA_DB) {
+          const pmdaPromises = adoptedKeys.map(async (key) => {
+            const yj = key.split("_").pop();
+            let cleanName = key.replace(`${radarHId}_`, "");
+            if (cleanName.includes("]")) cleanName = cleanName.substring(cleanName.indexOf("]") + 1);
+            if (cleanName.includes("_")) cleanName = cleanName.split("_")[0];
+
+            let pmdaVal = "";
+            if (yj && yj !== "NONE") {
+              pmdaVal = await env.PMDA_DB.get(yj) || "";
+              // 兄弟薬・親戚薬コードでのフォールバック（前方9桁・7桁）
+              if (!pmdaVal && yj.length >= 9) {
+                try {
+                  const list9 = await env.PMDA_DB.list({ prefix: yj.substring(0, 9), limit: 1 });
+                  if (list9.keys.length > 0) pmdaVal = await env.PMDA_DB.get(list9.keys[0].name) || "";
+                } catch(e) {}
+              }
+              if (!pmdaVal && yj.length >= 7) {
+                try {
+                  const list7 = await env.PMDA_DB.list({ prefix: yj.substring(0, 7), limit: 1 });
+                  if (list7.keys.length > 0) pmdaVal = await env.PMDA_DB.get(list7.keys[0].name) || "";
+                } catch(e) {}
+              }
+            }
+            return { key, cleanName, pmdaVal: String(pmdaVal) };
+          });
+          adoptedDrugInfos.push(...await Promise.all(pmdaPromises));
+        } else {
+          // PMDA_DBが無い環境用の安全対策（従来のキー名のみの判定用）
+          adoptedKeys.forEach(key => {
+            let cleanName = key.replace(`${radarHId}_`, "");
+            if (cleanName.includes("]")) cleanName = cleanName.substring(cleanName.indexOf("]") + 1);
+            if (cleanName.includes("_")) cleanName = cleanName.split("_")[0];
+            adoptedDrugInfos.push({ key, cleanName, pmdaVal: "" });
+          });
+        }
+
+        // 3. PMDAの対象薬リストと、自施設の採用薬を1つずつ照合してHTMLを組み立てる
+        let radarHtml = `<div style="text-align:left; line-height:1.6; color:#333;">`;
+        radarHtml += `<div style="font-weight:bold; margin-bottom:12px; color:#111; font-size:14px;">使用上の注意の改訂指示のお知らせ （${alertData.date || '日付不明'}）</div>`;
+        radarHtml += `<div style="margin-bottom:8px; font-weight:bold; color:#555;">（対象医薬品）</div>`;
+
+        // 🌟成分名での照合を可能にするため、マスタから「YJコード ➔ 成分名」の辞書を事前に作成
+        const yjToComponentMap = {};
+        try {
+          for (const c of ["[内]", "[外]", "[注]"]) {
+            let cursor = "";
+            do {
+              const list = await env.MEDI_KV.list({ prefix: c, limit: 1000, cursor: cursor || undefined });
+              for (const mk of list.keys) {
+                const parts = mk.name.split('_');
+                const yj = parts.pop();
+                const component = parts[1]; // マスタキー「[内]薬品名_成分名_YJ」の真ん中から成分名を取得
+                if (yj && component) {
+                  yjToComponentMap[yj] = component;
+                }
+              }
+              cursor = list.list_complete ? "" : list.cursor;
+            } while (cursor);
+          }
+        } catch(e) {}
+        
+        if (alertData.drugs && alertData.drugs.length > 0) {
+          alertData.drugs.forEach((drug, index) => {
+            // 例: "1. 炭酸リチウム"
+            radarHtml += `<div style="margin-left:5px; margin-bottom:4px; font-weight:bold;">${index + 1}. ${drug}</div>`;
+            
+            // 🌟【変更】マスタの成分名、またはキー名に該当文字が含まれているものを探す
+            const matchedNames = [];
+            for (const info of adoptedDrugInfos) {
+              // 採用薬のキーから末尾のYJコードを抜き出す
+              const targetYj = info.key.split("_").pop();
+              // 事前に作った辞書から、そのお薬の正確な成分名を取得する（無ければ空文字）
+              const adoptedComponent = yjToComponentMap[targetYj] || "";
+              
+              // マスタの成分名に含まれているか、あるいは従来通り薬品名（キー）に含まれているか判定
+              let isMatch = adoptedComponent.includes(drug) || info.key.includes(drug);
+              
+              // キー名に入っていない場合は、添付文書のデータ（JSON）を安全にチェックする
+              if (!isMatch && info.pmdaVal) {
+                try {
+                  const pmdaObj = JSON.parse(info.pmdaVal);
+                  // ⚠️誤検知の主因である「併用注意（他剤名）」や「副作用」が詰まった長文エリアを一時的に除外する
+                  if (pmdaObj.warnings) delete pmdaObj.warnings;
+                  
+                  // 残った基本情報や効能（summaryなど）の範囲に対象薬名が含まれているかチェック
+                  if (JSON.stringify(pmdaObj).includes(drug)) isMatch = true;
+                } catch(e) {
+                  // 万が一JSONのパースに失敗した場合は、安全のため従来の部分一致に戻す（エラー落ち防止）
+                  if (info.pmdaVal.includes(drug)) isMatch = true;
+                }
+              }
+              
+              if (isMatch) {
+                matchedNames.push(info.cleanName);
+              }
+            }
+            
+            // もし採用薬に存在したら、その下に【採用】として緑文字で表示する
+            if (matchedNames.length > 0) {
+              const uniqueNames = [...new Set(matchedNames)]; // 重複を除去
+              uniqueNames.forEach(name => {
+                radarHtml += `<div style="margin-left:20px; margin-bottom:8px; color:#28a745; font-weight:bold; background:#e8f5e9; padding:4px 8px; border-radius:6px; display:inline-block;">【採用】${name}</div>`;
+              });
+            }
+          });
+        }
+        
+        // 4. PMDAのリンクとカニのメッセージを最後に添える
+        radarHtml += `<div style="margin-top:15px; border-top:1px dashed #ddd; padding-top:10px;"><a href="${alertData.url}" target="_blank" style="color:#0056b3; font-weight:bold; text-decoration:underline; word-break:break-all;">${alertData.url}</a></div>`;
+        radarHtml += `<div style="margin-top:6px; font-weight:bold; color:#8e44ad;">詳細はPMDAのURLをご確認ください</div>`;
+        radarHtml += `</div>`;
+        
+        // 組み立てたHTMLを画面に返却！
+        return new Response(JSON.stringify({ success: true, html: radarHtml }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500 });
+      }
+    }
+   
     // === 🔥修正: ユーザーパスワード設定のエラーデバッグ用強化アーマー ===
     if (request.method === "POST" && url.pathname.includes("/api/admin/changeuserpwd")) {
       try {
@@ -1445,15 +1591,20 @@ export default {
       }
     }
 
-    // ===== 🌟修正: 前方一致（']'の直後に検索ワードがある）を優先して並び替え =====
+    // ===== 🌟修正: 主成分でのヒットを防ぐため、検索対象を「薬品名の部分」に限定 =====
+    // キー（例: ID_[内]薬品名_主成分_YJ）を「_」で分割し、「[」を含む部分（薬品名）だけを取り出すヘルパー関数
+    const getDrugNamePart = (key) => key.split('_').find(p => p.includes('[')) || key;
+
+    // 前方一致の判定も、薬品名の部分だけで行うように統一
     const prefixSort = (a, b) => {
-      const aIsPrefix = a.includes(']' + hiraQuery) ? 1 : 0;
-      const bIsPrefix = b.includes(']' + hiraQuery) ? 1 : 0;
+      const aIsPrefix = getDrugNamePart(a).includes(']' + hiraQuery) ? 1 : 0;
+      const bIsPrefix = getDrugNamePart(b).includes(']' + hiraQuery) ? 1 : 0;
       return bIsPrefix - aIsPrefix; // 1（前方一致）が配列の上に来るようにする
     };
 
-    const matchedMaster = masterKeys.filter(k => k.includes(hiraQuery)).sort(prefixSort);
-    const matchedAdopted = adoptedKeys.filter(k => k.includes(hiraQuery)).sort(prefixSort);
+    // キー全体ではなく、薬品名の部分（[内]〇〇 など）だけに対して検索ワードが含まれているかチェックする
+    const matchedMaster = masterKeys.filter(k => getDrugNamePart(k).includes(hiraQuery)).sort(prefixSort);
+    const matchedAdopted = adoptedKeys.filter(k => getDrugNamePart(k).includes(hiraQuery)).sort(prefixSort);
     // ==========================================================
 
     let finalKeys = [];
@@ -1508,9 +1659,9 @@ export default {
     return results.filter(r => r !== null).sort((a, b) => {
       // 1. まずは採用薬かどうかで分ける（採用薬が上）
       if (b.isAdopted !== a.isAdopted) return b.isAdopted - a.isAdopted;
-      // 2. 採用状況が同じなら、前方一致を上にする
-      const aIsPrefix = a.key.includes(']' + hiraQuery) ? 1 : 0;
-      const bIsPrefix = b.key.includes(']' + hiraQuery) ? 1 : 0;
+      // 2. 採用状況が同じなら、前方一致を上にする（ここでも薬品名部分だけを見るように統一）
+      const aIsPrefix = getDrugNamePart(a.key).includes(']' + hiraQuery) ? 1 : 0;
+      const bIsPrefix = getDrugNamePart(b.key).includes(']' + hiraQuery) ? 1 : 0;
       return bIsPrefix - aIsPrefix;
     });
     // ==========================================================
@@ -2602,6 +2753,13 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           <a href="/api/admin/download?h=${hospitalId}" class="btn" style="background:#17a2b8; margin-top:10px; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none;">⬇️ 現在の採用薬CSVをダウンロード</a>
         </div>
 
+        <!-- ===== 🌟新規追加: メディカニレーダーのウィンドウ ===== -->
+        <div class="card" style="border-top: 4px solid #8e44ad;">
+          <h2>📡 メディカニレーダー</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:15px;">現在登録されている採用薬の重要な添付文書の更新を検知しますカニ🦀※テスト運用</p>
+          <button id="btnRunRadar" onclick="runMedikaniRadar()" class="btn" style="background:#8e44ad; margin-top:0;">📡 レーダーを起動する</button>
+          <div id="radarResults" style="margin-top:15px; display:none;"></div>
+        </div>
         <div class="card">
           <h2>✏️ 個別編集（修正・削除）</h2>
           <p style="font-size:12px; color:#666; margin-bottom:10px;">採用中の薬品を検索してメモの修正・削除ができますカニ🦀</p>
@@ -2799,6 +2957,38 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           document.getElementById('posterOutputText').innerText = text;
           window.print();
         }
+
+        // ===== 🌟新規追加: メディカニレーダーの処理 =====
+        async function runMedikaniRadar() {
+          const btn = document.getElementById('btnRunRadar');
+          const resDiv = document.getElementById('radarResults');
+          
+          // 連打防止のためにボタンを無効化してメッセージを変える
+          btn.disabled = true;
+          btn.innerText = "📡 レーダー探索中...💦";
+          resDiv.style.display = "block";
+          resDiv.innerHTML = "<p style='text-align:center; color:#888; font-weight:bold;'>GASと通信中カニ...🦀🔍<br>しばらくお待ちください</p>";
+
+          try {
+            // 【1ヶ所目】で作ったAPI窓口を叩く
+            const res = await fetch('/api/admin/radar?h=' + hId, { method: 'POST' });
+            const data = await res.json();
+            
+            if (data.success) {
+              // GASが作成したHTML結果をそのまま画面の箱に流し込む
+              resDiv.innerHTML = data.html || "<p style='color:#28a745; font-weight:bold;'>✅ 異常は検知されませんでしたカニ！🦀</p>";
+            } else {
+              resDiv.innerHTML = "<p style='color:#dc3545; font-weight:bold;'>❌ レーダーエラー:<br>" + (data.error || "不明なエラー") + "</p>";
+            }
+          } catch(e) {
+            resDiv.innerHTML = "<p style='color:#dc3545; font-weight:bold;'>⚠️ 通信エラーが発生したカニ🦀💦<br>詳細: " + e.message + "</p>";
+          }
+          
+          // 終わったらボタンを元に戻す
+          btn.disabled = false;
+          btn.innerText = "📡 レーダーを再起動する";
+        }
+        // ===============================================
 
         // === 新規追加: 報告リストの読み込み ===
         function loadReports() {
