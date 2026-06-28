@@ -1570,10 +1570,11 @@ export default {
     let masterKeys = [];
     let adoptedKeys = [];
 
-    // categoryが"all"の場合は全カテゴリを検索するように修正
-    const cats = category === "all" ? ["[内]", "[外]", "[注]"] : [category];
+    // 🌟 categoryが"all"や"[一般名]"の場合は全カテゴリを検索
+    const cats = (category === "all" || category === "[一般名]") ? ["[内]", "[外]", "[注]"] : [category];
 
     for (const c of cats) {
+      // （※ここのKVからリストを取得する mCursor と aCursor の whileループ処理 はそのまま残してください！）
       let mCursor = "";
       do {
         const list = await env.MEDI_KV.list({ prefix: c, limit: 1000, cursor: mCursor || undefined });
@@ -1591,31 +1592,47 @@ export default {
       }
     }
 
-    // ===== 🌟修正: 主成分でのヒットを防ぐため、検索対象を「薬品名の部分」に限定 =====
-    // キー（例: ID_[内]薬品名_主成分_YJ）を「_」で分割し、「[」を含む部分（薬品名）だけを取り出すヘルパー関数
+    // ===== 🌟修正: 「一般名」タブか「通常」タブかで検索対象を切り替える =====
+    // 薬品名部分を取り出す（例: ID_[内]薬品名_成分名_YJ -> [内]薬品名）
     const getDrugNamePart = (key) => key.split('_').find(p => p.includes('[')) || key;
-
-    // 前方一致の判定も、薬品名の部分だけで行うように統一
-    const prefixSort = (a, b) => {
-      const aIsPrefix = getDrugNamePart(a).includes(']' + hiraQuery) ? 1 : 0;
-      const bIsPrefix = getDrugNamePart(b).includes(']' + hiraQuery) ? 1 : 0;
-      return bIsPrefix - aIsPrefix; // 1（前方一致）が配列の上に来るようにする
+    
+    // 成分名部分を取り出す（YJコードの1つ前の要素）
+    const getComponentPart = (key) => {
+      const parts = key.split('_');
+      return parts.length > 2 ? parts[parts.length - 2] : ""; 
     };
 
-    // キー全体ではなく、薬品名の部分（[内]〇〇 など）だけに対して検索ワードが含まれているかチェックする
-    const matchedMaster = masterKeys.filter(k => getDrugNamePart(k).includes(hiraQuery)).sort(prefixSort);
-    const matchedAdopted = adoptedKeys.filter(k => getDrugNamePart(k).includes(hiraQuery)).sort(prefixSort);
+    let matchedMaster, matchedAdopted;
+
+    if (category === "[一般名]") {
+      // 🧬 一般名タブ：成分名で検索する
+      const compPrefixSort = (a, b) => {
+        const aIsPrefix = getComponentPart(a).startsWith(hiraQuery) ? 1 : 0;
+        const bIsPrefix = getComponentPart(b).startsWith(hiraQuery) ? 1 : 0;
+        return bIsPrefix - aIsPrefix;
+      };
+      matchedMaster = masterKeys.filter(k => getComponentPart(k).includes(hiraQuery)).sort(compPrefixSort);
+      matchedAdopted = adoptedKeys.filter(k => getComponentPart(k).includes(hiraQuery)).sort(compPrefixSort);
+    } else {
+      // 💊 通常タブ：薬品名で検索する
+      const prefixSort = (a, b) => {
+        const aIsPrefix = getDrugNamePart(a).includes(']' + hiraQuery) ? 1 : 0;
+        const bIsPrefix = getDrugNamePart(b).includes(']' + hiraQuery) ? 1 : 0;
+        return bIsPrefix - aIsPrefix;
+      };
+      matchedMaster = masterKeys.filter(k => getDrugNamePart(k).includes(hiraQuery)).sort(prefixSort);
+      matchedAdopted = adoptedKeys.filter(k => getDrugNamePart(k).includes(hiraQuery)).sort(prefixSort);
+    }
     // ==========================================================
 
     let finalKeys = [];
     if (hospitalId) {
-      // 変更：キー文字列全体ではなく末尾のYJコードのみで一致判定
       const adoptedYJs = new Set(matchedAdopted.map(k => k.split("_").pop()));
       const filteredMaster = matchedMaster.filter(k => !adoptedYJs.has(k.split("_").pop()));
-      // "all"の場合は多めに返す
-      finalKeys = [...matchedAdopted, ...filteredMaster].slice(0, category === "all" ? 100 : 30);
+      // "all"や"一般名"の場合は該当が多いので多め（100件）に返す
+      finalKeys = [...matchedAdopted, ...filteredMaster].slice(0, (category === "all" || category === "[一般名]") ? 100 : 30);
     } else {
-      finalKeys = matchedMaster.slice(0, category === "all" ? 100 : 30);
+      finalKeys = matchedMaster.slice(0, (category === "all" || category === "[一般名]") ? 100 : 30);
     }
 
     const results = await Promise.all(finalKeys.map(async (key) => {
@@ -1896,7 +1913,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
       .header { background: ${headerBgColor}; padding: 8px; text-align: center; border-radius: 0 0 15px 15px; transition: background 0.3s ease; }
       .header h1 { margin: 0; font-size: 22px; color: var(--main-orange); display: flex; align-items: center; justify-content: center; gap: 8px; }
       .search-box { padding: 15px; background: #fff; position: sticky; top: 0; z-index: 10; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border-radius: 0 0 15px 15px; margin-bottom: 10px; }
-      .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 15px; }
+      .tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 15px; }
       .tab { padding: 10px 2px; border: none; background: #f0f0f0; border-radius: 10px; font-size: 11px; font-weight: bold; cursor: pointer; transition: all 0.2s; text-align: center; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .tab.active { background: var(--main-orange) !important; color: #fff !important; transform: scale(1.03); box-shadow: 0 2px 8px rgba(255, 157, 0, 0.4); border-color: var(--main-orange) !important; }
       input { width: 100%; padding: 14px 16px; border: 2px solid #e0e0e0; border-radius: 20px; box-sizing: border-box; font-size: 16px; outline: none; transition: border-color 0.2s; background: #fdfdfd; }
@@ -1987,6 +2004,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           <button class="tab active" onclick="setCat('[内]', this)">💊 内服</button>
           <button class="tab" onclick="setCat('[外]', this)">🩹 外用</button>
           <button class="tab" onclick="setCat('[注]', this)">💉 注射</button>
+          <button class="tab" onclick="setCat('[一般名]', this)">🧬 一般名</button>
           <button class="tab" onclick="setCat('[市販]', this)">🛒 市販薬</button>
         </div>
         <input type="text" id="q" placeholder="🔍 お薬名（かな・カナ３文字〜）..." oninput="search()">
