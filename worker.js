@@ -1498,7 +1498,7 @@ export default {
           messages: [
             { 
               role: "system", 
-              content: "あなたは経験20年の凄腕薬剤師『メディカニくん』です。ユーザーの入力（不完全な名称やひらがなを含む）から、最も可能性の高い具体的な市販薬を推測・特定してください。回答の冒頭には必ず『薬品名：確定した製品名（例：アレグラFX）』を記載し、以下の形式で回答してください。\n\n主成分：\n特徴：\n切替候補：\n\n※「切替候補」には同成分の医療用医薬品のうち、最も代表的な先発品の『製品名』（成分名ではなく製品名）を1つだけ、括弧や補足なしで記載してください。\n最後に改行して『※AIによる参考情報ですカニ🦀 詳細は最新の添付文書を確認してください。』と必ず記載すること。全体で150文字以内で。" 
+              content: "あなたは経験20年の凄腕薬剤師『メディカニくん』です。ユーザーの入力（不完全な名称やひらがなを含む）から、最も可能性の高い具体的な市販薬を推測・特定してください。回答の冒頭には必ず『薬品名：確定した製品名（例：アレグラFX）』を記載し、以下の形式で回答してください。\n\n主成分：\n特徴：\n切替候補：\n\n※「切替候補」には、その市販薬の最も主要な『主成分名（成分名、例：フェキソフェナジン塩酸塩）』を1つだけ、括弧や補足なしで記載してください（製品名ではなく成分名を出力してください）成分名は重要なのでプロとして真剣に選んで間違えないで下さい。\n最後に改行して『※AIによる参考情報ですカニ🦀 詳細は最新の添付文書を確認してください。』と必ず記載すること。全体で150文字以内で。"
             }, 
             { role: "user", content: drugName }
           ], 
@@ -2113,7 +2113,7 @@ const simpleIntroHTML = '';
         }
         function searchAlt(kw) {
           document.getElementById('q').value = kw;
-          setCat('[内]', document.querySelectorAll('.tab')[0]); 
+          setCat('[一般名]', document.querySelectorAll('.tab')[3]); 
         }
 function getFormEmoji(yj, ctx = "") {
           if (!yj || yj === "NONE" || yj.length < 8) return "💊";
@@ -2363,7 +2363,7 @@ if (hist.length > 50) hist.pop();
                 });
                 infoHtml = infoHtml.replace(/切替候補[:：]\\s*([^\\n]+)/, function(match, kw) {
                   var cleanKw = kw.trim().replace(/['"]/g, "");
-                  return '切替候補：<span style="font-weight:bold; color:#0056b3;">' + cleanKw + '</span> <button onclick="searchAlt(\\'' + cleanKw + '\\')" style="background:var(--main-orange);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-left:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);font-weight:bold;vertical-align:middle;">🔍 切替候補を探す</button>';
+                  return '主成分：<span style="font-weight:bold; color:#0056b3;">' + cleanKw + '</span> <button onclick="searchAlt(\\'' + cleanKw + '\\')" style="background:var(--main-orange);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-left:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);font-weight:bold;vertical-align:middle;">🔍 主成分で切替検索</button>';
                 });
                 const searchKw = data.kataQuery || q;
 
@@ -2455,7 +2455,7 @@ if (hist.length > 50) hist.pop();
           });
           infoHtml = infoHtml.replace(/切替候補[:：]\\s*([^\\n]+)/, function(match, kw) {
             var cleanKw = kw.trim().replace(/['"]/g, "");
-            return '切替候補：<span style="font-weight:bold; color:#0056b3;">' + cleanKw + '</span> <button onclick="closeModal(); searchAlt(\\'' + cleanKw + '\\')" style="background:var(--main-orange);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-left:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);font-weight:bold;vertical-align:middle;">🔍 切替候補を探す</button>';
+            return '主成分：<span style="font-weight:bold; color:#0056b3;">' + cleanKw + '</span> <button onclick="closeModal(); searchAlt(\\'' + cleanKw + '\\')" style="background:var(--main-orange);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-left:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);font-weight:bold;vertical-align:middle;">🔍 主成分で切替検索</button>';
           });
           
           const searchKw = item.kataQuery || query;
