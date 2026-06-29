@@ -63,6 +63,17 @@ async function rebuildAdoptedJson(hId, env) {
     cursorStr = list.list_complete ? "" : list.cursor;
   } while (cursorStr);
 
+  // 🌟追加: マスターキーの一覧を取得（YJコードで引き当てられるようにする）
+  let masterKeys = [];
+  for (const c of ["[内]", "[外]", "[注]"]) {
+    let mCursor = "";
+    do {
+      const list = await env.MEDI_KV.list({ prefix: c, limit: 1000, cursor: mCursor || undefined });
+      masterKeys.push(...list.keys.map(k => k.name));
+      mCursor = list.list_complete ? "" : list.cursor;
+    } while (mCursor);
+  }
+
   const allDrugList = [];
   
   // 2. 50件ずつKVから中身（Value）を取得して配列に詰め込む
@@ -70,12 +81,47 @@ async function rebuildAdoptedJson(hId, env) {
     const chunk = currentKeys.slice(i, i + 50);
     const vals = await Promise.all(chunk.map(k => env.MEDI_KV.get(k)));
     
+    // 🌟追加: チャンクごとに必要なマスターのキーを特定し、一括取得する
+    const masterKeysToFetch = [];
     chunk.forEach((k, idx) => {
       if (vals[idx]) {
         let parts = String(vals[idx]).split(/[,\uFF0C]/);
         const yj = getBestYJ(k, parts);
+        if (yj && yj !== "NONE") {
+          const masterKey = masterKeys.find(mk => mk.endsWith(`_${yj}`) || mk.endsWith(yj));
+          masterKeysToFetch.push(masterKey || null);
+        } else {
+          masterKeysToFetch.push(null);
+        }
+      } else {
+        masterKeysToFetch.push(null);
+      }
+    });
+
+    const masterVals = await Promise.all(masterKeysToFetch.map(mk => mk ? env.MEDI_KV.get(mk) : Promise.resolve(null)));
+    // 🌟ここまで
+    
+    chunk.forEach((k, idx) => {
+      if (vals[idx]) {
+        let parts = String(vals[idx]).split(/[,\uFF0C]/);
+        const yj = getBestYJ(k, parts);
+
+        // 🌟追加: 取得したマスタデータで上書きし、マークや薬価を完全復活させる
+        if (masterVals[idx]) {
+          const mParts = String(masterVals[idx]).split(/[,\uFF0C]/);
+          const mYjIdx = mParts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
+          if (mYjIdx !== -1) {
+            parts = mParts.slice(0, mYjIdx + 1);
+          }
+        }
+        // 🌟ここまで
+
         const ext = extractDrugData(parts, yj);
         const catMatch = k.match(/\[(内|外|注)\]/);
+        
+        // 🌟追加: キーから成分名を抽出する
+        const keyParts = k.split('_');
+        const compName = keyParts.length > 2 ? keyParts[keyParts.length - 2] : "";
         
         allDrugList.push({
           key: k,
@@ -86,7 +132,8 @@ async function rebuildAdoptedJson(hId, env) {
           yj: yj,
           price: ext.price,
           isBrand: parts.some(p => String(p).includes("先発")),
-          isAdopted: true
+          isAdopted: true,
+          component: compName // 🌟追加: JSONに成分名を保存！
         });
       }
     });
@@ -2183,7 +2230,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           // 検索結果と全く同じカードデザインを組み立てる
           // 🌟修正: シングルクォーテーションを守るためのバックスラッシュを \\' に強化してエラーを完全消滅させました！
           const html = chunk.map(i => {
-            return '<div class="card adopted" onclick="showDetail(\\'' + i.key + '\\')">' +
+            return '<div class="card adopted" onclick="showDetail(\\'' + i.key.replace(/'/g, "\\\\'") + '\\')">' +
               '<div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; font-size:15px; gap:8px;">' +
                 '<div style="flex:1; line-height:1.4;">' + getFormEmoji(i.yj, currentAdoptedCat) + ' ' + i.name + '</div>' +
                 '<div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">' +
@@ -2193,6 +2240,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
                   '<span class="tag green">🏥 採用</span>' +
                 '</div>' +
               '</div>' +
+              
               '<div style="font-size:12px; color:#888; margin-top:8px;">📦 ' + i.spec + ' ' + (i.type ? '/ ' + i.type : '') + '</div>' +
             '</div>';
           }).join('');
