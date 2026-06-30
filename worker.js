@@ -2022,6 +2022,15 @@ if (ayj && ayj.substring(0, 7) === yj7) {
       ? `<a href="${env.BETA_FORM_URL || '#'}" target="_blank" class="menu-item" style="text-decoration:none; display:flex; background:#e8f5e9; color:#28a745; border:1px solid #c8e6c9;">📝 ベータ版プラス無料申込</a>` 
       : "";
 
+    // 👇新規追加: 採用薬ボタン（プラスモードのみ表示、トップ画面用）
+    const adoptedButtonsHTML = isHospitalMode ? `
+        <div id="adoptedButtons" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px;">
+          <button onclick="loadAdoptedList('[内]')" style="padding: 8px 4px; background: #f0fafd; border: 1.5px dashed #4dd0e1; border-radius: 10px; font-size: 11px; font-weight: bold; color: #00838f; cursor: pointer; outline: none;">採用💊 内服</button>
+          <button onclick="loadAdoptedList('[外]')" style="padding: 8px 4px; background: #f0fafd; border: 1.5px dashed #4dd0e1; border-radius: 10px; font-size: 11px; font-weight: bold; color: #00838f; cursor: pointer; outline: none;">採用🩹 外用</button>
+          <button onclick="loadAdoptedList('[注]')" style="padding: 8px 4px; background: #f0fafd; border: 1.5px dashed #4dd0e1; border-radius: 10px; font-size: 11px; font-weight: bold; color: #00838f; cursor: pointer; outline: none;">採用💉 注射</button>
+        </div>
+    ` : "";
+
     // 👇新規追加: メニュー用の「公式サイトへ」ボタンと、プラス体験ボタンの遷移先
     const officialMenuItem = `<a href="https://medikani.com/info" target="_blank" class="menu-item" style="text-decoration:none; display:flex; background:#e3f2fd; color:#0056b3; border:1px solid #bbdefb;">ℹ️ 公式サイトへ</a>`;
     const demoBtnUrl = isHospitalMode ? `/${hospitalId}` : "/HPTEST1";
@@ -2137,16 +2146,11 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           <button class="tab" onclick="setCat('[市販]', this)">🛒 市販薬</button>
         </div>
         <input type="text" id="q" placeholder="🔍 お薬名（かな・カナ３文字〜）..." oninput="search()">
-        
-        <div id="adoptedButtons" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px;">
-          <button onclick="loadAdoptedList('[内]')" style="padding: 8px 4px; background: #f0fafd; border: 1.5px dashed #4dd0e1; border-radius: 10px; font-size: 11px; font-weight: bold; color: #00838f; cursor: pointer; outline: none;">採用💊 内服</button>
-          <button onclick="loadAdoptedList('[外]')" style="padding: 8px 4px; background: #f0fafd; border: 1.5px dashed #4dd0e1; border-radius: 10px; font-size: 11px; font-weight: bold; color: #00838f; cursor: pointer; outline: none;">採用🩹 外用</button>
-          <button onclick="loadAdoptedList('[注]')" style="padding: 8px 4px; background: #f0fafd; border: 1.5px dashed #4dd0e1; border-radius: 10px; font-size: 11px; font-weight: bold; color: #00838f; cursor: pointer; outline: none;">採用💉 注射</button>
-        </div>
       </div>
       <div id="loading">🦀 メディカニくんが一生懸命探しています... 💦</div>
       <div class="results" id="results">
         <div id="defaultDisplay">
+          ${adoptedButtonsHTML}
           <div class="kani-tips-area">
             <img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ">
             <div class="kani-bubble">${randomTip}</div>
@@ -2541,7 +2545,7 @@ if (hist.length > 50) hist.pop();
           // 検索文字が空になったらデフォルト表示に戻す
           if (q.length === 0) {
             // 📢 infoManageHTML を boardArea の後ろに追加
-            resDiv.innerHTML = '<div id="defaultDisplay"><div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="topHistoryArea" style="margin-top:10px;"></div><div id="boardArea">' + (window.boardHTML || '') + '</div>' + introCampaignHTML + \`${combinedPromoHTML}\` + \`${infoManageHTML}\` + \`${officialSiteHTML}\`+ '</div>';
+            resDiv.innerHTML = '<div id="defaultDisplay">' + \`${adoptedButtonsHTML}\` + '<div class="kani-tips-area"><img src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" class="kani-icon" alt="カニ"><div class="kani-bubble">' + (window.currentKaniTip || 'お薬名を入力してみてカニ！🦀') + '</div></div><div id="topHistoryArea" style="margin-top:10px;"></div><div id="boardArea">' + (window.boardHTML || '') + '</div>' + introCampaignHTML + \`${combinedPromoHTML}\` + \`${infoManageHTML}\` + \`${officialSiteHTML}\` + '</div>';
             renderTopHistory(currentCat);
             return;
           }
