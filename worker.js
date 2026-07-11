@@ -1729,6 +1729,8 @@ export default {
     };
 
     let matchedMaster, matchedAdopted;
+    // 🌟追加: ツムラ番号で検索され、ワードがYJコードに置き換わっているか判定
+    const isTsumuraYj = tsumuraMatch && TSUMURA_MAP[tsumuraMatch[1]];
 
     if (category === "[一般名]") {
       // 🧬 一般名タブ：成分名で検索する
@@ -1737,8 +1739,9 @@ export default {
         const bIsPrefix = getComponentPart(b).startsWith(hiraQuery) ? 1 : 0;
         return bIsPrefix - aIsPrefix;
       };
-      matchedMaster = masterKeys.filter(k => getComponentPart(k).includes(hiraQuery)).sort(compPrefixSort);
-      matchedAdopted = adoptedKeys.filter(k => getComponentPart(k).includes(hiraQuery)).sort(compPrefixSort);
+      // 🌟修正: ツムラYJコードの場合は成分名ではなくキー全体（YJ部分）で検索させる
+      matchedMaster = masterKeys.filter(k => isTsumuraYj ? k.includes(hiraQuery) : getComponentPart(k).includes(hiraQuery)).sort(compPrefixSort);
+      matchedAdopted = adoptedKeys.filter(k => isTsumuraYj ? k.includes(hiraQuery) : getComponentPart(k).includes(hiraQuery)).sort(compPrefixSort);
     } else {
       // 💊 通常タブ：薬品名で検索する
       const prefixSort = (a, b) => {
@@ -1746,8 +1749,9 @@ export default {
         const bIsPrefix = getDrugNamePart(b).includes(']' + hiraQuery) ? 1 : 0;
         return bIsPrefix - aIsPrefix;
       };
-      matchedMaster = masterKeys.filter(k => getDrugNamePart(k).includes(hiraQuery)).sort(prefixSort);
-      matchedAdopted = adoptedKeys.filter(k => getDrugNamePart(k).includes(hiraQuery)).sort(prefixSort);
+      // 🌟修正: ツムラYJコードの場合は薬品名ではなくキー全体（YJ部分）で検索させる
+      matchedMaster = masterKeys.filter(k => isTsumuraYj ? k.includes(hiraQuery) : getDrugNamePart(k).includes(hiraQuery)).sort(prefixSort);
+      matchedAdopted = adoptedKeys.filter(k => isTsumuraYj ? k.includes(hiraQuery) : getDrugNamePart(k).includes(hiraQuery)).sort(prefixSort);
     }
     // ==========================================================
 
