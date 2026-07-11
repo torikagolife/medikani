@@ -7,6 +7,19 @@ function getBestYJ(key, parts) {
   return String(parts[2] || "").replace(/[^a-zA-Z0-9]/g, "");
 }
 // ===== 🌟修正: カンマズレを完全に防止して正しい規格・薬価・マークを取得する関数 =====
+// ===== 🌟追加: 規格文字列から用量(数字＋単位)を取り出して正規化する関数 =====
+// 例:「１０ｍｇ１カプセル」→「10mg」、「10%1g」→「10%」。全角も半角に統一して比較用に使う。
+function normalizeDose(spec) {
+  if (!spec) return "";
+  // 全角英数字・記号を半角に変換
+  let s = String(spec).replace(/[Ａ-Ｚａ-ｚ０-９％．]/g, ch =>
+    String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)
+  ).toLowerCase();
+  // 先頭付近の「数字（小数含む）＋単位」を抜き出す
+  const m = s.match(/([0-9]+(?:\.[0-9]+)?)\s*(mg|g|%|μg|mcg|ml|万単位|単位|iu)/);
+  return m ? (m[1] + m[2]) : "";
+}
+
 function extractDrugData(parts, yj) {
   const yjIdx = parts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
   let name = (parts[0] || "").trim();
@@ -1943,7 +1956,8 @@ if (ayj && ayj.substring(0, 7) === yj7) {
     // ===== 🌟追加: 先ほど作ったPMDA辞書(KV)から、効能と用法をサクッと取得する =====
     let pmdaEfficacy = "";
     let pmdaUsage = "";
-    let pmdaWarnings = null; // ✨追加：詳細データを格納する変数
+    let pmdaContra = ""; // 🌟追加：禁忌の要約を入れるハコ
+    let pmdaWarnings = null; // ✨（旧）詳細データ用。後方互換のため残す
     let pmdaLastUpdated = ""; // 🌟追加：最終更新日を入れるためのハコを用意
     if (yj && yj !== "NONE" && env.PMDA_DB) {
       try {
@@ -1964,11 +1978,12 @@ if (ayj && ayj.substring(0, 7) === yj7) {
 
         if (pmdaVal) {
           const pmdaData = JSON.parse(pmdaVal);
-          // ✨修正：新しいデータ構造（summaryとwarningsに分かれた形）に対応！
+          // ✨修正：新しいデータ構造（summary内に効能・用法・禁忌）に対応！
           if (pmdaData.summary) {
             pmdaEfficacy = pmdaData.summary.efficacy || "";
             pmdaUsage = pmdaData.summary.usage || "";
-            pmdaWarnings = pmdaData.warnings || null;
+            pmdaContra = pmdaData.summary.contraindications || ""; // 🌟追加：禁忌の要約を拾う
+            pmdaWarnings = pmdaData.warnings || null; // 旧データ用（新データでは通常null）
             pmdaLastUpdated = pmdaData.last_updated || "";
           } else {
             // 古いデータが残っていてもエラーにならないように配慮
@@ -1980,8 +1995,20 @@ if (ayj && ayj.substring(0, 7) === yj7) {
     }
     // =========================================================================
 
-    // 🌟最後に pmdaWarnings も結果に含めて画面に返す！
-    return { key: kvKey, label, fullName, yj, isAdopted, isBrand, comment, price, pmdaEfficacy, pmdaUsage, pmdaWarnings, pmdaLastUpdated, alts: alts.sort((a,b)=>b.isAdopted - a.isAdopted) };
+    // ===== 🌟変更: 切替候補の並び順を「採用薬×同mg数」の優先度で並べ替える =====
+    // 薬局長のリクエスト: 元の薬と同じmg数を上に。ただし違う規格も消さず下に残す。
+    const baseDose = normalizeDose(extracted.spec); // 元の薬の用量（例:「10mg」）
+    alts.sort((a, b) => {
+      // ① 採用薬を優先（採用が上）
+      if (b.isAdopted !== a.isAdopted) return b.isAdopted - a.isAdopted;
+      // ② 同じ採用状況なら、元の薬と同mg数のものを優先
+      const aSame = normalizeDose(a.spec) === baseDose && baseDose !== "";
+      const bSame = normalizeDose(b.spec) === baseDose && baseDose !== "";
+      if (aSame !== bSame) return (bSame ? 1 : 0) - (aSame ? 1 : 0);
+      return 0; // それ以外は元の順序を維持
+    });
+
+    return { key: kvKey, label, fullName, yj, isAdopted, isBrand, comment, price, pmdaEfficacy, pmdaUsage, pmdaContra, pmdaWarnings, pmdaLastUpdated, alts };
   },
 
   getAdminHTML(env, hospitalId, hospitalName = "", globalInfo = "") {
@@ -2770,8 +2797,8 @@ if (hist.length > 50) hist.pop();
 
             // ===== 🌟追加: PMDAの効能・用法を綺麗にデザインして表示するHTMLを作る =====
             // 修正: サーバー側ですでに <br> に変換済みなので、ここでは出力するだけにします！
-            const pmdaHTML = (d.pmdaEfficacy || d.pmdaUsage) ? \`
-              <div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:12px; padding:15px; margin-bottom:15px; font-size:13px; line-height:1.6; color:#333;">
+            const pmdaHTML = (d.pmdaEfficacy || d.pmdaUsage || d.pmdaContra) ? \`
+              <div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:12px; padding:15px; margin-bottom:12px; font-size:13px; line-height:1.6; color:#333;">
                 \${d.pmdaEfficacy ? \`
                 <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:4px;">
                   <div style="color:#0056b3; font-weight:bold;">💊 効能・効果</div>
@@ -2779,53 +2806,22 @@ if (hist.length > 50) hist.pop();
                 </div>
                 <div style="margin-bottom:12px;">\${d.pmdaEfficacy}</div>
                 \` : ''}
-                \${d.pmdaUsage ? \`<div style="color:#28a745; font-weight:bold; margin-bottom:4px;">🕒 用法・用量</div><div>\${d.pmdaUsage}</div>\` : ''}
+                \${d.pmdaUsage ? \`<div style="color:#28a745; font-weight:bold; margin-bottom:4px;">🕒 用法・用量</div><div style="margin-bottom:12px;">\${d.pmdaUsage}</div>\` : ''}
+                \${d.pmdaContra ? \`<div style="color:#d63384; font-weight:bold; margin-bottom:4px;">🚫 禁忌</div><div>\${d.pmdaContra}</div>\` : ''}
               </div>
+              <div style="background:#fff8e1; border:1px solid #ffe082; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:11px; line-height:1.5; color:#8a6d3b;">
+                ⚠️ 本要約はAIが生成した参考情報であり、正確性を保証するものではありません。実際の使用にあたっては、必ず最新の添付文書をご確認ください。
+              </div>
+              \${(d.yj && d.yj !== "NONE") ? \`
+              <a href="https://www.pmda.go.jp/PmdaSearch/rdSearch/02/\${d.yj}?user=1" target="_blank" style="display:flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:14px; background:#fff0f5; border:2px solid #d63384; color:#d63384; border-radius:12px; text-decoration:none; font-weight:bold; font-size:14px; box-sizing:border-box; margin-bottom:15px; box-shadow:0 2px 4px rgba(214,51,132,0.1);">
+                📄 添付文書等のお薬詳細を見る 🔍
+              </a>\` : ''}
             \` : '';
-
-            // ===== 🌟追加: 添付文書の詳細アコーディオンを作る（文字列の外に出しました！） =====
+            // ===== 🌟変更: 生テキストの詳細アコーディオンは廃止（著作権対策でAI要約＋PMDA公式リンクに一本化） =====
+            // 詳細はPMDA公式サイトへのリンク（pmdaHTML内に設置済み）へ誘導する方針に変更。
+            // ※旧データ(warnings付き)が万一残っていても表示しないよう、ここは常に空にする。
             let pmdaDetailHTML = '';
-            if (d.pmdaWarnings) {
-              const w = d.pmdaWarnings;
-              const details = [
-                { title: "🚫 禁忌", text: w.contraindications },
-                { title: "⚠️ 警告", text: w.warnings },
-                { title: "❗️ 重要な基本的注意", text: w.important_precautions },
-                { title: "👥 特定の背景を有する患者", text: w.specific_populations },
-                { title: "🔄 相互作用", text: w.interactions },
-                { title: "🤢 副作用", text: w.adverse_events },
-                { title: "📦 製剤・包装情報", text: w.composition_and_packaging }
-              ].filter(item => item.text && item.text.trim() !== ""); // 空の項目は除外
-
-              if (details.length > 0) {
-                const detailItemsHTML = details.map(item => \`
-                  <div style="margin-bottom:15px;">
-                    <div style="color:#d63384; font-weight:bold; margin-bottom:4px; border-bottom:1px dashed #ffd1dc; padding-bottom:4px;">\${item.title}</div>
-                    <div style="font-size:13px; line-height:1.6; color:#444;">\${item.text.replace(/\\n/g, '<br>')}</div>
-                  </div>
-                \`).join('');
-
-                pmdaDetailHTML = \`
-                  <div style="margin-bottom:15px;">
-                    <details style="background:#fff5f7; border:1px solid #ffd1dc; border-radius:8px; padding:10px; transition:all 0.3s;">
-                      <summary style="font-weight:bold; color:#d63384; cursor:pointer; outline:none; display:flex; align-items:center; justify-content: center; gap:5px; font-size:14px;">
-                        📖 添付文書の詳細を見る 🔍️ <span style="font-size:11px; color:#888; font-weight:normal;"></span>
-                      </summary>
-                      <div style="margin-top:15px; padding-top:10px; border-top:1px dashed #ffd1dc;">
-                        \${detailItemsHTML}
-                        \${d.pmdaLastUpdated ? \`
-                        <div style="margin-top:15px; padding-top:15px; border-top:1px solid #ffd1dc; text-align:center;">
-                          <div style="font-size:12px; font-weight:bold; color:#555; margin-bottom:4px;">🗒️添付文書最終更新日：\${d.pmdaLastUpdated}</div>
-                          <div style="font-size:11px; color:#888;">🦀最新情報は必ずPMDA公式サイトの添付文書をご確認下さい</div>
-                        </div>
-                        \` : ''}
-                      </div>
-                    </details>
-                  </div>
-                \`;
-              }
-            }
-
+           
             // 薬品名をエスケープ（シングルクォーテーション等でのJSエラー防止）
             const safeDrugName = d.fullName.replace(/'/g, "\\\\'");
 
