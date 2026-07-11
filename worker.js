@@ -2216,7 +2216,18 @@ if (ayj && ayj.substring(0, 7) === yj7) {
         
         <button id="btnSubmitReport" onclick="submitReport()" style="width:100%; padding:12px; background:#dc3545; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer; transition: transform 0.1s;">🚀 報告を送信する</button>
       </div></div>
-      
+
+      <!-- ===== 🌟追加: フッター（運営元表示） ここから ===== -->
+      <footer style="max-width:600px; margin:15px auto 0; padding:22px 16px 26px; background:#fff0f5; border-radius:15px; text-align:center; font-family:sans-serif;">
+        <div style="font-size:14px; font-weight:bold; color:#d63384; margin-bottom:8px;">
+          🦀 メディカニ 医薬品検索
+        </div>
+        <div style="font-size:11px; color:#aa8899; line-height:1.9;">
+          © 2026 🐔トリの巣ワークス  メディカニ運営事務局
+        </div>
+        </footer>
+      <!-- ===== 🌟追加: フッター ここまで ===== -->
+
         <script>
         const hId = "${hospitalId}";
         let currentCat = '[内]'; let timer = null;
