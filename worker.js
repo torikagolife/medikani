@@ -2255,11 +2255,89 @@ if (ayj && ayj.substring(0, 7) === yj7) {
               resDiv.innerHTML = '<div class="no-results">📭 該当する採用薬が登録されていませんカニ🦀</div>';
               return;
             }
-            renderAdoptedMore(true); // 最初の50件を描画
+            // 🌟追加: 注射のときだけYJ薬効分類でグループ分け表示。内服・外用は従来通り。
+            if (cat === '[注]') {
+              renderAdoptedGrouped(); // 注射はグループ分けして全件表示
+            } else {
+              renderAdoptedMore(true); // 内服・外用は今まで通り50件ずつ
+            }
           } catch(e) {
             document.getElementById('loading').style.display = 'none';
             resDiv.innerHTML = '<div class="no-results">⚠️ データの読み込みに失敗しましたカニ🦀💦</div>';
           }
+        }
+
+        // ===== 🌟追加: 注射薬をYJ薬効分類で現場向けグループに振り分ける関数（叩き台） =====
+        // YJコードの頭3桁が薬効分類。注射で頻出の分類を現場語彙のグループにまとめる。
+        // 該当なしは「🧪 その他注射」、YJが無いものは「❓ 未分類」に入る。
+        function getInjectionGroup(yj) {
+          if (!yj || yj.length < 3) return "❓ 未分類";
+          const c3 = yj.substring(0, 3);
+          const groups = {
+            "💧 輸液・電解質・栄養": ["331","332","333","334","301","321","322","323","325","326","399"],
+            "😴 麻酔・鎮静・鎮痛":   ["111","112","113","114","119","821"],
+            "🦠 抗菌薬・抗生物質":   ["611","612","613","614","616","618","619","624","625"],
+            "❤️ 循環器・昇圧・降圧": ["211","212","214","217","218","219","221","222"],
+            "🩸 血液・止血・凝固":   ["339","419"],
+            "🔬 造影剤":            ["721","722","729"],
+            "💉 ホルモン・ステロイド":["245","247"]
+          };
+          for (const label in groups) {
+            if (groups[label].includes(c3)) return label;
+          }
+          return "🧪 その他注射";
+        }
+
+        // ===== 🌟追加: 注射のときだけ、リストをグループ分けして表示する関数 =====
+        function renderAdoptedGrouped() {
+          const resDiv = document.getElementById('results');
+          // グループごとに薬を仕分けする
+          const buckets = {};
+          adoptedFullList.forEach(i => {
+            const g = getInjectionGroup(i.yj);
+            if (!buckets[g]) buckets[g] = [];
+            buckets[g].push(i);
+          });
+
+          // グループの表示順（この順番で上から並べる。未分類・その他は最後）
+          const order = [
+            "💧 輸液・電解質・栄養",
+            "😴 麻酔・鎮静・鎮痛",
+            "🦠 抗菌薬・抗生物質",
+            "❤️ 循環器・昇圧・降圧",
+            "🩸 血液・止血・凝固",
+            "🔬 造影剤",
+            "💉 ホルモン・ステロイド",
+            "🧪 その他注射",
+            "❓ 未分類"
+          ];
+
+          let html = '';
+          order.forEach(g => {
+            const items = buckets[g];
+            if (!items || items.length === 0) return; // そのグループに薬が無ければ見出しごと出さない
+
+            // グループの見出し
+            html += '<div style="margin:20px 0 10px; padding:8px 12px; background:#e0f7fa; border-left:5px solid #4dd0e1; border-radius:6px; font-weight:bold; font-size:14px; color:#00838f;">' + g + '　<span style="font-size:11px; color:#009faf; font-weight:normal;">（' + items.length + '件）</span></div>';
+
+            // グループ内の薬カード
+            html += items.map(i => {
+              return '<div class="card adopted" onclick="showDetail(\\'' + i.key.replace(/'/g, "\\\\'") + '\\')">' +
+                '<div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; font-size:15px; gap:8px;">' +
+                  '<div style="flex:1; line-height:1.4;">' + getFormEmoji(i.yj, currentAdoptedCat) + ' ' + i.name + '</div>' +
+                  '<div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">' +
+                    (i.isBrand ? '<span class="tag blue">先</span>' : '') +
+                    (i.price && i.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>' + i.price + '</span>' : '') +
+                    (i.yj && i.yj.startsWith('8') ? '<span class="tag red">麻</span>' : '') +
+                    '<span class="tag green">🏥 採用</span>' +
+                  '</div>' +
+                '</div>' +
+                '<div style="font-size:12px; color:#888; margin-top:8px;">📦 ' + i.spec + ' ' + (i.type ? '/ ' + i.type : '') + '</div>' +
+              '</div>';
+            }).join('');
+          });
+
+          resDiv.innerHTML = html;
         }
 
         function renderAdoptedMore(isFirst = false) {
@@ -2997,13 +3075,13 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
         <!-- ===== 🌟新規追加: メディカニレーダーのウィンドウ ===== -->
         <div class="card" style="border-top: 4px solid #8e44ad;">
           <h2>📡 メディカニレーダー</h2>
-          <p style="font-size:12px; color:#666; margin-bottom:15px;">現在登録されている採用薬の重要な添付文書の更新を検知しますカニ🦀※テスト運用</p>
+          <p style="font-size:12px; color:#666; margin-bottom:15px;">現在登録されている重要な添付文書の更新を検知しますカニ🦀※テスト運用</p>
           <button id="btnRunRadar" onclick="runMedikaniRadar()" class="btn" style="background:#8e44ad; margin-top:0;">📡 レーダーを起動する</button>
           <div id="radarResults" style="margin-top:15px; display:none;"></div>
         </div>
         <div class="card">
           <h2>✏️ 個別編集（修正・削除）</h2>
-          <p style="font-size:12px; color:#666; margin-bottom:10px;">採用中の薬品を検索してメモの修正・削除ができますカニ🦀</p>
+          <p style="font-size:12px; color:#666; margin-bottom:10px;">採用中の薬品を検索して修正・削除ができますカニ🦀</p>
           <div style="display:flex; gap:8px;">
             <input type="text" id="adminSearchQ" placeholder="採用薬を検索..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:8px;" onkeydown="if(event.key==='Enter') adminSearch()">
             <button onclick="adminSearch()" style="padding:10px 20px; background:var(--main-blue); color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">検索</button>
@@ -3126,7 +3204,7 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
 処方薬からも市販薬からも検索可能です。
 アプリのインストールやログインは不要です。ホーム画面に追加して今日からご活用くださ
 い。
-※採用漏れやメモの追加希望があれば、お薬の詳細画面にある「🚨報告する」ボタンからお知らせください</textarea>
+</textarea>
           <button onclick="printPoster()" style="width:100%; padding:12px; background:#17a2b8; color:#fff; border:none; border-radius:8px; font-weight:bold; cursor:pointer; transition: transform 0.1s; display:flex; align-items:center; justify-content:center; gap:8px;">🖨️ この内容でポスターを印刷する</button>
         </div>
 
