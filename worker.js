@@ -160,6 +160,374 @@ async function rebuildAdoptedJson(hId, env) {
 }
 // ==============================================================
 
+// === 🦀休薬チェッカー: ページ生成関数 (ここから) ===
+function kyuyakuAdminPage(hId, isSuper) {
+  return `<!DOCTYPE html><html lang="ja"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>休薬マスタ管理 🦀 メディカニ</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; background: #f4f7f9; color: #333; padding-bottom: 120px; }
+  .header { background: linear-gradient(135deg, #e85a4f, #d94f45); color: #fff; padding: 14px 16px; position: sticky; top: 0; z-index: 50; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  .header h1 { font-size: 17px; }
+  .header .sub { font-size: 11px; opacity: .9; margin-top: 2px; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 12px; }
+  .banner { background: #fff3cd; border: 1px solid #ffe69c; color: #7a5c00; border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
+  .banner.red { background: #fde8e8; border-color: #f5b5b5; color: #9b1c1c; }
+  .card { background: #fff; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 12px; margin-bottom: 12px; }
+  .card h2 { font-size: 14px; color: #d94f45; margin-bottom: 8px; }
+  .comp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .comp-name { font-size: 15px; font-weight: bold; }
+  .comp-class { font-size: 11px; color: #0056b3; background: #e3f2fd; border: 1px solid #bbdefb; border-radius: 4px; padding: 2px 6px; display: inline-block; margin-top: 4px; }
+  .tag { font-size: 10px; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+  .tag.def { background: #eee; color: #666; }
+  .tag.ovr { background: #e85a4f; color: #fff; }
+  .tag.ok { background: #d4edda; color: #155724; }
+  .tag.ng { background: #f8d7da; color: #721c24; }
+  .matrix { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
+  @media (min-width: 640px) { .matrix { grid-template-columns: repeat(4, 1fr); } }
+  .cell { border: 1px solid #e0e6ea; border-radius: 10px; padding: 8px; cursor: pointer; background: #fafcfd; }
+  .cell:active { background: #eef4f8; }
+  .cell .cat { font-size: 10px; color: #888; margin-bottom: 4px; }
+  .cell .act { font-size: 13px; font-weight: bold; }
+  .act.continue { color: #1e7e34; } .act.stop { color: #c0392b; } .act.consult { color: #b96b00; }
+  .cell .days { font-size: 11px; color: #555; }
+  .cell .cmt { font-size: 10px; color: #999; margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .comp-foot { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .btn { border: none; border-radius: 8px; padding: 8px 12px; font-size: 12px; cursor: pointer; font-weight: bold; }
+  .btn.small { padding: 5px 10px; font-size: 11px; }
+  .btn.gray { background: #eceff1; color: #555; }
+  .btn.blue { background: #0d6efd; color: #fff; }
+  .btn.green { background: #28a745; color: #fff; }
+  .btn.red { background: #e85a4f; color: #fff; }
+  .btn:disabled { opacity: .5; }
+  .savebar { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #ddd; padding: 10px 12px; display: flex; gap: 8px; align-items: center; z-index: 60; box-shadow: 0 -2px 10px rgba(0,0,0,.08); flex-wrap: wrap; }
+  .savebar input { flex: 1; min-width: 120px; border: 1px solid #ccc; border-radius: 8px; padding: 8px; font-size: 13px; }
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: flex-end; justify-content: center; }
+  .modal { background: #fff; border-radius: 16px 16px 0 0; width: 100%; max-width: 640px; max-height: 88vh; overflow-y: auto; padding: 16px; }
+  @media (min-width: 640px) { .modal-bg { align-items: center; } .modal { border-radius: 16px; } }
+  .modal h3 { font-size: 15px; color: #d94f45; margin-bottom: 10px; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 11px; color: #777; margin-bottom: 4px; font-weight: bold; }
+  .field input, .field select, .field textarea { width: 100%; border: 1px solid #ccc; border-radius: 8px; padding: 9px; font-size: 14px; }
+  .field textarea { min-height: 64px; }
+  .cat-desc { font-size: 11px; color: #666; line-height: 1.6; }
+  .match-info { font-size: 11px; margin-top: 6px; color: #555; background: #f0f6ff; border-radius: 6px; padding: 6px 8px; display: none; }
+</style></head><body>
+
+<div class="header">
+  <h1>🦀 休薬マスタ管理</h1>
+  <div class="sub">施設ID: ${hId} ${isSuper ? "／👑 共通デフォルト編集権限あり" : ""}</div>
+</div>
+
+<div class="wrap">
+  <div id="statusBanner" class="banner red" style="display:none;">
+    ⚠️ このマスタは<b>監修前のドラフト</b>です。薬剤師の監修が完了するまで臨床使用しないでください。
+  </div>
+  <div class="banner">
+    値はすべて「参考情報」です。実際の休薬判断は<b>処方医・薬剤師の確認</b>を前提としてください。編集したセルは施設カスタム値（<span class="tag ovr">施設</span>）として保存され、共通デフォルト（<span class="tag def">既定</span>）より優先されます。
+  </div>
+
+  <div class="card">
+    <h2>処置分類</h2>
+    <div id="catList" class="cat-desc">読み込み中…🦀</div>
+  </div>
+
+  <div class="card" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+    <button class="btn blue" onclick="checkAllMatches()">🔍 採用薬とKV照合（全成分）</button>
+    <button class="btn green" onclick="openCompEdit(null)">＋ 成分を追加</button>
+    <span id="matchSummary" style="font-size:11px; color:#666;"></span>
+  </div>
+
+  <div id="compList"></div>
+</div>
+
+<div class="savebar">
+  <input type="password" id="adminPwd" placeholder="管理パスワード">
+  <button class="btn red" onclick="saveMaster('facility')">💾 施設マスタとして保存</button>
+  ${isSuper ? '<button class="btn gray" onclick="saveMaster(&quot;default&quot;)">👑 共通デフォルトとして保存</button>' : ''}
+</div>
+
+<!-- セル編集モーダル -->
+<div class="modal-bg" id="cellModalBg">
+  <div class="modal">
+    <h3 id="cellModalTitle">セル編集</h3>
+    <div class="field"><label>アクション</label>
+      <select id="cellAction">
+        <option value="continue">継続可</option>
+        <option value="stop">休薬</option>
+        <option value="consult">処方元に照会</option>
+      </select>
+    </div>
+    <div class="field"><label>休薬日数（「休薬」のとき。0=当日から）</label>
+      <input type="number" id="cellDays" min="0" max="60" placeholder="例: 7">
+    </div>
+    <div class="field"><label>コメント（画面・PDFに表示されます）</label>
+      <textarea id="cellComment"></textarea>
+    </div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn gray" onclick="closeModal('cellModalBg')">キャンセル</button>
+      <button class="btn red" onclick="saveCell()">反映</button>
+    </div>
+  </div>
+</div>
+
+<!-- 成分編集モーダル -->
+<div class="modal-bg" id="compModalBg">
+  <div class="modal">
+    <h3 id="compModalTitle">成分編集</h3>
+    <div class="field"><label>成分名（表示用）</label><input id="compName"></div>
+    <div class="field"><label>薬効分類（表示用）</label><input id="compClass" placeholder="例: 抗血小板薬"></div>
+    <div class="field"><label>照合キーワード（カンマ区切り。成分名の部分一致に使用）</label><input id="compKeys" placeholder="例: クロピドグレル"></div>
+    <div class="field"><label>再開の目安</label><input id="compResume"></div>
+    <div class="field"><label>出典・根拠</label><input id="compSource" placeholder="例: ○○学会ガイドライン20XX年版"></div>
+    <div class="field"><label>監修者（監修済みにする場合に入力）</label><input id="compReviewer" placeholder="例: 薬局長○○"></div>
+    <div style="display:flex; gap:8px; justify-content:space-between; flex-wrap:wrap;">
+      <button class="btn gray small" id="btnResetComp" onclick="resetCompToDefault()">↩ デフォルト値に戻す</button>
+      <div style="display:flex; gap:8px;">
+        <button class="btn gray" onclick="closeModal('compModalBg')">キャンセル</button>
+        <button class="btn red" onclick="saveCompMeta()">反映</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const HID = "${hId}";
+let DEF = null;      // 共通デフォルト
+let OVR = null;      // 施設オーバーライド { components: [...] }
+let ovrMap = {};     // id -> 施設カスタム成分
+let adoptedCache = null;
+let editingCompId = null, editingCatId = null;
+
+const ACT_LABEL = { continue: "継続可", stop: "休薬", consult: "処方元に照会" };
+
+// --- 起動：マスタ読み込み ---
+async function loadMaster() {
+  const res = await fetch('/api/kyuyaku/master?h=' + HID);
+  const data = await res.json();
+  DEF = data.def || { version: 1, status: "DRAFT_UNREVIEWED", categories: [], components: [] };
+  OVR = data.ovr || { components: [] };
+  ovrMap = {};
+  (OVR.components || []).forEach(c => ovrMap[c.id] = c);
+  render();
+}
+
+// --- マージ済み一覧を返す（施設カスタム優先、施設追加分も含む） ---
+function mergedComponents() {
+  const defIds = new Set((DEF.components || []).map(c => c.id));
+  const list = (DEF.components || []).map(c => ovrMap[c.id] ? { ...ovrMap[c.id], _ovr: true } : { ...c, _ovr: false });
+  Object.values(ovrMap).forEach(c => { if (!defIds.has(c.id)) list.push({ ...c, _ovr: true, _facilityOnly: true }); });
+  return list;
+}
+
+function esc(s) { return String(s == null ? "" : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// --- 描画 ---
+function render() {
+  document.getElementById('statusBanner').style.display = (DEF.status === "DRAFT_UNREVIEWED") ? 'block' : 'none';
+
+  const cats = DEF.categories || [];
+  document.getElementById('catList').innerHTML = cats.map(c =>
+    '<div style="margin-bottom:4px;"><b>' + esc(c.label) + '</b>：' + esc(c.desc) + '</div>'
+  ).join('') || '分類が未設定です';
+
+  const comps = mergedComponents();
+  const byClass = {};
+  comps.forEach(c => { (byClass[c.class] = byClass[c.class] || []).push(c); });
+
+  let html = '';
+  for (const cls of Object.keys(byClass)) {
+    html += '<div style="font-size:12px; color:#888; font-weight:bold; margin:14px 4px 6px;">▍ ' + esc(cls) + '</div>';
+    html += byClass[cls].map(c => compCard(c, cats)).join('');
+  }
+  document.getElementById('compList').innerHTML = html || '<div class="card">成分がありません。「＋成分を追加」から登録してください🦀</div>';
+}
+
+function compCard(c, cats) {
+  const cells = cats.map(cat => {
+    const r = (c.rules || {})[cat.id] || { action: "consult", days: null, comment: "" };
+    const daysTxt = (r.action === "stop") ? ((r.days === 0) ? "当日から" : (r.days != null ? r.days + "日前から" : "日数未設定")) : "";
+    return '<div class="cell" onclick="openCellEdit(\\'' + esc(c.id) + '\\',\\'' + esc(cat.id) + '\\')">' +
+      '<div class="cat">' + esc(cat.label) + '</div>' +
+      '<div class="act ' + esc(r.action) + '">' + (ACT_LABEL[r.action] || r.action) + '</div>' +
+      '<div class="days">' + esc(daysTxt) + '</div>' +
+      (r.comment ? '<div class="cmt">' + esc(r.comment) + '</div>' : '') +
+      '</div>';
+  }).join('');
+
+  const badges =
+    (c._ovr ? '<span class="tag ovr">施設</span>' : '<span class="tag def">既定</span>') +
+    (c.reviewedBy ? '<span class="tag ok">✔ 監修済 ' + esc(c.reviewedBy) + '</span>' : '<span class="tag ng">未監修</span>') +
+    (c.verified ? '<span class="tag ok">YJ照合済(' + (c.yj7List || []).length + ')</span>' : '<span class="tag ng">YJ未照合</span>');
+
+  return '<div class="card">' +
+    '<div class="comp-head"><div>' +
+      '<div class="comp-name">' + esc(c.component) + '</div>' +
+      '<span class="comp-class">' + esc(c.class) + '</span>' +
+    '</div><div style="display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end;">' + badges + '</div></div>' +
+    '<div class="matrix">' + cells + '</div>' +
+    '<div class="match-info" id="match_' + esc(c.id) + '"></div>' +
+    '<div class="comp-foot">' +
+      '<button class="btn small blue" onclick="checkMatch(\\'' + esc(c.id) + '\\')">🔍 KV照合</button>' +
+      '<button class="btn small gray" onclick="openCompEdit(\\'' + esc(c.id) + '\\')">✏️ 成分情報</button>' +
+      '<span style="font-size:10px; color:#aaa; align-self:center;">再開: ' + esc(c.resume || '—') + ' ／ 出典: ' + esc(c.source || '—') + '</span>' +
+    '</div></div>';
+}
+
+// --- 編集時：対象成分を施設カスタムへ昇格させて返す ---
+function ensureOvr(id) {
+  if (ovrMap[id]) return ovrMap[id];
+  const base = (DEF.components || []).find(c => c.id === id);
+  ovrMap[id] = JSON.parse(JSON.stringify(base));
+  return ovrMap[id];
+}
+function getComp(id) { return ovrMap[id] || (DEF.components || []).find(c => c.id === id); }
+
+// --- セル編集 ---
+function openCellEdit(compId, catId) {
+  editingCompId = compId; editingCatId = catId;
+  const c = getComp(compId);
+  const cat = (DEF.categories || []).find(x => x.id === catId);
+  const r = (c.rules || {})[catId] || { action: "consult", days: null, comment: "" };
+  document.getElementById('cellModalTitle').textContent = c.component + ' × ' + (cat ? cat.label : catId);
+  document.getElementById('cellAction').value = r.action || "consult";
+  document.getElementById('cellDays').value = (r.days == null) ? '' : r.days;
+  document.getElementById('cellComment').value = r.comment || '';
+  document.getElementById('cellModalBg').style.display = 'flex';
+}
+function saveCell() {
+  const c = ensureOvr(editingCompId);
+  if (!c.rules) c.rules = {};
+  const action = document.getElementById('cellAction').value;
+  const daysRaw = document.getElementById('cellDays').value;
+  c.rules[editingCatId] = {
+    action,
+    days: (action === "stop" && daysRaw !== '') ? Number(daysRaw) : (action === "stop" ? null : null),
+    comment: document.getElementById('cellComment').value.trim()
+  };
+  closeModal('cellModalBg'); render();
+}
+
+// --- 成分情報編集／追加 ---
+function openCompEdit(compId) {
+  editingCompId = compId;
+  const isNew = !compId;
+  const c = isNew ? { component: '', class: '', nameKeys: [], resume: '', source: '', reviewedBy: '' } : getComp(compId);
+  document.getElementById('compModalTitle').textContent = isNew ? '成分を追加' : '成分情報の編集';
+  document.getElementById('compName').value = c.component || '';
+  document.getElementById('compClass').value = c.class || '';
+  document.getElementById('compKeys').value = (c.nameKeys || []).join(', ');
+  document.getElementById('compResume').value = c.resume || '';
+  document.getElementById('compSource').value = c.source || '';
+  document.getElementById('compReviewer').value = c.reviewedBy || '';
+  document.getElementById('btnResetComp').style.display = (!isNew && ovrMap[compId]) ? 'inline-block' : 'none';
+  document.getElementById('compModalBg').style.display = 'flex';
+}
+function saveCompMeta() {
+  const name = document.getElementById('compName').value.trim();
+  if (!name) { alert('成分名を入力してくださいカニ🦀'); return; }
+  let c;
+  if (!editingCompId) {
+    const id = 'custom_' + Date.now();
+    c = ovrMap[id] = { id, rules: {}, yj7List: [], verified: false };
+    (DEF.categories || []).forEach(cat => c.rules[cat.id] = { action: "consult", days: null, comment: "" });
+  } else {
+    c = ensureOvr(editingCompId);
+  }
+  c.component = name;
+  c.class = document.getElementById('compClass').value.trim() || 'その他';
+  c.nameKeys = document.getElementById('compKeys').value.split(/[,、，]/).map(s => s.trim()).filter(Boolean);
+  c.resume = document.getElementById('compResume').value.trim();
+  c.source = document.getElementById('compSource').value.trim();
+  const reviewer = document.getElementById('compReviewer').value.trim();
+  c.reviewedBy = reviewer || null;
+  c.reviewedAt = reviewer ? new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' }) : null;
+  closeModal('compModalBg'); render();
+}
+function resetCompToDefault() {
+  if (!confirm('この成分の施設カスタムを削除して共通デフォルト値に戻しますか？')) return;
+  delete ovrMap[editingCompId];
+  closeModal('compModalBg'); render();
+}
+
+// --- KV照合：採用薬JSONと成分キーワードを突き合わせ、YJ7を収集 ---
+async function getAdopted() {
+  if (adoptedCache) return adoptedCache;
+  const res = await fetch('/api/adopted-list?h=' + HID);
+  adoptedCache = await res.json();
+  return adoptedCache;
+}
+function matchDrugs(adopted, c) {
+  const keys = c.nameKeys || [];
+  return adopted.filter(d => {
+    const target = (d.component || '') + ' ' + (d.name || '');
+    return keys.some(k => k && target.includes(k));
+  });
+}
+async function checkMatch(compId) {
+  const c = getComp(compId);
+  const adopted = await getAdopted();
+  const hits = matchDrugs(adopted, c);
+  const yj7s = [...new Set(hits.map(d => String(d.yj || '').substring(0, 7)).filter(s => s.length === 7))];
+  const box = document.getElementById('match_' + compId);
+  box.style.display = 'block';
+  if (!hits.length) {
+    box.innerHTML = '⚠️ 採用薬に該当なし。キーワード「' + esc((c.nameKeys||[]).join(', ')) + '」を見直すか、他院処方専用の成分ならこのままでOK（照合はマスタ全体でも行われます）';
+    return;
+  }
+  box.innerHTML = '✅ 採用薬 ' + hits.length + '件ヒット（YJ7: ' + yj7s.map(esc).join(', ') + '）<br>' +
+    hits.slice(0, 5).map(d => '・' + esc(d.name)).join('<br>') + (hits.length > 5 ? '<br>…他' + (hits.length - 5) + '件' : '') +
+    '<br><button class="btn small green" style="margin-top:6px;" onclick="applyYj(\\'' + esc(compId) + '\\', \\'' + yj7s.join('|') + '\\')">このYJ7を反映して照合済にする</button>';
+}
+function applyYj(compId, yjJoined) {
+  const c = ensureOvr(compId);
+  const newList = yjJoined ? yjJoined.split('|') : [];
+  c.yj7List = [...new Set([...(c.yj7List || []), ...newList])];
+  c.verified = true;
+  render();
+  alert('YJ7を反映しましたカニ！🦀 保存を忘れずに！');
+}
+async function checkAllMatches() {
+  const comps = mergedComponents();
+  let zero = 0;
+  for (const c of comps) { await checkMatch(c.id); }
+  const adopted = await getAdopted();
+  comps.forEach(c => { if (!matchDrugs(adopted, c).length) zero++; });
+  document.getElementById('matchSummary').textContent = '照合完了：全' + comps.length + '成分中、採用薬ヒットなし ' + zero + '成分（他院処方薬は判定時にマスタKV全体と照合されます）';
+}
+
+// --- 保存 ---
+async function saveMaster(scope) {
+  const pwd = document.getElementById('adminPwd').value;
+  if (!pwd) { alert('管理パスワードを入力してくださいカニ🦀'); return; }
+  let data;
+  if (scope === 'default') {
+    if (!confirm('【共通デフォルト】を上書きします。全施設の既定値に影響しますが、よろしいですか？')) return;
+    // デフォルト保存＝現在のマージ結果をそのまま新デフォルトにする
+    const comps = mergedComponents().map(c => { const x = { ...c }; delete x._ovr; delete x._facilityOnly; return x; });
+    data = { ...DEF, components: comps };
+  } else {
+    data = { version: 1, components: Object.values(ovrMap) };
+  }
+  const res = await fetch('/api/admin/kyuyaku?h=' + HID, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pwd, scope, data })
+  });
+  const j = await res.json();
+  if (j.success) { alert('保存しましたカニ！🦀'); if (scope === 'default') loadMaster(); }
+  else if (j.error === 'auth') alert('パスワードが違いますカニ🦀💦');
+  else alert('保存に失敗しましたカニ🦀💦 ' + (j.error || ''));
+}
+
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+document.querySelectorAll('.modal-bg').forEach(bg => bg.addEventListener('click', e => { if (e.target === bg) bg.style.display = 'none'; }));
+
+loadMaster();
+</script></body></html>`;
+}
+// === 🦀休薬チェッカー: ページ生成関数 (ここまで) ===
+
 
 export default {
   async fetch(request, env) {
@@ -186,6 +554,26 @@ export default {
       }
     }
     // =========================================================
+
+    // === 🦀休薬チェッカー: 管理画面ルート (ここから) ===
+    // === 🦀新規追加: 休薬マスタ管理画面 /{hId}/kyu-admin（オプション施設のみ） ===
+    if (hospitalId && pathParts[1] === "kyu-admin") {
+      const isSuper = hospitalId === (env.SUPER_ADMIN_HID || "HPTEST1");
+      // プランゲート: {hId}_plan の末尾が "_KY" の施設だけ利用可（スーパー管理は常に可）
+      // 例: PLUS_0_KY, PLUS_H1M_KY ○ ／ PLUS_K1Y（その他・年払い）は × で衝突しない
+      if (!isSuper) {
+        const plan = await env.MEDI_KV.get(`${hospitalId}_plan`) || "";
+        if (!plan.endsWith("_KY")) {
+          return new Response("休薬チェッカーオプションが有効ではありませんカニ🦀", {
+            status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" }
+          });
+        }
+      }
+      return new Response(kyuyakuAdminPage(hospitalId, isSuper), {
+        headers: { "Content-Type": "text/html; charset=utf-8" }
+      });
+    }
+    // === 🦀休薬チェッカー: 管理画面ルート (ここまで) ===
 
     // === 新規追加: ユーザーパスワード機能 (ここから) ===
     const isUserLoginPage = pathParts[1] === "login" && pathParts[0] !== "api";
@@ -363,6 +751,68 @@ export default {
         } catch(e) { return new Response("[]", { status: 500 }); }
       }
 
+
+      // === 🦀休薬チェッカー: API (ここから) ===
+      // === 🦀新規追加: 休薬オプション加入判定（{hId}_plan の末尾 "_KY" ／ スーパー管理は常に可） ===
+      async function kyuyakuPlanOk(hId) {
+        if (!hId) return false;
+        if (hId === (env.SUPER_ADMIN_HID || "HPTEST1")) return true;
+        const plan = await env.MEDI_KV.get(`${hId}_plan`) || "";
+        return plan.endsWith("_KY");
+      }
+
+      // === 🦀新規追加: 休薬マスタ取得 API（デフォルト＋施設オーバーライドを返す） ===
+      if (url.pathname.includes("/api/kyuyaku/master")) {
+        try {
+          const hId = url.searchParams.get("h") || "";
+          if (!(await kyuyakuPlanOk(hId))) {
+            return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403 });
+          }
+          const [defStr, ovrStr] = await Promise.all([
+            env.MEDI_KV.get("KYUYAKU_DEFAULT_json"),
+            env.MEDI_KV.get(`${hId}_kyuyaku_json`)
+          ]);
+          return new Response(JSON.stringify({
+            def: defStr ? JSON.parse(defStr) : null,
+            ovr: ovrStr ? JSON.parse(ovrStr) : null,
+            isSuper: hId === (env.SUPER_ADMIN_HID || "HPTEST1")
+          }), { headers: { "Content-Type": "application/json" } });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+        }
+      }
+
+      // === 🦀新規追加: 休薬マスタ保存 API（パスワード必須） ===
+      if (url.pathname.includes("/api/admin/kyuyaku") && request.method === "POST") {
+        try {
+          const hId = url.searchParams.get("h") || "";
+          if (!(await kyuyakuPlanOk(hId))) {
+            return new Response(JSON.stringify({ success: false, error: "option_disabled" }), { status: 403 });
+          }
+          const body = await request.json();
+          // 施設管理パスワードで認証（既存の {hId}_pwd を流用）
+          const pwd = await env.MEDI_KV.get(`${hId}_pwd`);
+          if (!hId || !pwd || body.pwd !== pwd) {
+            return new Response(JSON.stringify({ success: false, error: "auth" }), { status: 403 });
+          }
+          const data = body.data || {};
+          data.updatedAt = new Date().toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" });
+
+          if (body.scope === "default") {
+            // 共通デフォルトの更新はスーパー管理施設のみ
+            if (hId !== (env.SUPER_ADMIN_HID || "HPTEST1")) {
+              return new Response(JSON.stringify({ success: false, error: "forbidden" }), { status: 403 });
+            }
+            await env.MEDI_KV.put("KYUYAKU_DEFAULT_json", JSON.stringify(data));
+          } else {
+            await env.MEDI_KV.put(`${hId}_kyuyaku_json`, JSON.stringify(data));
+          }
+          return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+        } catch (e) {
+          return new Response(JSON.stringify({ success: false, error: String(e) }), { status: 500 });
+        }
+      }
+      // === 🦀休薬チェッカー: API (ここまで) ===
       // 検索API (Web用)
       if (url.pathname.includes("/api/search")) {
         try {
