@@ -234,7 +234,7 @@ function kyuyakuAdminPage(hId, isSuper) {
   </div>
 
   <div class="card" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-    <button class="btn blue" onclick="checkAllMatches()">🔍 採用薬とKV照合（全成分）</button>
+    <button class="btn blue" onclick="checkAllMatches()">🔍 採用薬とYJコード照合（全成分）</button>
     <button class="btn green" onclick="openCompEdit(null)">＋ 成分を追加</button>
     <span id="matchSummary" style="font-size:11px; color:#666;"></span>
   </div>
@@ -272,6 +272,24 @@ function kyuyakuAdminPage(hId, isSuper) {
   </div>
 </div>
 
+<!-- YJコード照合モーダル -->
+<div class="modal-bg" id="yjModalBg">
+  <div class="modal">
+    <h3 id="yjModalTitle">YJコード照合</h3>
+    <div style="font-size:11px; color:#777; margin-bottom:8px;">この成分の判定に使うYJコード（先頭7桁）の一覧です。ここに登録された番号の薬が休薬判定でヒットします。</div>
+    <div id="yjList"></div>
+    <div style="display:flex; gap:6px; margin:10px 0; flex-wrap:wrap;">
+      <input id="yjAddCode" placeholder="YJ先頭7桁" maxlength="7" style="width:110px; border:1px solid #ccc; border-radius:8px; padding:8px; font-size:13px;">
+      <input id="yjAddName" placeholder="成分名（任意）" style="flex:1; min-width:130px; border:1px solid #ccc; border-radius:8px; padding:8px; font-size:13px;">
+      <button class="btn small green" onclick="addYjManual()">＋追加</button>
+    </div>
+    <div style="display:flex; gap:8px; justify-content:space-between; flex-wrap:wrap;">
+      <button class="btn small blue" onclick="autoAddFromAdopted()">🔍 採用薬から自動追加</button>
+      <button class="btn gray" onclick="closeModal('yjModalBg')">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <!-- 成分編集モーダル -->
 <div class="modal-bg" id="compModalBg">
   <div class="modal">
@@ -280,8 +298,7 @@ function kyuyakuAdminPage(hId, isSuper) {
     <div class="field"><label>薬効分類（表示用）</label><input id="compClass" placeholder="例: 抗血小板薬"></div>
     <div class="field"><label>照合キーワード（カンマ区切り。成分名の部分一致に使用）</label><input id="compKeys" placeholder="例: クロピドグレル"></div>
     <div class="field"><label>再開の目安</label><input id="compResume"></div>
-    <div class="field"><label>出典・根拠</label><input id="compSource" placeholder="例: ○○学会ガイドライン20XX年版"></div>
-    <div class="field"><label>監修者（監修済みにする場合に入力）</label><input id="compReviewer" placeholder="例: 薬局長○○"></div>
+    <div class="field"><label>メモ（出典・根拠・監修記録など）</label><textarea id="compMemo" placeholder="例: ○○学会ガイドライン20XX年版／7/20 薬局長確認済み"></textarea></div>
     <div style="display:flex; gap:8px; justify-content:space-between; flex-wrap:wrap;">
       <button class="btn gray small" id="btnResetComp" onclick="resetCompToDefault()">↩ デフォルト値に戻す</button>
       <div style="display:flex; gap:8px;">
@@ -369,9 +386,9 @@ function compCard(c, cats) {
     '<div class="matrix">' + cells + '</div>' +
     '<div class="match-info" id="match_' + esc(c.id) + '"></div>' +
     '<div class="comp-foot">' +
-      '<button class="btn small blue" onclick="checkMatch(\\'' + esc(c.id) + '\\')">🔍 KV照合</button>' +
+      '<button class="btn small blue" onclick="openYjModal(\\'' + esc(c.id) + '\\')">🔍 YJコード照合</button>' +
       '<button class="btn small gray" onclick="openCompEdit(\\'' + esc(c.id) + '\\')">✏️ 成分情報</button>' +
-      '<span style="font-size:10px; color:#aaa; align-self:center;">再開: ' + esc(c.resume || '—') + ' ／ 出典: ' + esc(c.source || '—') + '</span>' +
+      '<span style="font-size:10px; color:#aaa; align-self:center;">再開: ' + esc(c.resume || '—') + ' ／ メモ: ' + esc(c.source || '—') + '</span>' +
     '</div></div>';
 }
 
@@ -419,8 +436,7 @@ function openCompEdit(compId) {
   document.getElementById('compClass').value = c.class || '';
   document.getElementById('compKeys').value = (c.nameKeys || []).join(', ');
   document.getElementById('compResume').value = c.resume || '';
-  document.getElementById('compSource').value = c.source || '';
-  document.getElementById('compReviewer').value = c.reviewedBy || '';
+  document.getElementById('compMemo').value = c.source || '';
   document.getElementById('btnResetComp').style.display = (!isNew && ovrMap[compId]) ? 'inline-block' : 'none';
   document.getElementById('compModalBg').style.display = 'flex';
 }
@@ -439,10 +455,7 @@ function saveCompMeta() {
   c.class = document.getElementById('compClass').value.trim() || 'その他';
   c.nameKeys = document.getElementById('compKeys').value.split(/[,、，]/).map(s => s.trim()).filter(Boolean);
   c.resume = document.getElementById('compResume').value.trim();
-  c.source = document.getElementById('compSource').value.trim();
-  const reviewer = document.getElementById('compReviewer').value.trim();
-  c.reviewedBy = reviewer || null;
-  c.reviewedAt = reviewer ? new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' }) : null;
+  c.source = document.getElementById('compMemo').value.trim();
   closeModal('compModalBg'); render();
 }
 function resetCompToDefault() {
@@ -484,9 +497,88 @@ function applyYj(compId, yjJoined) {
   const c = ensureOvr(compId);
   const newList = yjJoined ? yjJoined.split('|') : [];
   c.yj7List = [...new Set([...(c.yj7List || []), ...newList])];
-  c.verified = true;
+  c.yjNames = c.yjNames || {};
+  if (adoptedCache) {
+    newList.forEach(yj => {
+      if (!c.yjNames[yj]) {
+        const hit = adoptedCache.find(d => String(d.yj || '').startsWith(yj));
+        if (hit) c.yjNames[yj] = hit.component || hit.name || '';
+      }
+    });
+  }
+  c.verified = c.yj7List.length > 0;
   render();
   alert('YJ7を反映しましたカニ！🦀 保存を忘れずに！');
+}
+
+// --- YJコード照合モーダル ---
+function openYjModal(compId) {
+  editingCompId = compId;
+  renderYjModal();
+  document.getElementById('yjModalBg').style.display = 'flex';
+}
+function nameOfYj(c, yj) {
+  if (c.yjNames && c.yjNames[yj]) return c.yjNames[yj];
+  if (adoptedCache) {
+    const hit = adoptedCache.find(d => String(d.yj || '').startsWith(yj));
+    if (hit) return hit.component || hit.name || '—';
+  }
+  return '—';
+}
+function renderYjModal() {
+  const c = getComp(editingCompId);
+  document.getElementById('yjModalTitle').textContent = 'YJコード照合: ' + c.component;
+  const list = (c.yj7List || []);
+  document.getElementById('yjList').innerHTML = list.length ? list.map(yj =>
+    '<div style="display:flex; align-items:center; gap:8px; padding:8px; border:1px solid #e0e6ea; border-radius:8px; margin-bottom:6px;">' +
+      '<b style="font-family:monospace; font-size:14px;">' + esc(yj) + '</b>' +
+      '<span style="flex:1; font-size:12px; color:#555;">' + esc(nameOfYj(c, yj)) + '</span>' +
+      '<button class="btn small red" onclick="removeYj(\\'' + esc(yj) + '\\')">削除</button>' +
+    '</div>').join('') : '<div style="font-size:12px; color:#999; margin-bottom:8px;">YJコード未登録</div>';
+}
+function removeYj(yj) {
+  if (!confirm('YJ7「' + yj + '」を削除しますか？')) return;
+  const c = ensureOvr(editingCompId);
+  c.yj7List = (c.yj7List || []).filter(x => x !== yj);
+  if (c.yjNames) delete c.yjNames[yj];
+  c.verified = c.yj7List.length > 0;
+  renderYjModal(); render();
+}
+function addYjManual() {
+  const code = document.getElementById('yjAddCode').value.trim();
+  const name = document.getElementById('yjAddName').value.trim();
+  if (!/^[0-9]{7}$/.test(code)) { alert('YJコードは先頭7桁の数字で入力してくださいカニ🦀'); return; }
+  const c = ensureOvr(editingCompId);
+  c.yj7List = c.yj7List || [];
+  if (c.yj7List.includes(code)) { alert('既に登録済みですカニ🦀'); return; }
+  c.yj7List.push(code);
+  if (name) { c.yjNames = c.yjNames || {}; c.yjNames[code] = name; }
+  c.verified = true;
+  document.getElementById('yjAddCode').value = '';
+  document.getElementById('yjAddName').value = '';
+  renderYjModal(); render();
+}
+async function autoAddFromAdopted() {
+  const c = ensureOvr(editingCompId);
+  const adopted = await getAdopted();
+  const hits = matchDrugs(adopted, c);
+  if (!hits.length) {
+    alert('採用薬に該当がありませんでしたカニ🦀（他院処方専用の成分ならこのままでOK）');
+    renderYjModal(); return;
+  }
+  c.yj7List = c.yj7List || []; c.yjNames = c.yjNames || {};
+  let added = 0;
+  hits.forEach(d => {
+    const yj7 = String(d.yj || '').substring(0, 7);
+    if (yj7.length === 7 && !c.yj7List.includes(yj7)) {
+      c.yj7List.push(yj7);
+      c.yjNames[yj7] = d.component || d.name || '';
+      added++;
+    }
+  });
+  c.verified = c.yj7List.length > 0;
+  alert('採用薬 ' + hits.length + '件ヒット、YJ7を ' + added + '件追加しましたカニ🦀');
+  renderYjModal(); render();
 }
 async function checkAllMatches() {
   const comps = mergedComponents();
