@@ -164,6 +164,7 @@ async function rebuildAdoptedJson(hId, env) {
 function kyuyakuAdminPage(hId, isSuper) {
   return `<!DOCTYPE html><html lang="ja"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
 <title>休薬マスタ管理 🦀 メディカニ</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -620,6 +621,260 @@ loadMaster();
 }
 // === 🦀休薬チェッカー: ページ生成関数 (ここまで) ===
 
+// === 🦀メディカニ鑑別（持参薬サポート）: ページ生成関数 (ここから) ===
+function jisanPage(hId, hospitalName) {
+  const facilityBadge = hospitalName
+    ? '<div style="display:inline-block; background:#fff; color:#d63384; font-size:12px; font-weight:bold; padding:4px 14px; border-radius:20px; border:1.5px solid #ffb6c1; margin-top:8px;">🏥 ' + hospitalName + '</div>'
+    : '';
+  return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
+<title>メディカニ鑑別 | 刻印から探す</title>
+<style>
+  :root { --pink:#d63384; --bg:#fffaf5; }
+  * { box-sizing:border-box; }
+  body { font-family:'Hiragino Kaku Gothic ProN','Meiryo',sans-serif; background:var(--bg); margin:0; padding:0; color:#333; }
+  .header { background:#ffe4e1; text-align:center; padding:22px 15px 18px; border-bottom:2px solid #ffd1dc; }
+  .header h1 { margin:0; font-size:20px; color:var(--pink); }
+  .header .sub { font-size:12px; color:#a58; margin-top:4px; }
+  .container { max-width:600px; margin:0 auto; padding:15px; }
+  .search-box { background:#fff; border:1.5px solid #ffd1dc; border-radius:15px; padding:15px; margin-top:10px; box-shadow:0 2px 8px rgba(214,51,132,0.06); }
+  .search-row { display:flex; gap:8px; }
+  #kokuin { flex:1; min-width:0; padding:13px 14px; font-size:16px; border:1.5px solid #ddd; border-radius:12px; outline:none; }
+  #kokuin:focus { border-color:var(--pink); }
+  #btnSearch { padding:13px 20px; background:var(--pink); color:#fff; border:none; border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; white-space:nowrap; }
+  #btnSearch:active { transform:scale(0.97); }
+  .hint { font-size:11px; color:#999; margin-top:8px; line-height:1.6; }
+  .notice { background:#fff8e1; border:1px solid #ffe082; border-radius:10px; padding:10px 12px; font-size:11px; color:#8a6d3b; line-height:1.6; margin-top:12px; }
+  #status { text-align:center; font-size:13px; color:#888; margin:18px 0 8px; }
+  /* ▼ メイン検索と同じカード・タグの見た目 */
+  .card { background: #fff; border-radius: 15px; padding: 16px; margin-bottom: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.03); border-left: 6px solid #ccc; transition: transform 0.1s; }
+  .card[data-key] { cursor: pointer; }
+  .card[data-key]:active { transform: scale(0.98); }
+  .card.adopted { border-left-color: #28a745; }
+  .tag { font-size: 11px; padding: 4px 10px; border-radius: 20px; background: #eee; font-weight: bold; white-space: nowrap; display: inline-block; }
+  .tag.green { background: #d1ffd1; color: #155724; }
+  .tag.red { background: #ffebeb; color: #dc3545; border: 1px solid #ffcdd2; }
+  .tag.blue { background: #e3f2fd; color: #0d47a1; border: 1px solid #bbdefb; }
+  /* ▼ 刻印行と画像検索ボタン */
+  .code-row { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:10px; }
+  .code-chip { background:#fdf2f7; color:var(--pink); border:1px dashed #f3a9c9; border-radius:8px; padding:3px 10px; font-size:13px; font-weight:bold; letter-spacing:0.5px; word-break:break-all; }
+  .btn-img { flex-shrink:0; background:#e8f5e9; color:#1b5e20; border:1px solid #a5d6a7; border-radius:10px; padding:6px 12px; font-size:12px; font-weight:bold; cursor:pointer; white-space:nowrap; }
+  .btn-img:active { transform:scale(0.96); }
+  .tap-hint { font-size:11px; color:#bbb; margin-top:8px; }
+  .pmda-link { display:inline-block; margin-top:8px; font-size:12px; color:#0056b3; text-decoration:none; border-bottom:1px dotted #0056b3; }
+  .no-results { text-align: center; padding: 40px 20px; color: #777; font-size: 15px; line-height: 1.6; }
+  .footer { text-align:center; font-size:10px; color:#c9a9b8; padding:25px 15px 30px; line-height:1.8; }
+  /* ▼ 詳細モーダル（メインのお薬詳細と同じ雰囲気） */
+  #modalOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(3px); display: none; z-index: 1000; justify-content: center; align-items: center; }
+  .modal { background: #fff; width: 92%; max-width: 400px; border-radius: 24px; padding: 25px; position: relative; overflow-y: auto; max-height: 85vh; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+  .modal-close { position: absolute; top: 12px; right: 16px; font-size: 22px; color: #bbb; cursor: pointer; background: none; border: none; line-height: 1; }
+  .alt-item { display: block; padding: 10px 12px; margin-bottom: 8px; border-radius: 10px; font-size: 13px; background: #f8f9fa; text-decoration: none; color: #444; border: 1px solid #eee; cursor: pointer; transition: background 0.2s; }
+  .alt-item:active { background: #e9ecef; }
+  .alt-item.adopted { background: #f2fff2; border-color: #d1ffd1; }
+  .alt-item.adopted:active { background: #e2ffe2; }
+</style></head>
+<body>
+  <div class="header">
+    <h1>🔍 メディカニ鑑別</h1>
+    <div class="sub">錠剤の刻印から候補を絞る、持参薬サポートツールですカニ🦀</div>
+    ${facilityBadge}
+  </div>
+  <div class="container">
+    <div class="search-box">
+      <div class="search-row">
+        <input type="text" id="kokuin" placeholder="刻印を入力（例：HP211、TA 111）" autocomplete="off">
+        <button id="btnSearch" onclick="doSearch()">🔍 検索</button>
+      </div>
+      <div class="hint">💡 英数字2文字以上で検索できます。大文字小文字・全角半角・スペースの違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。</div>
+    </div>
+    <div class="notice">
+      ⚠️ 本ツールはPMDA添付文書の識別コード情報をもとに候補を絞り込む<b>補助ツール</b>です。同じ刻印が複数の製品に該当する場合や、刻印情報が登録されていない製剤もあります。<b>最終的な同定は必ず現物・添付文書でご確認ください。</b>
+    </div>
+    <div id="status"></div>
+    <div id="results"></div>
+  </div>
+  <div class="footer">
+    🦀 メディカニ鑑別（β）<br>© 2026 🐔トリの巣ワークス メディカニ運営事務局
+  </div>
+
+  <div id="modalOverlay"><div class="modal" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeModal()">×</button>
+    <div id="modalBody"></div>
+  </div></div>
+
+  <script>
+    const HID = "${hId}";
+    const inp = document.getElementById('kokuin');
+    inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') doSearch(); });
+    // 🖼️画像検索は委譲、カードタップは詳細モーダルを開く（ボタン優先）
+    document.getElementById('results').addEventListener('click', function(e){
+      const b = e.target.closest('.btn-img');
+      if (b) { openImageSearch(b.getAttribute('data-name') || ''); return; }
+      const c = e.target.closest('.card[data-key]');
+      if (c) openDetail(c.getAttribute('data-key'));
+    });
+    document.getElementById('modalOverlay').addEventListener('click', closeModal);
+
+    function closeModal() { document.getElementById('modalOverlay').style.display = 'none'; }
+
+    // カテゴリ絵文字（キーの[内][外][注]から判定）
+    function formEmoji(key) {
+      if (!key) return '💊';
+      if (key.indexOf('[注]') !== -1) return '💉';
+      if (key.indexOf('[外]') !== -1) return '🧴';
+      return '💊';
+    }
+
+    // 🖼️ 画像検索: Googleイメージ検索を小窓ポップアップで開く（画面遷移しない）
+    // ※Googleはiframe埋め込みを禁止しているため、モーダル内表示は技術的に不可。
+    function openImageSearch(name) {
+      const url = 'https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(name + ' 錠剤');
+      window.open(url, 'kanbetsu_img', 'width=900,height=700,scrollbars=yes');
+    }
+
+    async function doSearch() {
+      const q = inp.value.trim();
+      const st = document.getElementById('status');
+      const res = document.getElementById('results');
+      res.innerHTML = '';
+      if (q.replace(/\s/g,'').length < 2) {
+        st.textContent = '2文字以上入力してくださいカニ🦀';
+        return;
+      }
+      st.textContent = '検索中...🦀';
+      try {
+        const r = await fetch('/api/jisan-search?h=' + encodeURIComponent(HID) + '&q=' + encodeURIComponent(q));
+        const data = await r.json();
+        if (data.error === 'index_not_found') { st.textContent = '刻印データが未登録です。管理者にお問い合わせください。'; return; }
+        if (data.error) { st.textContent = 'エラーが発生しました（' + data.error + '）'; return; }
+        if (!data.results || data.results.length === 0) {
+          st.textContent = '';
+          res.innerHTML = '<div class="no-results">📭 「' + escHtml(q) + '」に一致する刻印は見つかりませんでしたカニ🦀💦<br><span style="font-size:12px;color:#aaa;">刻印の一部だけで再検索してみてね！</span></div>';
+          return;
+        }
+        st.textContent = data.count + '件の候補が見つかりました' + (data.count >= 50 ? '（上位50件を表示。文字を足して絞り込めます）' : '') + 'カニ🦀';
+        let html = '';
+        for (const i of data.results) {
+          const nameForImg = String(i.name || '');
+          html += '<div class="card ' + (i.isAdopted ? 'adopted' : '') + '"' + (i.key ? ' data-key="' + escHtml(i.key) + '"' : '') + '>'
+            + '<div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; font-size:15px; gap:8px;">'
+              + '<div style="flex:1; line-height:1.4;">' + formEmoji(i.key) + ' ' + escHtml(i.name) + '</div>'
+              + '<div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">'
+                + (i.isBrand ? '<span class="tag blue">先</span>' : '')
+                + (i.price && i.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>' + escHtml(i.price) + '</span>' : '')
+                + (i.yj && i.yj.indexOf('8') === 0 ? '<span class="tag red">麻</span>' : '')
+                + (i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>')
+              + '</div>'
+            + '</div>'
+            + (i.spec ? '<div style="font-size:12px; color:#888; margin-top:8px;">📦 ' + escHtml(i.spec) + ' ' + (i.type ? '/ ' + escHtml(i.type) : '') + '</div>' : '')
+            + '<div class="code-row">'
+              + '<span class="code-chip">刻印: ' + escHtml(i.code) + '</span>'
+              + '<button class="btn-img" data-name="' + escHtml(nameForImg) + '">🖼️ 画像検索</button>'
+            + '</div>'
+            + (i.key
+                ? '<div class="tap-hint">👆 タップでお薬詳細・切替候補を表示カニ🦀</div>'
+                : '<a class="pmda-link" href="https://www.pmda.go.jp/PmdaSearch/rdSearch/02/' + escHtml(i.yj) + '?user=1" target="_blank" onclick="event.stopPropagation()">📄 添付文書等のお薬詳細を見る（PMDA公式）</a>')
+            + '</div>';
+        }
+        res.innerHTML = html;
+      } catch (e) {
+        st.textContent = '通信エラーが発生したカニ🦀💦 少し待ってからもう一度お試しください。';
+      }
+    }
+
+    // ===== お薬詳細モーダル（メインのメディカニと同じ内容構成） =====
+    async function openDetail(key) {
+      const ov = document.getElementById('modalOverlay');
+      const body = document.getElementById('modalBody');
+      body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">読み込み中...🦀</div>';
+      ov.style.display = 'flex';
+      try {
+        const r = await fetch('/api/detail?key=' + encodeURIComponent(key) + '&h=' + encodeURIComponent(HID));
+        const d = await r.json();
+        if (!d || d.error) { body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">詳細を取得できませんでしたカニ🦀💦</div>'; return; }
+
+        let html = '';
+        // ヘッダー（薬品名・タグ）
+        html += '<div style="font-weight:bold; font-size:17px; color:#0056b3; line-height:1.4; margin-bottom:8px; padding-right:20px;">' + formEmoji(d.label || d.key) + ' ' + escHtml(d.fullName || '') + '</div>';
+        html += '<div style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:12px;">'
+          + (d.isBrand ? '<span class="tag blue">先</span>' : '')
+          + (d.price && d.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>' + escHtml(d.price) + '</span>' : '')
+          + (d.yj && d.yj.indexOf('8') === 0 ? '<span class="tag red">麻</span>' : '')
+          + (d.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">🏠 未採用のお薬ですカニ🦀</span>')
+          + '</div>';
+
+        // 施設メモ（あれば）
+        if (d.comment) {
+          html += '<div style="background:#fff5f7; border-left:5px solid #ff8da1; border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:12px; white-space:pre-wrap;">📝 ' + escHtml(d.comment) + '</div>';
+        }
+
+        // PMDA要約（効能・用法・禁忌）… メインと同じレイアウト
+        if (d.pmdaEfficacy || d.pmdaUsage || d.pmdaContra) {
+          html += '<div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:12px; padding:15px; margin-bottom:12px; font-size:13px; line-height:1.6; color:#333;">';
+          if (d.pmdaEfficacy) {
+            html += '<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:4px;">'
+              + '<div style="color:#0056b3; font-weight:bold;">💊 効能・効果</div>'
+              + (d.pmdaLastUpdated ? '<div style="font-size:11px; color:#888;">🗒️最終更新日：' + escHtml(d.pmdaLastUpdated) + '</div>' : '')
+              + '</div><div style="margin-bottom:12px;">' + d.pmdaEfficacy + '</div>';
+          }
+          if (d.pmdaUsage) html += '<div style="color:#28a745; font-weight:bold; margin-bottom:4px;">🕒 用法・用量</div><div style="margin-bottom:12px;">' + d.pmdaUsage + '</div>';
+          if (d.pmdaContra) html += '<div style="color:#d63384; font-weight:bold; margin-bottom:4px;">🚫 禁忌</div><div>' + d.pmdaContra + '</div>';
+          html += '</div>';
+          html += '<div style="background:#fff8e1; border:1px solid #ffe082; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:11px; line-height:1.5; color:#8a6d3b;">⚠️ 本要約はAIが生成した参考情報であり、正確性を保証するものではありません。実際の使用にあたっては、必ず最新の添付文書をご確認ください。</div>';
+        }
+
+        // ボタン: 画像検索 & PMDA公式
+        html += '<button class="btn-img" data-name="' + escHtml(d.fullName || '') + '" style="width:100%; padding:12px; margin-bottom:8px; font-size:13px;">🖼️ この薬の画像を検索する</button>';
+        if (d.yj && d.yj !== 'NONE') {
+          html += '<a href="https://www.pmda.go.jp/PmdaSearch/rdSearch/02/' + escHtml(d.yj) + '?user=1" target="_blank" style="display:flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:14px; background:#fff0f5; border:2px solid #d63384; color:#d63384; border-radius:12px; text-decoration:none; font-weight:bold; font-size:14px; box-sizing:border-box; margin-bottom:15px; box-shadow:0 2px 4px rgba(214,51,132,0.1);">📄 添付文書等のお薬詳細を見る 🔍</a>';
+        }
+
+        // 切替候補（採用薬が一番上＝APIのソート済み）
+        html += '<hr style="border:none; border-top:1px dashed #ccc; margin:15px 0;">';
+        html += '<p style="font-weight:bold; font-size:14px; margin-bottom:12px; color:#555;">🔄 同成分・切替候補カニ🦀</p>';
+        if (d.alts && d.alts.length) {
+          for (const a of d.alts) {
+            html += '<div class="alt-item ' + (a.isAdopted ? 'adopted' : '') + '" data-altkey="' + escHtml(a.key) + '">'
+              + '<div style="display:flex; flex-direction:column; gap:6px;">'
+                + '<div style="display:flex; justify-content:space-between; align-items:flex-start;">'
+                  + '<span style="font-weight:bold; line-height:1.3;">' + formEmoji(a.key) + ' ' + escHtml(a.name) + ' <span style="font-weight:normal;color:#666;font-size:11px;">' + escHtml(a.spec || '') + '</span></span>'
+                  + '<span style="font-weight:bold;color:' + (a.isAdopted ? '#28a745' : '#aaa') + '; white-space:nowrap; margin-left:8px;">' + (a.isAdopted ? '🏥 採用' : '') + ' ❯</span>'
+                + '</div>'
+                + '<div style="display:flex; gap:4px; align-items:center;">'
+                  + (a.isBrand ? '<span class="tag blue" style="font-size:10px; padding:2px 6px;">先</span>' : '')
+                  + (a.yj && a.yj.indexOf('8') === 0 ? '<span class="tag red" style="font-size:10px; padding:2px 6px;">麻</span>' : '')
+                  + (a.price && a.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;font-size:10px; padding:2px 6px;"><span style="color:#e65100;">￥</span>' + escHtml(a.price) + '</span>' : '')
+                + '</div>'
+              + '</div></div>';
+          }
+        } else {
+          html += '<div style="font-size:12px; color:#999; text-align:center; padding:10px;">切替候補が見つかりませんでしたカニ🦀</div>';
+        }
+
+        body.innerHTML = html;
+      } catch (e) {
+        body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">通信エラーが発生したカニ🦀💦</div>';
+      }
+    }
+
+    // モーダル内のクリック委譲（切替候補タップ→その薬の詳細へ、画像検索ボタン）
+    document.getElementById('modalBody').addEventListener('click', function(e){
+      const b = e.target.closest('.btn-img');
+      if (b) { openImageSearch(b.getAttribute('data-name') || ''); return; }
+      const a = e.target.closest('.alt-item[data-altkey]');
+      if (a) openDetail(a.getAttribute('data-altkey'));
+    });
+
+    function escHtml(s) {
+      return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+  </script>
+</body></html>`;
+}
+// === 🦀メディカニ鑑別: ページ生成関数 (ここまで) ===
+
 
 export default {
   async fetch(request, env) {
@@ -734,6 +989,25 @@ export default {
       if (hospitalId === "HPTEST1" && !hospitalName) {
         hospitalName = "テスト総合病院";
       }
+
+      // === 🦀メディカニ鑑別（持参薬サポート）: ページルート /{hId}/jisan (ここから) ===
+      // 顧客マスタZ列「持参薬オプション」に◯がある施設（KV: {hId}_jisan = "1"）だけ利用可。
+      // スーパー管理施設(HPTEST1)は常に可（テスト用）。
+      if (hospitalId && pathParts[1] === "jisan") {
+        const isSuperJisan = hospitalId === (env.SUPER_ADMIN_HID || "HPTEST1");
+        if (!isSuperJisan) {
+          const jisanFlag = await env.MEDI_KV.get(`${hospitalId}_jisan`) || "";
+          if (jisanFlag !== "1") {
+            return new Response("持参薬オプションが有効ではありませんカニ🦀", {
+              status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" }
+            });
+          }
+        }
+        return new Response(jisanPage(hospitalId, hospitalName), {
+          headers: { "Content-Type": "text/html; charset=utf-8" }
+        });
+      }
+      // === 🦀メディカニ鑑別: ページルート (ここまで) ===
 
       // === 新規追加: 掲示板データ取得 API (ここから) ===
       if (url.pathname.includes("/api/board")) {
@@ -852,6 +1126,126 @@ export default {
         const plan = await env.MEDI_KV.get(`${hId}_plan`) || "";
         return plan.endsWith("_KY");
       }
+
+      // === 🦀メディカニ鑑別: 刻印検索 API /api/jisan-search?h=&q= (ここから) ===
+      if (url.pathname.includes("/api/jisan-search")) {
+        try {
+          const hId = url.searchParams.get("h") || "";
+          // オプション判定（スーパー管理は常に可）
+          const isSuperJisan = hId === (env.SUPER_ADMIN_HID || "HPTEST1");
+          if (!isSuperJisan) {
+            const jisanFlag = (hId ? await env.MEDI_KV.get(`${hId}_jisan`) : "") || "";
+            if (jisanFlag !== "1") {
+              return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+            }
+          }
+          const q = url.searchParams.get("q") || "";
+          // 正規化（idx2kv.py と同じルール: 全角→半角(NFKC)・大文字化・空白除去）
+          const qn = q.normalize("NFKC").toUpperCase().replace(/\s+/g, "");
+          if (qn.length < 2) {
+            return new Response(JSON.stringify({ error: "too_short" }), { status: 400, headers: { "Content-Type": "application/json" } });
+          }
+          if (!env.PMDA_DB) {
+            return new Response(JSON.stringify({ error: "PMDA_DB未設定" }), { status: 500, headers: { "Content-Type": "application/json" } });
+          }
+          // 索引（1キー）を読み込む。cacheTtlで1時間キャッシュして読み取りを節約
+          const idxStr = await env.PMDA_DB.get("_IDCODE_INDEX", { cacheTtl: 3600 });
+          if (!idxStr) {
+            return new Response(JSON.stringify({ error: "index_not_found" }), { status: 500, headers: { "Content-Type": "application/json" } });
+          }
+          const idx = JSON.parse(idxStr);
+          // 刻印の部分一致でヒットしたYJコードを集める（YJ→刻印表示/PMDA名のマップ）
+          const yjHit = new Map();
+          for (const e of idx) {
+            // e = [正規化刻印, 表示用刻印, 薬品名, YJコード]
+            if (e[0].includes(qn) && !yjHit.has(e[3])) {
+              yjHit.set(e[3], { code: e[1], pmdaName: e[2] });
+              if (yjHit.size >= 50) break;
+            }
+          }
+          if (yjHit.size === 0) {
+            return new Response(JSON.stringify({ results: [], count: 0 }), { headers: { "Content-Type": "application/json" } });
+          }
+
+          // ===== 🌟通常検索と同じ見た目にするため、MEDI_KVからマスタ・採用情報を突き合わせる =====
+          let masterKeys = [];
+          let adoptedKeys = [];
+          for (const c of ["[内]", "[外]", "[注]"]) {
+            let mCursor = "";
+            do {
+              const list = await env.MEDI_KV.list({ prefix: c, limit: 1000, cursor: mCursor || undefined });
+              masterKeys.push(...list.keys.map(k => k.name));
+              mCursor = list.list_complete ? "" : list.cursor;
+            } while (mCursor);
+            if (hId) {
+              let aCursor = "";
+              do {
+                const list = await env.MEDI_KV.list({ prefix: `${hId}_${c}`, limit: 1000, cursor: aCursor || undefined });
+                adoptedKeys.push(...list.keys.map(k => k.name));
+                aCursor = list.list_complete ? "" : list.cursor;
+              } while (aCursor);
+            }
+          }
+
+          // キー末尾のYJがヒット集合に含まれるものを拾う
+          const keyYj = (k) => { const t = k.split("_").pop(); return /^[0-9a-zA-Z]{7,12}$/.test(t) ? t : ""; };
+          const matchedAdopted = adoptedKeys.filter(k => yjHit.has(keyYj(k)));
+          const adoptedYJs = new Set(matchedAdopted.map(k => keyYj(k)));
+          const matchedMaster = masterKeys.filter(k => yjHit.has(keyYj(k)) && !adoptedYJs.has(keyYj(k)));
+          const finalKeys = [...matchedAdopted, ...matchedMaster];
+
+          const results = await Promise.all(finalKeys.map(async (key) => {
+            const val = await env.MEDI_KV.get(key);
+            if (!val) return null;
+            let parts = String(val).split(/[,\uFF0C]/);
+            const yj = getBestYJ(key, parts);
+            const isAdopted = hId ? key.startsWith(`${hId}_`) : false;
+            if (isAdopted) {
+              // 表示時のみマスタの情報で丸ごと上書きしてマーク・薬価を復活（通常検索と同じ処理）
+              const yjIndex = parts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
+              if (yjIndex !== -1 && yjIndex < parts.length - 1) {
+                parts = parts.slice(0, yjIndex + 1);
+              }
+              if (yj && yj !== "NONE") {
+                const masterKey = masterKeys.find(k => k.endsWith(`_${yj}`) || k.endsWith(yj));
+                if (masterKey) {
+                  const mVal = await env.MEDI_KV.get(masterKey);
+                  if (mVal) {
+                    const mParts = String(mVal).split(/[,\uFF0C]/);
+                    const mYjIdx = mParts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
+                    if (mYjIdx !== -1) parts = mParts.slice(0, mYjIdx + 1);
+                  }
+                }
+              }
+            }
+            const extracted = extractDrugData(parts, yj);
+            const isBrand = parts.some(p => String(p).includes("先発"));
+            const cleanType = extracted.type.replace(/先発品?/g, "");
+            const hit = yjHit.get(keyYj(key)) || {};
+            return { key, name: extracted.name, spec: extracted.spec, type: cleanType, yj: yj, isAdopted: isAdopted, isBrand: isBrand, price: extracted.price, code: hit.code || "" };
+          }));
+
+          let finalResults = results.filter(r => r !== null);
+
+          // マスタに存在しないYJ（経過措置切れ等）はPMDA名でフォールバック表示
+          const foundYJs = new Set(finalResults.map(r => r.yj));
+          for (const [yj, info] of yjHit) {
+            if (!foundYJs.has(yj)) {
+              finalResults.push({ key: "", name: info.pmdaName, spec: "", type: "", yj: yj, isAdopted: false, isBrand: false, price: "", code: info.code });
+            }
+          }
+
+          // 採用薬を一番上に（通常検索と同じ並び）
+          finalResults.sort((a, b) => b.isAdopted - a.isAdopted);
+
+          return new Response(JSON.stringify({ results: finalResults, count: finalResults.length }), {
+            headers: { "Content-Type": "application/json" }
+          });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+      }
+      // === 🦀メディカニ鑑別: 刻印検索 API (ここまで) ===
 
       // === 🦀新規追加: 休薬マスタ取得 API（デフォルト＋施設オーバーライドを返す） ===
       if (url.pathname.includes("/api/kyuyaku/master")) {
