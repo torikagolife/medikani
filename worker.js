@@ -621,6 +621,308 @@ loadMaster();
 }
 // === 🦀休薬チェッカー: ページ生成関数 (ここまで) ===
 
+// === 🦀休薬チェッカー: 判定画面 生成関数 (ここから) ===
+function kyuyakuCheckerPage(hId) {
+  return `<!DOCTYPE html><html lang="ja"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>休薬チェッカー 🦀 メディカニ</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; background: #f4f7f9; color: #333; padding-bottom: 40px; }
+  .header { background: linear-gradient(135deg, #0d3b8f, #0a2e70); color: #fff; padding: 14px 16px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  .header h1 { font-size: 17px; }
+  .header .sub { font-size: 11px; opacity: .85; margin-top: 2px; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 12px; }
+  .banner { background: #fff3cd; border: 1px solid #ffe69c; color: #7a5c00; border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
+  .banner.red { background: #fde8e8; border-color: #f5b5b5; color: #9b1c1c; display: none; }
+  .card { background: #fff; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 14px; margin-bottom: 12px; }
+  .card h2 { font-size: 14px; color: #0d3b8f; margin-bottom: 10px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tab { border: 1px solid #cfd8e3; background: #f7fafc; color: #888; border-radius: 8px; padding: 7px 10px; font-size: 12px; font-weight: bold; }
+  .tab.active { background: #0d3b8f; color: #fff; border-color: #0d3b8f; }
+  .tab .soon { font-size: 9px; background: #eee; color: #999; border-radius: 6px; padding: 1px 5px; margin-left: 3px; }
+  .srow { display: flex; gap: 6px; }
+  .srow input { flex: 1; border: 1px solid #ccc; border-radius: 10px; padding: 11px; font-size: 15px; }
+  .btn { border: none; border-radius: 10px; padding: 11px 16px; font-size: 14px; font-weight: bold; cursor: pointer; }
+  .btn.navy { background: #0d3b8f; color: #fff; }
+  .btn.red { background: #e85a4f; color: #fff; width: 100%; padding: 14px; font-size: 16px; }
+  .btn.gray { background: #eceff1; color: #555; }
+  .sr { border: 1px solid #e0e6ea; border-radius: 10px; padding: 9px 10px; margin-top: 6px; cursor: pointer; background: #fafcfd; font-size: 13px; }
+  .sr:active { background: #eef4f8; }
+  .sr .sub { font-size: 11px; color: #888; }
+  .hint { font-size: 12px; color: #999; padding: 8px 2px; }
+  .drug { display: flex; align-items: center; gap: 8px; border: 1px solid #dbe4ee; background: #f6f9ff; border-radius: 10px; padding: 9px 10px; margin-top: 6px; }
+  .drug .nm { flex: 1; font-size: 13px; font-weight: bold; }
+  .drug .nm .sub { font-size: 11px; color: #778; font-weight: normal; }
+  .drug button { border: none; background: #ffd6d1; color: #b23a2f; border-radius: 8px; padding: 5px 9px; font-size: 12px; font-weight: bold; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 11px; color: #777; margin-bottom: 4px; font-weight: bold; }
+  .field select, .field input { width: 100%; border: 1px solid #ccc; border-radius: 10px; padding: 11px; font-size: 15px; background: #fff; }
+  .catdesc { font-size: 11px; color: #888; margin-top: 4px; }
+  .summary { border-radius: 12px; padding: 14px; font-size: 15px; font-weight: bold; margin-bottom: 12px; }
+  .summary.s-red { background: #fde8e8; color: #9b1c1c; border: 1px solid #f5b5b5; }
+  .summary.s-amber { background: #fff3cd; color: #7a5c00; border: 1px solid #ffe69c; }
+  .summary.s-green { background: #d4edda; color: #155724; border: 1px solid #b8dfc2; }
+  .rcard { background: #fff; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 13px; margin-bottom: 10px; border-left: 6px solid #ccc; }
+  .rcard.a-stop { border-left-color: #c0392b; }
+  .rcard.a-consult { border-left-color: #b96b00; }
+  .rcard.a-continue { border-left-color: #1e7e34; }
+  .rcard .dname { font-weight: bold; font-size: 15px; }
+  .rcard .comp { font-size: 11px; color: #0056b3; background: #e3f2fd; border: 1px solid #bbdefb; border-radius: 4px; padding: 1px 6px; display: inline-block; margin: 4px 0; }
+  .abadge { display: inline-block; font-size: 13px; font-weight: bold; border-radius: 8px; padding: 3px 10px; margin: 4px 0; }
+  .abadge.a-stop { background: #c0392b; color: #fff; }
+  .abadge.a-consult { background: #b96b00; color: #fff; }
+  .abadge.a-continue { background: #1e7e34; color: #fff; }
+  .stopdate { font-size: 16px; font-weight: bold; color: #c0392b; margin: 4px 0; }
+  .rl { font-size: 12px; color: #555; line-height: 1.7; }
+  .srcbadge { font-size: 10px; border-radius: 8px; padding: 2px 7px; }
+  .srcbadge.fac { background: #e85a4f; color: #fff; }
+  .srcbadge.def { background: #eee; color: #666; }
+  .notes { background: #fff; border: 1px dashed #cbb; border-radius: 12px; padding: 12px; font-size: 11px; color: #86482c; line-height: 1.8; margin-bottom: 12px; }
+  .misslist { font-size: 12px; color: #667; line-height: 1.8; }
+  @media print {
+    .no-print { display: none !important; }
+    body { background: #fff; padding: 0; }
+    .rcard, .card, .summary, .notes { box-shadow: none; border: 1px solid #ccc; page-break-inside: avoid; }
+    .header { background: #fff; color: #000; box-shadow: none; border-bottom: 2px solid #000; }
+  }
+</style></head><body>
+
+<div class="header">
+  <h1>💊 メディカニ 休薬チェッカー</h1>
+  <div class="sub">施設ID: ${hId} ／ 術前・検査前 持参薬スクリーニング</div>
+</div>
+
+<div class="wrap">
+  <div id="draftBanner" class="banner red no-print">
+    ⚠️ 休薬マスタは<b>監修前のドラフト</b>です。表示内容を臨床判断に使用しないでください。
+  </div>
+
+  <!-- STEP1: 薬の入力 -->
+  <div class="card no-print">
+    <h2>① お薬の入力</h2>
+    <div class="tabs">
+      <div class="tab active">🔍 検索して追加</div>
+      <div class="tab">📷 QR読み取り<span class="soon">準備中</span></div>
+      <div class="tab">🖼 OCR読み取り<span class="soon">準備中</span></div>
+    </div>
+    <div class="srow">
+      <input id="searchBox" placeholder="薬品名で検索（2文字以上）" onkeydown="if(event.key==='Enter'){doSearch();}">
+      <button class="btn navy" onclick="doSearch()">検索</button>
+    </div>
+    <div id="searchResults"></div>
+    <div id="drugList" style="margin-top:10px;"></div>
+  </div>
+
+  <!-- STEP2: 処置の選択 -->
+  <div class="card no-print">
+    <h2>② 処置と予定日</h2>
+    <div class="field">
+      <label>処置の分類</label>
+      <select id="catSelect" onchange="updateCatDesc()"></select>
+      <div class="catdesc" id="catDesc"></div>
+    </div>
+    <div class="field">
+      <label>手術・検査の予定日（入れると休薬開始日を日付で表示します）</label>
+      <input type="date" id="opDate">
+    </div>
+    <button class="btn red" onclick="judge()">🦀 休薬判定する</button>
+  </div>
+
+  <!-- 結果 -->
+  <div id="resultArea" style="display:none;">
+    <div class="card" style="border-left:6px solid #0d3b8f;">
+      <h2>判定結果</h2>
+      <div class="rl" id="resultMeta"></div>
+    </div>
+    <div id="resultSummary"></div>
+    <div id="resultCards"></div>
+    <div class="card" id="missCard" style="display:none;">
+      <h2>休薬マスタに該当のなかったお薬</h2>
+      <div class="misslist" id="missList"></div>
+      <div class="hint">※「該当なし」はこのマスタに登録がないという意味で、休薬不要を保証するものではありません。</div>
+    </div>
+    <div class="notes">
+      ⚠️ 本結果は<b>参考情報</b>です。休薬の最終判断は必ず<b>医師・薬剤師（処方元）</b>にご確認ください。<br>
+      ⚠️ お薬手帳に記載のないお薬・市販薬・サプリメント（EPA、イチョウ葉など）は検出できません。<br>
+      🔒 入力された内容はこの端末内で判定され、サーバーには保存されません。
+    </div>
+    <div class="no-print" style="display:flex; gap:8px;">
+      <button class="btn navy" style="flex:1;" onclick="window.print()">🖨 印刷 / PDF保存</button>
+      <button class="btn gray" onclick="resetAll()">はじめから</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const HID = "${hId}";
+let DEF = null, OVR = null, comps = [];
+let searchResults = [], drugs = [];
+
+function esc(s) { return String(s == null ? "" : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+async function init() {
+  try {
+    const res = await fetch('/api/kyuyaku/master?h=' + HID);
+    const data = await res.json();
+    DEF = data.def || { categories: [], components: [] };
+    OVR = data.ovr || { components: [] };
+    const ovrMap = {};
+    (OVR.components || []).forEach(function(c){ ovrMap[c.id] = c; });
+    const defIds = new Set((DEF.components || []).map(function(c){ return c.id; }));
+    comps = (DEF.components || []).map(function(c){
+      return ovrMap[c.id] ? Object.assign({}, ovrMap[c.id], { _ovr: true }) : Object.assign({}, c, { _ovr: false });
+    });
+    Object.values(ovrMap).forEach(function(c){ if (!defIds.has(c.id)) comps.push(Object.assign({}, c, { _ovr: true })); });
+    if (DEF.status === 'DRAFT_UNREVIEWED') document.getElementById('draftBanner').style.display = 'block';
+    const sel = document.getElementById('catSelect');
+    sel.innerHTML = (DEF.categories || []).map(function(c){
+      return '<option value="' + esc(c.id) + '">' + esc(c.label) + '</option>';
+    }).join('');
+    updateCatDesc();
+  } catch (e) {
+    alert('休薬マスタの読み込みに失敗しましたカニ🦀💦 通信環境を確認してください');
+  }
+}
+function updateCatDesc() {
+  const id = document.getElementById('catSelect').value;
+  const c = (DEF && DEF.categories || []).find(function(x){ return x.id === id; });
+  document.getElementById('catDesc').textContent = c ? (c.desc || '') : '';
+}
+
+// --- 検索して追加 ---
+async function doSearch() {
+  const q = document.getElementById('searchBox').value.trim();
+  if (q.length < 2) { alert('2文字以上で入力してくださいカニ🦀'); return; }
+  const box = document.getElementById('searchResults');
+  box.innerHTML = '<div class="hint">検索中…🦀</div>';
+  try {
+    const res = await fetch('/api/search?c=all&q=' + encodeURIComponent(q) + '&h=' + HID);
+    const data = await res.json();
+    searchResults = Array.isArray(data) ? data.slice(0, 20) : [];
+    if (!searchResults.length) { box.innerHTML = '<div class="hint">見つかりませんでしたカニ🦀💦 名前を変えて試してみてください</div>'; return; }
+    box.innerHTML = searchResults.map(function(d, i) {
+      return '<div class="sr" onclick="addDrug(' + i + ')"><b>' + esc(d.name || '') + '</b> <span class="sub">' + esc(d.spec || '') + '</span><div class="sub">成分: ' + esc(d.component || '—') + '</div></div>';
+    }).join('');
+  } catch (e) { box.innerHTML = '<div class="hint">検索エラーですカニ🦀💦</div>'; }
+}
+function addDrug(i) {
+  const d = searchResults[i];
+  if (!d) return;
+  if (drugs.some(function(x){ return x.key === d.key; })) { alert('すでに追加済みですカニ🦀'); return; }
+  drugs.push(d);
+  document.getElementById('searchBox').value = '';
+  document.getElementById('searchResults').innerHTML = '';
+  renderDrugs();
+}
+function removeDrug(i) { drugs.splice(i, 1); renderDrugs(); }
+function renderDrugs() {
+  const el = document.getElementById('drugList');
+  el.innerHTML = drugs.length
+    ? '<div class="hint">追加したお薬（' + drugs.length + '件）— タップで削除できます</div>' + drugs.map(function(d, i) {
+        return '<div class="drug"><div class="nm">' + esc(d.name || '') + ' <span class="sub">' + esc(d.spec || '') + '</span><br><span class="sub">' + esc(d.component || '') + '</span></div><button onclick="removeDrug(' + i + ')">削除</button></div>';
+      }).join('')
+    : '<div class="hint">まだお薬が追加されていません</div>';
+}
+
+// --- 判定（すべてこの端末内で実行。サーバーには送信しません） ---
+function fmtDate(dt) {
+  const w = ['日','月','火','水','木','金','土'];
+  return (dt.getMonth() + 1) + '月' + dt.getDate() + '日(' + w[dt.getDay()] + ')';
+}
+function judge() {
+  if (!comps.length) { alert('休薬マスタが読み込めていませんカニ🦀 再読み込みしてください'); return; }
+  if (!drugs.length) { alert('お薬を1件以上追加してくださいカニ🦀'); return; }
+  const catId = document.getElementById('catSelect').value;
+  const cat = (DEF.categories || []).find(function(x){ return x.id === catId; });
+  const opStr = document.getElementById('opDate').value;
+  const opDate = opStr ? new Date(opStr + 'T00:00:00') : null;
+
+  const hits = [], misses = [];
+  drugs.forEach(function(d) {
+    const yj7 = String(d.yj || '').substring(0, 7);
+    let c = comps.find(function(x){ return (x.yj7List || []).includes(yj7); });
+    if (!c) {
+      const t = (d.component || '') + ' ' + (d.name || '');
+      c = comps.find(function(x){ return (x.nameKeys || []).some(function(k){ return k && t.includes(k); }); });
+    }
+    if (c) hits.push({ d: d, c: c }); else misses.push(d);
+  });
+
+  // メタ情報
+  const now = new Date();
+  document.getElementById('resultMeta').innerHTML =
+    '処置分類: <b>' + esc(cat ? cat.label : catId) + '</b><br>' +
+    '予定日: <b>' + (opDate ? esc(opStr) + '（' + fmtDate(opDate) + '）' : '未入力') + '</b><br>' +
+    '判定日時: ' + now.toLocaleString('ja-JP') + ' ／ 入力薬 ' + drugs.length + '件';
+
+  // サマリー
+  let nStop = 0, nConsult = 0;
+  hits.forEach(function(h) {
+    const r = (h.c.rules || {})[catId] || { action: 'consult' };
+    if (r.action === 'stop') nStop++;
+    else if (r.action === 'consult') nConsult++;
+  });
+  const sm = document.getElementById('resultSummary');
+  if (nStop) sm.innerHTML = '<div class="summary s-red">🔴 休薬が必要なお薬が ' + nStop + '件あります' + (nConsult ? '（照会 ' + nConsult + '件）' : '') + '</div>';
+  else if (nConsult) sm.innerHTML = '<div class="summary s-amber">🟡 処方元への照会が必要なお薬が ' + nConsult + '件あります</div>';
+  else sm.innerHTML = '<div class="summary s-green">🟢 休薬・照会に該当するお薬はありませんでした</div>';
+
+  // 各カード
+  document.getElementById('resultCards').innerHTML = hits.map(function(h) {
+    const r = (h.c.rules || {})[catId] || { action: 'consult', days: null, comment: '分類未設定のため処方元へ照会してください' };
+    const actLabel = { continue: '継続可', stop: '休薬', consult: '処方元に照会' }[r.action] || r.action;
+    let dateLine = '';
+    if (r.action === 'stop') {
+      if (r.days == null) dateLine = '<div class="stopdate">休薬日数未設定（処方元に確認）</div>';
+      else if (opDate) {
+        const st = new Date(opDate); st.setDate(st.getDate() - r.days);
+        dateLine = '<div class="stopdate">' + fmtDate(st) + (r.days === 0 ? '（当日）' : '') + ' から休薬</div>';
+      } else {
+        dateLine = '<div class="stopdate">' + (r.days === 0 ? '当日から休薬' : r.days + '日前から休薬') + '</div>';
+      }
+    }
+    return '<div class="rcard a-' + esc(r.action) + '">' +
+      '<div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start;">' +
+        '<div class="dname">' + esc(h.d.name || '') + '</div>' +
+        '<span class="srcbadge ' + (h.c._ovr ? 'fac' : 'def') + '">' + (h.c._ovr ? '施設プロトコル' : '共通デフォルト') + '</span>' +
+      '</div>' +
+      '<span class="comp">' + esc(h.c.component || '') + '（' + esc(h.c.class || '') + '）</span><br>' +
+      '<span class="abadge a-' + esc(r.action) + '">' + esc(actLabel) + '</span>' +
+      dateLine +
+      (r.comment ? '<div class="rl">💬 ' + esc(r.comment) + '</div>' : '') +
+      (h.c.resume ? '<div class="rl">🔄 再開の目安: ' + esc(h.c.resume) + '</div>' : '') +
+      (h.c.source ? '<div class="rl" style="color:#999;">📎 ' + esc(h.c.source) + '</div>' : '') +
+    '</div>';
+  }).join('');
+
+  // 非該当
+  const mc = document.getElementById('missCard');
+  if (misses.length) {
+    mc.style.display = 'block';
+    document.getElementById('missList').innerHTML = misses.map(function(d) {
+      return '・' + esc(d.name || '') + '（' + esc(d.component || '—') + '）';
+    }).join('<br>');
+  } else { mc.style.display = 'none'; }
+
+  document.getElementById('resultArea').style.display = 'block';
+  document.getElementById('resultArea').scrollIntoView({ behavior: 'smooth' });
+}
+function resetAll() {
+  drugs = []; searchResults = [];
+  renderDrugs();
+  document.getElementById('searchResults').innerHTML = '';
+  document.getElementById('resultArea').style.display = 'none';
+  document.getElementById('opDate').value = '';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+renderDrugs();
+init();
+</script></body></html>`;
+}
+// === 🦀休薬チェッカー: 判定画面 生成関数 (ここまで) ===
+
 // === 🦀メディカニ鑑別（持参薬サポート）: ページ生成関数 (ここから) ===
 function jisanPage(hId, hospitalName) {
   const facilityBadge = hospitalName
@@ -921,6 +1223,23 @@ export default {
       });
     }
     // === 🦀休薬チェッカー: 管理画面ルート (ここまで) ===
+
+    // === 🦀休薬チェッカー: 判定画面ルート /{hId}/kyuyaku（オプション施設のみ・ここから） ===
+    if (hospitalId && pathParts[1] === "kyuyaku") {
+      const isSuperK = hospitalId === (env.SUPER_ADMIN_HID || "HPTEST1");
+      if (!isSuperK) {
+        const planK = await env.MEDI_KV.get(`${hospitalId}_plan`) || "";
+        if (!planK.endsWith("_KY")) {
+          return new Response("休薬チェッカーオプションが有効ではありませんカニ🦀", {
+            status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" }
+          });
+        }
+      }
+      return new Response(kyuyakuCheckerPage(hospitalId), {
+        headers: { "Content-Type": "text/html; charset=utf-8" }
+      });
+    }
+    // === 🦀休薬チェッカー: 判定画面ルート (ここまで) ===
 
     // === 新規追加: ユーザーパスワード機能 (ここから) ===
     const isUserLoginPage = pathParts[1] === "login" && pathParts[0] !== "api";
@@ -3174,6 +3493,20 @@ if (ayj && ayj.substring(0, 7) === yj7) {
         let adoptedDisplayCount = 0;
         let currentAdoptedCat = '';
 
+        // 🌟追加: 採用薬一覧の上に出す「カテゴリ切替ボタン」を作る（今開いているカテゴリは色付きで表示）
+        function adoptedCatSwitcherHTML() {
+          const cats = [ ['[内]', '採用💊 内服'], ['[外]', '採用🩹 外用'], ['[注]', '採用💉 注射'] ];
+          let btns = '';
+          for (const c of cats) {
+            const isActive = (currentAdoptedCat === c[0]);
+            const style = isActive
+              ? 'padding: 8px 4px; background: #4dd0e1; border: 1.5px solid #4dd0e1; border-radius: 10px; font-size: 11px; font-weight: bold; color: #fff; cursor: pointer; outline: none;'
+              : 'padding: 8px 4px; background: #f0fafd; border: 1.5px dashed #4dd0e1; border-radius: 10px; font-size: 11px; font-weight: bold; color: #00838f; cursor: pointer; outline: none;';
+            btns += '<button onclick="loadAdoptedList(\\'' + c[0] + '\\')" style="' + style + '">' + c[1] + '</button>';
+          }
+          return '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px;">' + btns + '</div>';
+        }
+
         async function loadAdoptedList(cat) {
           document.getElementById('q').value = ''; // 検索窓に入っている文字を綺麗にする
           currentAdoptedCat = cat;
@@ -3188,7 +3521,8 @@ if (ayj && ayj.substring(0, 7) === yj7) {
             adoptedDisplayCount = 0;
             
             if (adoptedFullList.length === 0) {
-              resDiv.innerHTML = '<div class="no-results">📭 該当する採用薬が登録されていませんカニ🦀</div>';
+              // 🌟修正: 0件でもカテゴリ切替ボタンは出したままにする
+              resDiv.innerHTML = adoptedCatSwitcherHTML() + '<div class="no-results">📭 該当する採用薬が登録されていませんカニ🦀</div>';
               return;
             }
             renderAdoptedMore(true); // 最初の50件を描画
@@ -3228,7 +3562,8 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           }).join('');
 
           if (isFirst) {
-            resDiv.innerHTML = html;
+            // 🌟修正: 一覧の先頭にカテゴリ切替ボタンを付けて、他の採用薬一覧へ直接移動できるようにする
+            resDiv.innerHTML = adoptedCatSwitcherHTML() + html;
           } else {
             // 2回目以降（追加読み込み）は、スクロール位置を崩さず一番下にお薬を継ぎ足す
             resDiv.insertAdjacentHTML('beforeend', html);
