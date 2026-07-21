@@ -166,6 +166,7 @@ function kyuyakuAdminPage(hId, isSuper) {
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
 <title>休薬マスタ管理 🦀 メディカニ</title>
+<link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani-icon.png">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; background: #f4f7f9; color: #333; padding-bottom: 120px; }
@@ -222,9 +223,6 @@ function kyuyakuAdminPage(hId, isSuper) {
 </div>
 
 <div class="wrap">
-  <div id="statusBanner" class="banner red" style="display:none;">
-    ⚠️ このマスタは<b>監修前のドラフト</b>です。薬剤師の監修が完了するまで臨床使用しないでください。
-  </div>
   <div class="banner">
     値はすべて「参考情報」です。実際の休薬判断は<b>処方医・薬剤師の確認</b>を前提としてください。編集したセルは施設カスタム値（<span class="tag ovr">施設</span>）として保存され、共通デフォルト（<span class="tag def">既定</span>）より優先されます。
   </div>
@@ -343,7 +341,6 @@ function esc(s) { return String(s == null ? "" : s).replace(/&/g,'&amp;').replac
 
 // --- 描画 ---
 function render() {
-  document.getElementById('statusBanner').style.display = (DEF.status === "DRAFT_UNREVIEWED") ? 'block' : 'none';
 
   const cats = DEF.categories || [];
   document.getElementById('catList').innerHTML = cats.map(c =>
@@ -376,7 +373,6 @@ function compCard(c, cats) {
 
   const badges =
     (c._ovr ? '<span class="tag ovr">施設</span>' : '<span class="tag def">既定</span>') +
-    (c.reviewedBy ? '<span class="tag ok">✔ 監修済 ' + esc(c.reviewedBy) + '</span>' : '<span class="tag ng">未監修</span>') +
     (c.verified ? '<span class="tag ok">YJ照合済(' + (c.yj7List || []).length + ')</span>' : '<span class="tag ng">YJ未照合</span>');
 
   return '<div class="card">' +
@@ -626,6 +622,7 @@ function kyuyakuCheckerPage(hId) {
   return `<!DOCTYPE html><html lang="ja"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>休薬チェッカー 🦀 メディカニ</title>
+<link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani-icon.png">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; background: #f4f7f9; color: #333; padding-bottom: 40px; }
@@ -694,9 +691,6 @@ function kyuyakuCheckerPage(hId) {
 </div>
 
 <div class="wrap">
-  <div id="draftBanner" class="banner red no-print">
-    ⚠️ 休薬マスタは<b>監修前のドラフト</b>です。表示内容を臨床判断に使用しないでください。
-  </div>
 
   <!-- STEP1: 薬の入力 -->
   <div class="card no-print">
@@ -774,7 +768,6 @@ async function init() {
       return ovrMap[c.id] ? Object.assign({}, ovrMap[c.id], { _ovr: true }) : Object.assign({}, c, { _ovr: false });
     });
     Object.values(ovrMap).forEach(function(c){ if (!defIds.has(c.id)) comps.push(Object.assign({}, c, { _ovr: true })); });
-    if (DEF.status === 'DRAFT_UNREVIEWED') document.getElementById('draftBanner').style.display = 'block';
     const sel = document.getElementById('catSelect');
     sel.innerHTML = (DEF.categories || []).map(function(c){
       return '<option value="' + esc(c.id) + '">' + esc(c.label) + '</option>';
@@ -892,7 +885,6 @@ function judge() {
       dateLine +
       (r.comment ? '<div class="rl">💬 ' + esc(r.comment) + '</div>' : '') +
       (h.c.resume ? '<div class="rl">🔄 再開の目安: ' + esc(h.c.resume) + '</div>' : '') +
-      (h.c.source ? '<div class="rl" style="color:#999;">📎 ' + esc(h.c.source) + '</div>' : '') +
     '</div>';
   }).join('');
 
