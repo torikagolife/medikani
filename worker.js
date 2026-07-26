@@ -166,7 +166,6 @@ function kyuyakuAdminPage(hId, isSuper) {
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
 <title>休薬マスタ管理 🦀 メディカニ</title>
-<link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani-icon.png">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; background: #f4f7f9; color: #333; padding-bottom: 120px; }
@@ -223,6 +222,9 @@ function kyuyakuAdminPage(hId, isSuper) {
 </div>
 
 <div class="wrap">
+  <div id="statusBanner" class="banner red" style="display:none;">
+    ⚠️ このマスタは<b>監修前のドラフト</b>です。薬剤師の監修が完了するまで臨床使用しないでください。
+  </div>
   <div class="banner">
     値はすべて「参考情報」です。実際の休薬判断は<b>処方医・薬剤師の確認</b>を前提としてください。編集したセルは施設カスタム値（<span class="tag ovr">施設</span>）として保存され、共通デフォルト（<span class="tag def">既定</span>）より優先されます。
   </div>
@@ -341,6 +343,7 @@ function esc(s) { return String(s == null ? "" : s).replace(/&/g,'&amp;').replac
 
 // --- 描画 ---
 function render() {
+  document.getElementById('statusBanner').style.display = (DEF.status === "DRAFT_UNREVIEWED") ? 'block' : 'none';
 
   const cats = DEF.categories || [];
   document.getElementById('catList').innerHTML = cats.map(c =>
@@ -373,6 +376,7 @@ function compCard(c, cats) {
 
   const badges =
     (c._ovr ? '<span class="tag ovr">施設</span>' : '<span class="tag def">既定</span>') +
+    (c.reviewedBy ? '<span class="tag ok">✔ 監修済 ' + esc(c.reviewedBy) + '</span>' : '<span class="tag ng">未監修</span>') +
     (c.verified ? '<span class="tag ok">YJ照合済(' + (c.yj7List || []).length + ')</span>' : '<span class="tag ng">YJ未照合</span>');
 
   return '<div class="card">' +
@@ -616,304 +620,6 @@ loadMaster();
 </script></body></html>`;
 }
 // === 🦀休薬チェッカー: ページ生成関数 (ここまで) ===
-
-// === 🦀休薬チェッカー: 判定画面 生成関数 (ここから) ===
-function kyuyakuCheckerPage(hId) {
-  return `<!DOCTYPE html><html lang="ja"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>休薬チェッカー 🦀 メディカニ</title>
-<link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani-icon.png">
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; background: #f4f7f9; color: #333; padding-bottom: 40px; }
-  .header { background: linear-gradient(135deg, #0d3b8f, #0a2e70); color: #fff; padding: 14px 16px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
-  .header h1 { font-size: 17px; }
-  .header .sub { font-size: 11px; opacity: .85; margin-top: 2px; }
-  .wrap { max-width: 720px; margin: 0 auto; padding: 12px; }
-  .banner { background: #fff3cd; border: 1px solid #ffe69c; color: #7a5c00; border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
-  .banner.red { background: #fde8e8; border-color: #f5b5b5; color: #9b1c1c; display: none; }
-  .card { background: #fff; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 14px; margin-bottom: 12px; }
-  .card h2 { font-size: 14px; color: #0d3b8f; margin-bottom: 10px; }
-  .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
-  .tab { border: 1px solid #cfd8e3; background: #f7fafc; color: #888; border-radius: 8px; padding: 7px 10px; font-size: 12px; font-weight: bold; }
-  .tab.active { background: #0d3b8f; color: #fff; border-color: #0d3b8f; }
-  .tab .soon { font-size: 9px; background: #eee; color: #999; border-radius: 6px; padding: 1px 5px; margin-left: 3px; }
-  .srow { display: flex; gap: 6px; }
-  .srow input { flex: 1; border: 1px solid #ccc; border-radius: 10px; padding: 11px; font-size: 15px; }
-  .btn { border: none; border-radius: 10px; padding: 11px 16px; font-size: 14px; font-weight: bold; cursor: pointer; }
-  .btn.navy { background: #0d3b8f; color: #fff; }
-  .btn.red { background: #e85a4f; color: #fff; width: 100%; padding: 14px; font-size: 16px; }
-  .btn.gray { background: #eceff1; color: #555; }
-  .sr { border: 1px solid #e0e6ea; border-radius: 10px; padding: 9px 10px; margin-top: 6px; cursor: pointer; background: #fafcfd; font-size: 13px; }
-  .sr:active { background: #eef4f8; }
-  .sr .sub { font-size: 11px; color: #888; }
-  .hint { font-size: 12px; color: #999; padding: 8px 2px; }
-  .drug { display: flex; align-items: center; gap: 8px; border: 1px solid #dbe4ee; background: #f6f9ff; border-radius: 10px; padding: 9px 10px; margin-top: 6px; }
-  .drug .nm { flex: 1; font-size: 13px; font-weight: bold; }
-  .drug .nm .sub { font-size: 11px; color: #778; font-weight: normal; }
-  .drug button { border: none; background: #ffd6d1; color: #b23a2f; border-radius: 8px; padding: 5px 9px; font-size: 12px; font-weight: bold; }
-  .field { margin-bottom: 10px; }
-  .field label { display: block; font-size: 11px; color: #777; margin-bottom: 4px; font-weight: bold; }
-  .field select, .field input { width: 100%; border: 1px solid #ccc; border-radius: 10px; padding: 11px; font-size: 15px; background: #fff; }
-  .catdesc { font-size: 11px; color: #888; margin-top: 4px; }
-  .summary { border-radius: 12px; padding: 14px; font-size: 15px; font-weight: bold; margin-bottom: 12px; }
-  .summary.s-red { background: #fde8e8; color: #9b1c1c; border: 1px solid #f5b5b5; }
-  .summary.s-amber { background: #fff3cd; color: #7a5c00; border: 1px solid #ffe69c; }
-  .summary.s-green { background: #d4edda; color: #155724; border: 1px solid #b8dfc2; }
-  .rcard { background: #fff; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 13px; margin-bottom: 10px; border-left: 6px solid #ccc; }
-  .rcard.a-stop { border-left-color: #c0392b; }
-  .rcard.a-consult { border-left-color: #b96b00; }
-  .rcard.a-continue { border-left-color: #1e7e34; }
-  .rcard .dname { font-weight: bold; font-size: 15px; }
-  .rcard .comp { font-size: 11px; color: #0056b3; background: #e3f2fd; border: 1px solid #bbdefb; border-radius: 4px; padding: 1px 6px; display: inline-block; margin: 4px 0; }
-  .abadge { display: inline-block; font-size: 13px; font-weight: bold; border-radius: 8px; padding: 3px 10px; margin: 4px 0; }
-  .abadge.a-stop { background: #c0392b; color: #fff; }
-  .abadge.a-consult { background: #b96b00; color: #fff; }
-  .abadge.a-continue { background: #1e7e34; color: #fff; }
-  .stopdate { font-size: 16px; font-weight: bold; color: #c0392b; margin: 4px 0; }
-  .rl { font-size: 12px; color: #555; line-height: 1.7; }
-  .srcbadge { font-size: 10px; border-radius: 8px; padding: 2px 7px; }
-  .srcbadge.fac { background: #e85a4f; color: #fff; }
-  .srcbadge.def { background: #eee; color: #666; }
-  .notes { background: #fff; border: 1px dashed #cbb; border-radius: 12px; padding: 12px; font-size: 11px; color: #86482c; line-height: 1.8; margin-bottom: 12px; }
-  .misslist { font-size: 12px; color: #667; line-height: 1.8; }
-  @media print {
-    .no-print { display: none !important; }
-    body { background: #fff; padding: 0; }
-    .rcard, .card, .summary, .notes { box-shadow: none; border: 1px solid #ccc; page-break-inside: avoid; }
-    .header { background: #fff; color: #000; box-shadow: none; border-bottom: 2px solid #000; }
-  }
-</style></head><body>
-
-<div class="header">
-  <h1>💊 メディカニ 休薬チェッカー</h1>
-  <div class="sub">施設ID: ${hId} ／ 術前・検査前 持参薬スクリーニング</div>
-</div>
-
-<div class="wrap">
-
-  <!-- STEP1: 薬の入力 -->
-  <div class="card no-print">
-    <h2>① お薬の入力</h2>
-    <div class="tabs">
-      <div class="tab active">🔍 検索して追加</div>
-      <div class="tab">📷 QR読み取り<span class="soon">準備中</span></div>
-      <div class="tab">🖼 OCR読み取り<span class="soon">準備中</span></div>
-    </div>
-    <div class="srow">
-      <input id="searchBox" placeholder="薬品名で検索（2文字以上）" onkeydown="if(event.key==='Enter'){doSearch();}">
-      <button class="btn navy" onclick="doSearch()">検索</button>
-    </div>
-    <div id="searchResults"></div>
-    <div id="drugList" style="margin-top:10px;"></div>
-  </div>
-
-  <!-- STEP2: 処置の選択 -->
-  <div class="card no-print">
-    <h2>② 処置と予定日</h2>
-    <div class="field">
-      <label>処置の分類</label>
-      <select id="catSelect" onchange="updateCatDesc()"></select>
-      <div class="catdesc" id="catDesc"></div>
-    </div>
-    <div class="field">
-      <label>手術・検査の予定日（入れると休薬開始日を日付で表示します）</label>
-      <input type="date" id="opDate">
-    </div>
-    <button class="btn red" onclick="judge()">🦀 休薬判定する</button>
-  </div>
-
-  <!-- 結果 -->
-  <div id="resultArea" style="display:none;">
-    <div class="card" style="border-left:6px solid #0d3b8f;">
-      <h2>判定結果</h2>
-      <div class="rl" id="resultMeta"></div>
-    </div>
-    <div id="resultSummary"></div>
-    <div id="resultCards"></div>
-    <div class="card" id="missCard" style="display:none;">
-      <h2>休薬マスタに該当のなかったお薬</h2>
-      <div class="misslist" id="missList"></div>
-      <div class="hint">※「該当なし」はこのマスタに登録がないという意味で、休薬不要を保証するものではありません。</div>
-    </div>
-    <div class="notes">
-      ⚠️ 本結果は<b>参考情報</b>です。休薬の最終判断は必ず<b>医師・薬剤師（処方元）</b>にご確認ください。<br>
-      ⚠️ お薬手帳に記載のないお薬・市販薬・サプリメント（EPA、イチョウ葉など）は検出できません。<br>
-      🔒 入力された内容はこの端末内で判定され、サーバーには保存されません。
-    </div>
-    <div class="no-print" style="display:flex; gap:8px;">
-      <button class="btn navy" style="flex:1;" onclick="window.print()">🖨 印刷 / PDF保存</button>
-      <button class="btn gray" onclick="resetAll()">はじめから</button>
-    </div>
-  </div>
-</div>
-
-<script>
-const HID = "${hId}";
-let DEF = null, OVR = null, comps = [];
-let searchResults = [], drugs = [];
-
-function esc(s) { return String(s == null ? "" : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-async function init() {
-  try {
-    const res = await fetch('/api/kyuyaku/master?h=' + HID);
-    const data = await res.json();
-    DEF = data.def || { categories: [], components: [] };
-    OVR = data.ovr || { components: [] };
-    const ovrMap = {};
-    (OVR.components || []).forEach(function(c){ ovrMap[c.id] = c; });
-    const defIds = new Set((DEF.components || []).map(function(c){ return c.id; }));
-    comps = (DEF.components || []).map(function(c){
-      return ovrMap[c.id] ? Object.assign({}, ovrMap[c.id], { _ovr: true }) : Object.assign({}, c, { _ovr: false });
-    });
-    Object.values(ovrMap).forEach(function(c){ if (!defIds.has(c.id)) comps.push(Object.assign({}, c, { _ovr: true })); });
-    const sel = document.getElementById('catSelect');
-    sel.innerHTML = (DEF.categories || []).map(function(c){
-      return '<option value="' + esc(c.id) + '">' + esc(c.label) + '</option>';
-    }).join('');
-    updateCatDesc();
-  } catch (e) {
-    alert('休薬マスタの読み込みに失敗しましたカニ🦀💦 通信環境を確認してください');
-  }
-}
-function updateCatDesc() {
-  const id = document.getElementById('catSelect').value;
-  const c = (DEF && DEF.categories || []).find(function(x){ return x.id === id; });
-  document.getElementById('catDesc').textContent = c ? (c.desc || '') : '';
-}
-
-// --- 検索して追加 ---
-async function doSearch() {
-  const q = document.getElementById('searchBox').value.trim();
-  if (q.length < 2) { alert('2文字以上で入力してくださいカニ🦀'); return; }
-  const box = document.getElementById('searchResults');
-  box.innerHTML = '<div class="hint">検索中…🦀</div>';
-  try {
-    const res = await fetch('/api/search?c=all&q=' + encodeURIComponent(q) + '&h=' + HID);
-    const data = await res.json();
-    searchResults = Array.isArray(data) ? data.slice(0, 20) : [];
-    if (!searchResults.length) { box.innerHTML = '<div class="hint">見つかりませんでしたカニ🦀💦 名前を変えて試してみてください</div>'; return; }
-    box.innerHTML = searchResults.map(function(d, i) {
-      return '<div class="sr" onclick="addDrug(' + i + ')"><b>' + esc(d.name || '') + '</b> <span class="sub">' + esc(d.spec || '') + '</span><div class="sub">成分: ' + esc(d.component || '—') + '</div></div>';
-    }).join('');
-  } catch (e) { box.innerHTML = '<div class="hint">検索エラーですカニ🦀💦</div>'; }
-}
-function addDrug(i) {
-  const d = searchResults[i];
-  if (!d) return;
-  if (drugs.some(function(x){ return x.key === d.key; })) { alert('すでに追加済みですカニ🦀'); return; }
-  drugs.push(d);
-  document.getElementById('searchBox').value = '';
-  document.getElementById('searchResults').innerHTML = '';
-  renderDrugs();
-}
-function removeDrug(i) { drugs.splice(i, 1); renderDrugs(); }
-function renderDrugs() {
-  const el = document.getElementById('drugList');
-  el.innerHTML = drugs.length
-    ? '<div class="hint">追加したお薬（' + drugs.length + '件）— タップで削除できます</div>' + drugs.map(function(d, i) {
-        return '<div class="drug"><div class="nm">' + esc(d.name || '') + ' <span class="sub">' + esc(d.spec || '') + '</span><br><span class="sub">' + esc(d.component || '') + '</span></div><button onclick="removeDrug(' + i + ')">削除</button></div>';
-      }).join('')
-    : '<div class="hint">まだお薬が追加されていません</div>';
-}
-
-// --- 判定（すべてこの端末内で実行。サーバーには送信しません） ---
-function fmtDate(dt) {
-  const w = ['日','月','火','水','木','金','土'];
-  return (dt.getMonth() + 1) + '月' + dt.getDate() + '日(' + w[dt.getDay()] + ')';
-}
-function judge() {
-  if (!comps.length) { alert('休薬マスタが読み込めていませんカニ🦀 再読み込みしてください'); return; }
-  if (!drugs.length) { alert('お薬を1件以上追加してくださいカニ🦀'); return; }
-  const catId = document.getElementById('catSelect').value;
-  const cat = (DEF.categories || []).find(function(x){ return x.id === catId; });
-  const opStr = document.getElementById('opDate').value;
-  const opDate = opStr ? new Date(opStr + 'T00:00:00') : null;
-
-  const hits = [], misses = [];
-  drugs.forEach(function(d) {
-    const yj7 = String(d.yj || '').substring(0, 7);
-    let c = comps.find(function(x){ return (x.yj7List || []).includes(yj7); });
-    if (!c) {
-      const t = (d.component || '') + ' ' + (d.name || '');
-      c = comps.find(function(x){ return (x.nameKeys || []).some(function(k){ return k && t.includes(k); }); });
-    }
-    if (c) hits.push({ d: d, c: c }); else misses.push(d);
-  });
-
-  // メタ情報
-  const now = new Date();
-  document.getElementById('resultMeta').innerHTML =
-    '処置分類: <b>' + esc(cat ? cat.label : catId) + '</b><br>' +
-    '予定日: <b>' + (opDate ? esc(opStr) + '（' + fmtDate(opDate) + '）' : '未入力') + '</b><br>' +
-    '判定日時: ' + now.toLocaleString('ja-JP') + ' ／ 入力薬 ' + drugs.length + '件';
-
-  // サマリー
-  let nStop = 0, nConsult = 0;
-  hits.forEach(function(h) {
-    const r = (h.c.rules || {})[catId] || { action: 'consult' };
-    if (r.action === 'stop') nStop++;
-    else if (r.action === 'consult') nConsult++;
-  });
-  const sm = document.getElementById('resultSummary');
-  if (nStop) sm.innerHTML = '<div class="summary s-red">🔴 休薬が必要なお薬が ' + nStop + '件あります' + (nConsult ? '（照会 ' + nConsult + '件）' : '') + '</div>';
-  else if (nConsult) sm.innerHTML = '<div class="summary s-amber">🟡 処方元への照会が必要なお薬が ' + nConsult + '件あります</div>';
-  else sm.innerHTML = '<div class="summary s-green">🟢 休薬・照会に該当するお薬はありませんでした</div>';
-
-  // 各カード
-  document.getElementById('resultCards').innerHTML = hits.map(function(h) {
-    const r = (h.c.rules || {})[catId] || { action: 'consult', days: null, comment: '分類未設定のため処方元へ照会してください' };
-    const actLabel = { continue: '継続可', stop: '休薬', consult: '処方元に照会' }[r.action] || r.action;
-    let dateLine = '';
-    if (r.action === 'stop') {
-      if (r.days == null) dateLine = '<div class="stopdate">休薬日数未設定（処方元に確認）</div>';
-      else if (opDate) {
-        const st = new Date(opDate); st.setDate(st.getDate() - r.days);
-        dateLine = '<div class="stopdate">' + fmtDate(st) + (r.days === 0 ? '（当日）' : '') + ' から休薬</div>';
-      } else {
-        dateLine = '<div class="stopdate">' + (r.days === 0 ? '当日から休薬' : r.days + '日前から休薬') + '</div>';
-      }
-    }
-    return '<div class="rcard a-' + esc(r.action) + '">' +
-      '<div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start;">' +
-        '<div class="dname">' + esc(h.d.name || '') + '</div>' +
-        '<span class="srcbadge ' + (h.c._ovr ? 'fac' : 'def') + '">' + (h.c._ovr ? '施設プロトコル' : '共通デフォルト') + '</span>' +
-      '</div>' +
-      '<span class="comp">' + esc(h.c.component || '') + '（' + esc(h.c.class || '') + '）</span><br>' +
-      '<span class="abadge a-' + esc(r.action) + '">' + esc(actLabel) + '</span>' +
-      dateLine +
-      (r.comment ? '<div class="rl">💬 ' + esc(r.comment) + '</div>' : '') +
-      (h.c.resume ? '<div class="rl">🔄 再開の目安: ' + esc(h.c.resume) + '</div>' : '') +
-    '</div>';
-  }).join('');
-
-  // 非該当
-  const mc = document.getElementById('missCard');
-  if (misses.length) {
-    mc.style.display = 'block';
-    document.getElementById('missList').innerHTML = misses.map(function(d) {
-      return '・' + esc(d.name || '') + '（' + esc(d.component || '—') + '）';
-    }).join('<br>');
-  } else { mc.style.display = 'none'; }
-
-  document.getElementById('resultArea').style.display = 'block';
-  document.getElementById('resultArea').scrollIntoView({ behavior: 'smooth' });
-}
-function resetAll() {
-  drugs = []; searchResults = [];
-  renderDrugs();
-  document.getElementById('searchResults').innerHTML = '';
-  document.getElementById('resultArea').style.display = 'none';
-  document.getElementById('opDate').value = '';
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-renderDrugs();
-init();
-</script></body></html>`;
-}
-// === 🦀休薬チェッカー: 判定画面 生成関数 (ここまで) ===
 
 // === 🦀メディカニ鑑別（持参薬サポート）: ページ生成関数 (ここから) ===
 function jisanPage(hId, hospitalName) {
@@ -1169,6 +875,1285 @@ function jisanPage(hId, hospitalName) {
 }
 // === 🦀メディカニ鑑別: ページ生成関数 (ここまで) ===
 
+// === 🦀持参薬鑑別: KV照合ヘルパー（薬品名の配列→マスタ/採用とマッチング） (ここから) ===
+async function kanbetsuMatchNames(names, hId, env) {
+  // 正規化: 手動で全角英数・記号→半角に変換してから NFKC・大文字化・空白除去
+  // ※マスタの薬品名は数字が全角（０．５ｍｇ等）なので、NFKCが効かない環境でも確実に揃うよう二重に変換する
+  const z2h = (s) => String(s || "")
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    .replace(/．/g, ".").replace(/，/g, ",").replace(/％/g, "%")
+    .replace(/｢/g, "「").replace(/｣/g, "」");
+  const norm = (s) => z2h(s).normalize("NFKC").toUpperCase().replace(/\s+/g, "");
+  // キーから薬品名部分を取り出す（採用キーは hId_ を剥がし、[カテゴリ]の後〜最初の_まで）
+  const keyName = (k, isAdopted) => {
+    let s = isAdopted ? k.substring(hId.length + 1) : k;
+    const m = s.match(/^\[(内|外|注)\]([^_]+)/);
+    return m ? m[2] : "";
+  };
+
+  // マスタ3カテゴリ＋施設の採用薬キーを1回だけ全リスト
+  let masterKeys = [];
+  let adoptedKeys = [];
+  for (const c of ["[内]", "[外]", "[注]"]) {
+    let mCursor = "";
+    do {
+      const list = await env.MEDI_KV.list({ prefix: c, limit: 1000, cursor: mCursor || undefined });
+      masterKeys.push(...list.keys.map(k => k.name));
+      mCursor = list.list_complete ? "" : list.cursor;
+    } while (mCursor);
+    if (hId) {
+      let aCursor = "";
+      do {
+        const list = await env.MEDI_KV.list({ prefix: `${hId}_${c}`, limit: 1000, cursor: aCursor || undefined });
+        adoptedKeys.push(...list.keys.map(k => k.name));
+        aCursor = list.list_complete ? "" : list.cursor;
+      } while (aCursor);
+    }
+  }
+  const adoptedYJset = new Set(adoptedKeys.map(k => { const t = k.split("_").pop(); return t; }));
+
+  // 🌟規格(用量)を名前から取り出す: 「エチゾラム錠0.5MG「NP」」→「0.5MG」。無ければ空文字
+  const doseOf = (s) => {
+    const m = String(s || "").match(/([0-9]+(?:\.[0-9]+)?)(MG|ΜG|MCG|G|ML|%)/);
+    return m ? (m[1] + m[2]) : "";
+  };
+  // 🌟メーカー名「〇〇」を名前から取り出す: 「…「トーワ」」→「トーワ」。無ければ空文字
+  const makerOf = (s) => {
+    const m = String(s || "").match(/「([^」]+)」/);
+    return m ? m[1] : "";
+  };
+
+  // 事前に正規化名リストを作っておく（毎クエリで再計算しない）
+  const masterIndex = masterKeys.map(k => { const n = norm(keyName(k, false)); return { k: k, n: n, dose: doseOf(n), maker: makerOf(n), adopted: false }; });
+  const adoptedIndex = adoptedKeys.map(k => { const n = norm(keyName(k, true)); return { k: k, n: n, dose: doseOf(n), maker: makerOf(n), adopted: true }; });
+  const allIndex = [...adoptedIndex, ...masterIndex];
+
+  const results = [];
+  for (const rawName of names) {
+    const qn = norm(rawName);
+    if (qn.length < 2) { results.push({ found: false }); continue; }
+    const qDose = doseOf(qn);
+    const qMaker = makerOf(qn);
+    // メーカー名を除いた版（「トーワ」付きで完全一致が無い時の再挑戦用）
+    const qnNoMaker = qn.replace(/「[^」]*」/g, "");
+
+    // スコアリング: 規格ガード → 採用優先 → 一致の強さ → 規格一致/メーカー一致の加点 → 名前の長さ
+    let best = null;
+    let bestScore = 0;
+    for (const e of allIndex) {
+      if (!e.n) continue;
+      // 🌟規格ガード: クエリと候補の両方に規格があり、それが違うなら候補から除外する。
+      //   （0.5mgの薬が1mgに化けるのは調剤事故に直結するため、規格違いは絶対にマッチさせない）
+      if (qDose && e.dose && qDose !== e.dose) continue;
+      let s = 0;
+      if (e.n === qn) s = 500;
+      else if (e.n.includes(qn)) s = 300;
+      else if (qn.includes(e.n)) s = 200;
+      else if (e.n.includes(qnNoMaker) && qnNoMaker.length >= 4) s = 250;
+      else if (qDose && e.dose && qDose === e.dose && e.n.substring(0, 4) === qn.substring(0, 4)) s = 150;
+      else if (qn.length >= 6 && e.n.startsWith(qn.substring(0, 6))) s = 100;
+      if (s === 0) continue;
+      if (e.adopted) s += 1000;
+      if (qDose && e.dose && qDose === e.dose) s += 150;  // 🌟同じ規格なら加点
+      if (qMaker && e.maker && qMaker === e.maker) s += 80; // 🌟同じメーカー「」なら加点
+      s += Math.min(e.n.length, 50);
+      if (s > bestScore) { bestScore = s; best = e; }
+    }
+    if (!best) { results.push({ found: false }); continue; }
+
+    // ベスト1件のvalueを取得して詳細情報を組み立てる
+    const val = await env.MEDI_KV.get(best.k);
+    if (!val) { results.push({ found: false }); continue; }
+    let parts = String(val).split(/[,\uFF0C]/);
+    const yj = getBestYJ(best.k, parts);
+    const isAdopted = best.adopted || (yj && adoptedYJset.has(yj));
+    // 採用キーだった場合はマスタ情報で上書きして先発マーク・薬価を復活（通常検索と同じ）
+    if (best.adopted && yj && yj !== "NONE") {
+      const masterKey = masterKeys.find(k => k.endsWith(`_${yj}`) || k.endsWith(yj));
+      if (masterKey) {
+        const mVal = await env.MEDI_KV.get(masterKey);
+        if (mVal) {
+          const mParts = String(mVal).split(/[,\uFF0C]/);
+          const mYjIdx = mParts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
+          if (mYjIdx !== -1) parts = mParts.slice(0, mYjIdx + 1);
+        }
+      }
+    }
+    const extracted = extractDrugData(parts, yj);
+    const isBrand = parts.some(p => String(p).includes("先発"));
+    results.push({ found: true, key: best.k, name: extracted.name, spec: extracted.spec, price: extracted.price, isBrand: isBrand, isAdopted: isAdopted, yj: yj });
+  }
+  return results;
+}
+// === 🦀持参薬鑑別: KV照合ヘルパー (ここまで) ===
+
+// === 🦀持参薬鑑別(開発版): ページ生成関数 (ここから) ===
+function kanbetsuPage(hId, hospitalName) {
+  const facilityBadge = hospitalName
+    ? '<div style="display:inline-block; background:#fff; color:#d63384; font-size:12px; font-weight:bold; padding:4px 14px; border-radius:20px; border:1.5px solid #ffb6c1; margin-top:8px;">🏥 ' + hospitalName + '</div>'
+    : '';
+  return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
+<title>持参薬鑑別 | メディカニ（開発版）</title>
+<style>
+  :root { --pink:#d63384; --bg:#fffaf5; }
+  * { box-sizing:border-box; }
+  body { font-family:'Hiragino Kaku Gothic ProN','Meiryo',sans-serif; background:var(--bg); margin:0; padding:0; color:#333; }
+  .header { background:#ffe4e1; text-align:center; padding:22px 15px 18px; border-bottom:2px solid #ffd1dc; }
+  .header h1 { margin:0; font-size:20px; color:var(--pink); }
+  .header .sub { font-size:12px; color:#a58; margin-top:4px; }
+  .container { max-width:600px; margin:0 auto; padding:15px; }
+  .search-box { background:#fff; border:1.5px solid #ffd1dc; border-radius:15px; padding:15px; margin-top:10px; box-shadow:0 2px 8px rgba(214,51,132,0.06); }
+  .search-row { display:flex; gap:8px; }
+  #kokuin { flex:1; min-width:0; padding:13px 14px; font-size:16px; border:1.5px solid #ddd; border-radius:12px; outline:none; }
+  #kokuin:focus { border-color:var(--pink); }
+  #btnSearch { padding:13px 20px; background:var(--pink); color:#fff; border:none; border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; white-space:nowrap; }
+  #btnSearch:active { transform:scale(0.97); }
+  .hint { font-size:11px; color:#999; margin-top:8px; line-height:1.6; }
+  .notice { background:#fff8e1; border:1px solid #ffe082; border-radius:10px; padding:10px 12px; font-size:11px; color:#8a6d3b; line-height:1.6; margin-top:12px; }
+  #status { text-align:center; font-size:13px; color:#888; margin:18px 0 8px; }
+  /* ▼ メイン検索と同じカード・タグの見た目 */
+  .card { background: #fff; border-radius: 15px; padding: 16px; margin-bottom: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.03); border-left: 6px solid #ccc; transition: transform 0.1s; }
+  .card[data-key] { cursor: pointer; }
+  .card[data-key]:active { transform: scale(0.98); }
+  .card.adopted { border-left-color: #28a745; }
+  .tag { font-size: 11px; padding: 4px 10px; border-radius: 20px; background: #eee; font-weight: bold; white-space: nowrap; display: inline-block; }
+  .tag.green { background: #d1ffd1; color: #155724; }
+  .tag.red { background: #ffebeb; color: #dc3545; border: 1px solid #ffcdd2; }
+  .tag.blue { background: #e3f2fd; color: #0d47a1; border: 1px solid #bbdefb; }
+  /* ▼ 刻印行と画像検索ボタン */
+  .code-row { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:10px; }
+  .code-chip { background:#fdf2f7; color:var(--pink); border:1px dashed #f3a9c9; border-radius:8px; padding:3px 10px; font-size:13px; font-weight:bold; letter-spacing:0.5px; word-break:break-all; }
+  .btn-img { flex-shrink:0; background:#e8f5e9; color:#1b5e20; border:1px solid #a5d6a7; border-radius:10px; padding:6px 12px; font-size:12px; font-weight:bold; cursor:pointer; white-space:nowrap; }
+  .btn-img:active { transform:scale(0.96); }
+  .tap-hint { font-size:11px; color:#bbb; margin-top:8px; }
+  .pmda-link { display:inline-block; margin-top:8px; font-size:12px; color:#0056b3; text-decoration:none; border-bottom:1px dotted #0056b3; }
+  .no-results { text-align: center; padding: 40px 20px; color: #777; font-size: 15px; line-height: 1.6; }
+  .footer { text-align:center; font-size:10px; color:#c9a9b8; padding:25px 15px 30px; line-height:1.8; }
+  /* ▼ 詳細モーダル（メインのお薬詳細と同じ雰囲気） */
+  #modalOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(3px); display: none; z-index: 1000; justify-content: center; align-items: center; }
+  .modal { background: #fff; width: 92%; max-width: 400px; border-radius: 24px; padding: 25px; position: relative; overflow-y: auto; max-height: 85vh; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+  .modal-close { position: absolute; top: 12px; right: 16px; font-size: 22px; color: #bbb; cursor: pointer; background: none; border: none; line-height: 1; }
+  .alt-item { display: block; padding: 10px 12px; margin-bottom: 8px; border-radius: 10px; font-size: 13px; background: #f8f9fa; text-decoration: none; color: #444; border: 1px solid #eee; cursor: pointer; transition: background 0.2s; }
+  .alt-item:active { background: #e9ecef; }
+  .alt-item.adopted { background: #f2fff2; border-color: #d1ffd1; }
+  .alt-item.adopted:active { background: #e2ffe2; }
+  /* ▼ 持参薬鑑別(開発版) 追加分 */
+  .ocr-row { display:flex; gap:8px; margin-top:12px; }
+  .btn-ocr { flex:1; padding:14px 10px; background:#d63384; color:#fff; border:none; border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; }
+  .btn-ocr:active { transform:scale(0.97); }
+  .btn-phone { flex:1; padding:14px 10px; background:#e9ecef; color:#adb5bd; border:1px solid #dee2e6; border-radius:12px; font-weight:bold; font-size:13px; cursor:not-allowed; }
+  /* ▼ 💊裸錠まとめ撮り→刻印OCR 追加分 */
+  .btn-kokuin { width:100%; margin-top:8px; padding:14px 10px; background:#fff; color:var(--pink); border:2px solid var(--pink); border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; }
+  .btn-kokuin:active { transform:scale(0.97); }
+  #kokuinChips { display:none; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .kchip { display:inline-block; background:#fff; border:1.5px solid var(--pink); color:var(--pink); border-radius:20px; padding:9px 14px; font-size:14px; font-weight:bold; cursor:pointer; line-height:1.2; }
+  .kchip:active { transform:scale(0.96); }
+  .kchip.low { border-style:dashed; border-color:#e0a800; color:#b8860b; }
+  .kchip.used { background:#f2fff2; border-color:#a5d6a7; color:#2e7d32; }
+  .kchip.noimp { background:#f5f5f5; border-color:#bbb; border-style:dashed; color:#888; cursor:pointer; }
+  .btn-addmed { width:100%; margin-top:8px; padding:13px 10px; background:#f0fafd; color:#00838f; border:1.5px dashed #4dd0e1; border-radius:12px; font-weight:bold; font-size:13px; cursor:pointer; }
+  .btn-addmed:active { transform:scale(0.97); }
+  .kchip .knote { font-size:10px; font-weight:normal; color:#999; margin-left:4px; }
+  /* ▼ kpモーダル（刻印からお薬を特定）の入力欄・検索ボタンを大きく */
+  #kpQ { font-size:19px !important; font-weight:bold; padding:12px 10px !important; letter-spacing:0.5px; flex:1 1 auto; min-width:0 !important; width:auto !important; box-sizing:border-box; }
+  #kpSearchBtn { font-size:16px !important; font-weight:bold; padding:12px 16px !important; flex:0 0 auto; white-space:nowrap; }
+  .jlist-title { font-weight:bold; font-size:14px; color:#555; margin:18px 0 10px; }
+  .jitem { background:#fff; border-radius:15px; padding:14px 16px; margin-bottom:12px; box-shadow:0 4px 10px rgba(0,0,0,0.03); border-left:6px solid #ccc; position:relative; }
+  .jitem.adopted { border-left-color:#28a745; }
+  .jitem.unmatched { border-left-color:#ffc107; background:#fffdf5; }
+  .jitem .del { position:absolute; top:8px; right:10px; background:none; border:none; color:#ccc; font-size:16px; cursor:pointer; padding:4px; }
+  .usage-line { font-size:13px; color:#555; margin-top:8px; background:#f8f9fa; border:1px dashed #ddd; border-radius:8px; padding:7px 10px; cursor:pointer; }
+  .usage-line .lbl { color:#0d6efd; font-weight:bold; font-size:11px; }
+  .ocr-src { font-size:10px; color:#bbb; margin-top:6px; }
+  .name-edit { cursor:pointer; text-decoration:underline dotted #ffc107; }
+  #editModalOverlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; z-index:3000; justify-content:center; align-items:center; }
+  .edit-modal { background:#fff; width:90%; max-width:380px; border-radius:20px; padding:20px; }
+  .edit-modal textarea { width:100%; min-height:70px; padding:10px; font-size:15px; border:1.5px solid #ddd; border-radius:10px; outline:none; box-sizing:border-box; }
+  .edit-modal textarea:focus { border-color:#d63384; }
+  .edit-btns { display:flex; gap:8px; margin-top:12px; }
+  .edit-btns button { flex:1; padding:11px; border:none; border-radius:10px; font-weight:bold; font-size:14px; cursor:pointer; }
+  #pickerOverlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; z-index:1200; justify-content:center; align-items:center; }
+  .picker-modal { background:#fff; width:92%; max-width:400px; border-radius:20px; padding:18px; max-height:85vh; overflow-y:auto; }
+  .picker-cats { display:flex; gap:6px; margin-bottom:10px; }
+  .picker-cats button { flex:1; padding:8px 4px; border-radius:10px; font-size:12px; font-weight:bold; cursor:pointer; border:1.5px dashed #4dd0e1; background:#f0fafd; color:#00838f; }
+  .picker-cats button.on { background:#4dd0e1; border-style:solid; color:#fff; }
+  .picker-row { display:flex; gap:6px; }
+  #pickerQ { flex:1; min-width:0; padding:11px 12px; font-size:15px; border:1.5px solid #ddd; border-radius:10px; outline:none; }
+  #pickerQ:focus { border-color:#d63384; }
+  #pickerSearchBtn { padding:11px 14px; background:#d63384; color:#fff; border:none; border-radius:10px; font-weight:bold; cursor:pointer; white-space:nowrap; }
+  .pick-item { background:#f8f9fa; border:1px solid #eee; border-radius:12px; padding:11px 12px; margin-top:8px; cursor:pointer; }
+  .pick-item.adopted { background:#f2fff2; border-color:#d1ffd1; }
+  .pick-item:active { background:#e9ecef; }
+  .decide-box { border:1.5px solid #eee; border-radius:12px; padding:10px 12px; margin-top:10px; background:#fafafa; }
+  .decide-box.keep { border-color:#c8e6c9; background:#f2fff2; }
+  .decide-box.switch { border-color:#ffd9a8; background:#fff8f0; }
+  .decide-label { font-weight:bold; font-size:13px; cursor:pointer; text-decoration:underline dotted; }
+  .decide-box.keep .decide-label { color:#28a745; }
+  .decide-box.switch .decide-label { color:#e65100; }
+  .btn-report { width:100%; margin-top:14px; padding:15px; background:#00838f; color:#fff; border:none; border-radius:12px; font-weight:bold; font-size:15px; cursor:pointer; }
+  .btn-report:active { transform:scale(0.98); }
+  #reportView { position:fixed; top:0; left:0; width:100%; height:100%; background:#fffaf5; z-index:2000; display:none; overflow-y:auto; }
+  .rv-inner { max-width:640px; margin:0 auto; padding:7px 14px 20px; }
+  .rv-btns { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:5px; }
+  .rv-btns button { padding:12px 4px; border:none; border-radius:12px; font-weight:bold; font-size:13px; cursor:pointer; }
+  .rv-head { background:#ffe4e1; border:2px solid #ffd1dc; border-radius:14px; text-align:center; padding:4px 10px; margin-bottom:4px; }
+  .rv-kani { width:30px; height:30px; vertical-align:middle; margin-right:7px; }
+  .rv-title { font-size:16px; font-weight:bold; color:#d63384; letter-spacing:1px; vertical-align:middle; }
+  .rv-metabox { background:#fff; border:1.5px solid #ffd1dc; border-radius:10px; padding:4px 10px; margin-bottom:4px; font-size:12px; color:#333; line-height:1.5; }
+  .rv-editrow { cursor:pointer; background:#fdf7fa; border:1.5px dashed #f3a9c9; border-radius:8px; padding:5px 10px; margin-top:3px; font-size:12px; }
+  .rv-edithint { font-size:10px; color:#d63384; }
+  .rv-card { background:#fff; border-radius:10px; padding:5px 10px; margin-bottom:3px; border-left:5px solid #ccc; box-shadow:0 1px 3px rgba(0,0,0,0.04); font-size:12px; color:#222; }
+  .rv-card.keep { border-left-color:#28a745; }
+  .rv-card.switch { border-left-color:#fd7e14; }
+  .rv-card.undecided { border-left-color:#adb5bd; }
+  .rv-card.unmatched { border-left-color:#ffc107; background:#fffdf5; }
+  .rv-lbl { display:inline-block; font-size:10px; font-weight:bold; padding:2px 8px; border-radius:10px; margin-right:6px; vertical-align:middle; }
+  .rv-lbl.src { background:#e3f2fd; color:#0d47a1; }
+  .rv-lbl.keep { background:#d1ffd1; color:#155724; }
+  .rv-lbl.switch { background:#ffe6cc; color:#b35900; }
+  .rv-dname { font-weight:bold; font-size:13px; line-height:1.45; }
+  .rv-usage { font-size:11px; color:#555; margin-top:1px; margin-left:4px; }
+  .rv-dst { margin-top:3px; padding-top:3px; border-top:1px dashed #eee; }
+  .rv-undecided { font-size:11px; color:#999; margin-top:4px; }
+  .rv-note { font-size:9px; color:#999; margin-top:4px; line-height:1.5; text-align:center; }
+  .rv-footer { text-align:center; margin-top:4px; padding:4px 10px; background:#fff0f5; border-radius:10px; }
+  .rv-footer .t1 { font-size:12px; font-weight:bold; color:#d63384; }
+  .rv-footer .fac { font-size:11px; font-weight:bold; color:#a05070; margin-left:8px; }
+  .rv-footer .t2 { font-size:9px; color:#aa8899; margin-top:2px; }
+  @media print {
+    body > *:not(#reportView) { display:none !important; }
+    body { background:#fff !important; height:auto !important; }
+    #reportView { display:block !important; position:static !important; width:auto; height:auto !important; overflow:visible !important; background:#fff; }
+    .no-print { display:none !important; }
+    .rv-editrow { border:none; background:none; padding:3px 0; }
+    .rv-edithint { display:none; }
+    .rv-card { box-shadow:none; border:1px solid #eee; page-break-inside:avoid; }
+    .rv-card.keep { border-left:5px solid #28a745; }
+    .rv-card.switch { border-left:5px solid #fd7e14; }
+    .rv-card.undecided { border-left:5px solid #adb5bd; }
+    .rv-card.unmatched { border-left:5px solid #ffc107; }
+    * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+  }
+</style></head>
+<body>
+  <div class="header">
+    <h1>📋 持参薬鑑別 <span style="font-size:11px; color:#a58; font-weight:normal;">開発版</span></h1>
+    <div class="sub">お薬手帳のOCRと刻印検索で持参薬を鑑別するツールですカニ🦀</div>
+    ${facilityBadge}
+  </div>
+  <div class="container">
+    <div class="search-box">
+      <div class="search-row">
+        <input type="text" id="kokuin" placeholder="刻印を入力（例：HP211、TA 111）" autocomplete="off">
+        <button id="btnSearch" onclick="doSearch()">🔍 検索</button>
+      </div>
+      <div class="hint">💡 英数字2文字以上で検索できます。大文字小文字・全角半角・スペースの違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。</div>
+    </div>
+    <div class="ocr-row">
+      <button class="btn-ocr" onclick="document.getElementById('ocrFile').click()">📷 手帳OCR（撮影・選択）</button>
+      <button class="btn-phone" disabled>📱 スマホ連携（準備中）</button>
+    </div>
+    <input type="file" id="ocrFile" accept="image/*" multiple style="display:none">
+    <button class="btn-kokuin" onclick="document.getElementById('kokuinFile').click()">💊 裸錠の刻印OCR（まとめ撮り対応）</button>
+    <input type="file" id="kokuinFile" accept="image/*" style="display:none">
+    <div id="kokuinChips"></div>
+    <button class="btn-addmed" onclick="openPickerForAdd(null)">➕ お薬名で検索して追加（刻印なし・手入力用）</button>
+    <div id="ocrStatus" style="text-align:center; font-size:13px; color:#888; margin-top:10px;"></div>
+    <div id="jlistArea" style="display:none;">
+      <div class="jlist-title">📋 持参薬リスト <span id="jlistCount" style="font-weight:normal; color:#999; font-size:12px;"></span></div>
+      <div id="jlist"></div>
+      <button class="btn-report" onclick="openReport()">📄 メディカニ鑑別結果を作成する 🦀</button>
+    </div>
+    <div class="notice">
+      ⚠️ 本ツールはPMDA添付文書の識別コード情報をもとに候補を絞り込む<b>補助ツール</b>です。同じ刻印が複数の製品に該当する場合や、刻印情報が登録されていない製剤もあります。<b>最終的な同定は必ず現物・添付文書でご確認ください。</b>
+    </div>
+    <div id="status"></div>
+    <div id="results"></div>
+  </div>
+  <div class="footer">
+    🦀 メディカニ鑑別（β）<br>© 2026 🐔トリの巣ワークス メディカニ運営事務局
+  </div>
+
+  <div id="modalOverlay"><div class="modal" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeModal()">×</button>
+    <div id="modalBody"></div>
+  </div></div>
+
+  <div id="editModalOverlay"><div class="edit-modal" onclick="event.stopPropagation()">
+    <div id="editModalTitle" style="font-weight:bold; font-size:14px; color:#555; margin-bottom:10px;">✏️ 編集</div>
+    <textarea id="editModalText"></textarea>
+    <div class="edit-btns">
+      <button style="background:#eee; color:#666;" onclick="closeEditModal()">キャンセル</button>
+      <button style="background:#d63384; color:#fff;" onclick="saveEditModal()">保存</button>
+    </div>
+  </div></div>
+
+  <div id="pickerOverlay"><div class="picker-modal" onclick="event.stopPropagation()">
+    <div style="font-weight:bold; font-size:14px; color:#555; margin-bottom:10px;">🔍 メディカニ検索から薬を選ぶ</div>
+    <div class="picker-cats">
+      <button data-pcat="[内]" class="on">💊 内服</button>
+      <button data-pcat="[外]">🩹 外用</button>
+      <button data-pcat="[注]">💉 注射</button>
+    </div>
+    <div class="picker-row">
+      <input type="text" id="pickerQ" placeholder="お薬名（かな・カナ）...">
+      <button id="pickerSearchBtn" onclick="pickerSearch()">検索</button>
+    </div>
+    <div id="pickerStatus" style="text-align:center; font-size:12px; color:#888; margin-top:10px;"></div>
+    <div id="pickerResults"></div>
+    <button style="width:100%; margin-top:12px; padding:11px; background:#eee; color:#666; border:none; border-radius:10px; font-weight:bold; cursor:pointer;" onclick="closePicker()">閉じる</button>
+  </div></div>
+
+  <div id="kpOverlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; z-index:1300; justify-content:center; align-items:center;"><div class="picker-modal" onclick="event.stopPropagation()">
+    <div style="font-weight:bold; font-size:14px; color:#555; margin-bottom:4px;">💊 刻印からお薬を特定</div>
+    <div style="font-size:11px; color:#999; margin-bottom:10px;">読み取った刻印で検索します。文字を直して再検索もできるカニ🦀</div>
+    <div class="picker-row">
+      <input type="text" id="kpQ" placeholder="刻印（例：HP211）" autocomplete="off">
+      <button id="kpSearchBtn" onclick="kpSearch()">検索</button>
+    </div>
+    <div id="kpStatus" style="text-align:center; font-size:12px; color:#888; margin-top:10px;"></div>
+    <div id="kpResults"></div>
+    <button style="width:100%; margin-top:12px; padding:11px; background:#eee; color:#666; border:none; border-radius:10px; font-weight:bold; cursor:pointer;" onclick="closeKp()">閉じる</button>
+  </div></div>
+
+  <div id="reportView"><div class="rv-inner">
+    <div class="rv-btns no-print">
+      <button style="background:#eee; color:#555;" onclick="closeReport()">← 戻る</button>
+      <button style="background:#0d6efd; color:#fff;" onclick="copyReport()">📋 コピー</button>
+      <button style="background:#00838f; color:#fff;" onclick="printReport()">🖨️ 印刷</button>
+      <button style="background:#d63384; color:#fff;" onclick="pdfReport()">📄 PDF</button>
+    </div>
+    <div id="rvHint" class="no-print" style="text-align:center; font-size:11px; color:#888; margin-bottom:10px;"></div>
+    <div id="reportBody"></div>
+  </div></div>
+
+  <script>
+    const HID = "${hId}";
+    const HNAME = "${(hospitalName || '').replace(/"/g, '')}";
+    const inp = document.getElementById('kokuin');
+    inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') doSearch(); });
+    // 🖼️画像検索は委譲、カードタップは詳細モーダルを開く（ボタン優先）
+    document.getElementById('results').addEventListener('click', function(e){
+      const b = e.target.closest('.btn-img');
+      if (b) { openImageSearch(b.getAttribute('data-name') || ''); return; }
+      const c = e.target.closest('.card[data-key]');
+      if (c) openDetail(c.getAttribute('data-key'));
+    });
+    document.getElementById('modalOverlay').addEventListener('click', closeModal);
+
+    function closeModal() { document.getElementById('modalOverlay').style.display = 'none'; }
+
+    // カテゴリ絵文字（キーの[内][外][注]から判定）
+    function formEmoji(key) {
+      if (!key) return '💊';
+      if (key.indexOf('[注]') !== -1) return '💉';
+      if (key.indexOf('[外]') !== -1) return '🧴';
+      return '💊';
+    }
+
+    // 🖼️ 画像検索: Googleイメージ検索を小窓ポップアップで開く（画面遷移しない）
+    // ※Googleはiframe埋め込みを禁止しているため、モーダル内表示は技術的に不可。
+    function openImageSearch(name) {
+      const url = 'https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(name + ' 錠剤');
+      window.open(url, 'kanbetsu_img', 'width=900,height=700,scrollbars=yes');
+    }
+
+    async function doSearch() {
+      const q = inp.value.trim();
+      const st = document.getElementById('status');
+      const res = document.getElementById('results');
+      res.innerHTML = '';
+      if (q.replace(/\s/g,'').length < 2) {
+        st.textContent = '2文字以上入力してくださいカニ🦀';
+        return;
+      }
+      st.textContent = '検索中...🦀';
+      try {
+        const r = await fetch('/api/jisan-search?h=' + encodeURIComponent(HID) + '&q=' + encodeURIComponent(q));
+        const data = await r.json();
+        if (data.error === 'index_not_found') { st.textContent = '刻印データが未登録です。管理者にお問い合わせください。'; return; }
+        if (data.error) { st.textContent = 'エラーが発生しました（' + data.error + '）'; return; }
+        if (!data.results || data.results.length === 0) {
+          st.textContent = '';
+          res.innerHTML = '<div class="no-results">📭 「' + escHtml(q) + '」に一致する刻印は見つかりませんでしたカニ🦀💦<br><span style="font-size:12px;color:#aaa;">刻印の一部だけで再検索してみてね！</span></div>';
+          return;
+        }
+        st.textContent = data.count + '件の候補が見つかりました' + (data.count >= 50 ? '（上位50件を表示。文字を足して絞り込めます）' : '') + 'カニ🦀';
+        let html = '';
+        for (const i of data.results) {
+          const nameForImg = String(i.name || '');
+          html += '<div class="card ' + (i.isAdopted ? 'adopted' : '') + '"' + (i.key ? ' data-key="' + escHtml(i.key) + '"' : '') + '>'
+            + '<div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; font-size:15px; gap:8px;">'
+              + '<div style="flex:1; line-height:1.4;">' + formEmoji(i.key) + ' ' + escHtml(i.name) + '</div>'
+              + '<div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">'
+                + (i.isBrand ? '<span class="tag blue">先</span>' : '')
+                + (i.price && i.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>' + escHtml(i.price) + '</span>' : '')
+                + (i.yj && i.yj.indexOf('8') === 0 ? '<span class="tag red">麻</span>' : '')
+                + (i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>')
+              + '</div>'
+            + '</div>'
+            + (i.spec ? '<div style="font-size:12px; color:#888; margin-top:8px;">📦 ' + escHtml(i.spec) + ' ' + (i.type ? '/ ' + escHtml(i.type) : '') + '</div>' : '')
+            + '<div class="code-row">'
+              + '<span class="code-chip">刻印: ' + escHtml(i.code) + '</span>'
+              + '<button class="btn-img" data-name="' + escHtml(nameForImg) + '">🖼️ 画像検索</button>'
+            + '</div>'
+            + (i.key
+                ? '<div class="tap-hint">👆 タップでお薬詳細・切替候補を表示カニ🦀</div>'
+                : '<a class="pmda-link" href="https://www.pmda.go.jp/PmdaSearch/rdSearch/02/' + escHtml(i.yj) + '?user=1" target="_blank" onclick="event.stopPropagation()">📄 添付文書等のお薬詳細を見る（PMDA公式）</a>')
+            + '</div>';
+        }
+        res.innerHTML = html;
+      } catch (e) {
+        st.textContent = '通信エラーが発生したカニ🦀💦 少し待ってからもう一度お試しください。';
+      }
+    }
+
+    // ===== お薬詳細モーダル（メインのメディカニと同じ内容構成） =====
+    async function openDetail(key) {
+      const ov = document.getElementById('modalOverlay');
+      const body = document.getElementById('modalBody');
+      body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">読み込み中...🦀</div>';
+      ov.style.display = 'flex';
+      try {
+        const r = await fetch('/api/detail?key=' + encodeURIComponent(key) + '&h=' + encodeURIComponent(HID));
+        const d = await r.json();
+        if (!d || d.error) { body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">詳細を取得できませんでしたカニ🦀💦</div>'; return; }
+
+        let html = '';
+        // ヘッダー（薬品名・タグ）
+        html += '<div style="font-weight:bold; font-size:17px; color:#0056b3; line-height:1.4; margin-bottom:8px; padding-right:20px;">' + formEmoji(d.label || d.key) + ' ' + escHtml(d.fullName || '') + '</div>';
+        html += '<div style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:12px;">'
+          + (d.isBrand ? '<span class="tag blue">先</span>' : '')
+          + (d.price && d.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>' + escHtml(d.price) + '</span>' : '')
+          + (d.yj && d.yj.indexOf('8') === 0 ? '<span class="tag red">麻</span>' : '')
+          + (d.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">🏠 未採用のお薬ですカニ🦀</span>')
+          + '</div>';
+
+        // 施設メモ（あれば）
+        if (d.comment) {
+          html += '<div style="background:#fff5f7; border-left:5px solid #ff8da1; border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:12px; white-space:pre-wrap;">📝 ' + escHtml(d.comment) + '</div>';
+        }
+
+        // PMDA要約（効能・用法・禁忌）… メインと同じレイアウト
+        if (d.pmdaEfficacy || d.pmdaUsage || d.pmdaContra) {
+          html += '<div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:12px; padding:15px; margin-bottom:12px; font-size:13px; line-height:1.6; color:#333;">';
+          if (d.pmdaEfficacy) {
+            html += '<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:4px;">'
+              + '<div style="color:#0056b3; font-weight:bold;">💊 効能・効果</div>'
+              + (d.pmdaLastUpdated ? '<div style="font-size:11px; color:#888;">🗒️最終更新日：' + escHtml(d.pmdaLastUpdated) + '</div>' : '')
+              + '</div><div style="margin-bottom:12px;">' + d.pmdaEfficacy + '</div>';
+          }
+          if (d.pmdaUsage) html += '<div style="color:#28a745; font-weight:bold; margin-bottom:4px;">🕒 用法・用量</div><div style="margin-bottom:12px;">' + d.pmdaUsage + '</div>';
+          if (d.pmdaContra) html += '<div style="color:#d63384; font-weight:bold; margin-bottom:4px;">🚫 禁忌</div><div>' + d.pmdaContra + '</div>';
+          html += '</div>';
+          html += '<div style="background:#fff8e1; border:1px solid #ffe082; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:11px; line-height:1.5; color:#8a6d3b;">⚠️ 本要約はAIが生成した参考情報であり、正確性を保証するものではありません。実際の使用にあたっては、必ず最新の添付文書をご確認ください。</div>';
+        }
+
+        // ボタン: 画像検索 & PMDA公式
+        html += '<button class="btn-img" data-name="' + escHtml(d.fullName || '') + '" style="width:100%; padding:12px; margin-bottom:8px; font-size:13px;">🖼️ この薬の画像を検索する</button>';
+        if (d.yj && d.yj !== 'NONE') {
+          html += '<a href="https://www.pmda.go.jp/PmdaSearch/rdSearch/02/' + escHtml(d.yj) + '?user=1" target="_blank" style="display:flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:14px; background:#fff0f5; border:2px solid #d63384; color:#d63384; border-radius:12px; text-decoration:none; font-weight:bold; font-size:14px; box-sizing:border-box; margin-bottom:15px; box-shadow:0 2px 4px rgba(214,51,132,0.1);">📄 添付文書等のお薬詳細を見る 🔍</a>';
+        }
+
+        // 切替候補（採用薬が一番上＝APIのソート済み）
+        html += '<hr style="border:none; border-top:1px dashed #ccc; margin:15px 0;">';
+        html += '<p style="font-weight:bold; font-size:14px; margin-bottom:12px; color:#555;">🔄 同成分・切替候補カニ🦀</p>';
+        if (d.alts && d.alts.length) {
+          for (const a of d.alts) {
+            html += '<div class="alt-item ' + (a.isAdopted ? 'adopted' : '') + '" data-altkey="' + escHtml(a.key) + '">'
+              + '<div style="display:flex; flex-direction:column; gap:6px;">'
+                + '<div style="display:flex; justify-content:space-between; align-items:flex-start;">'
+                  + '<span style="font-weight:bold; line-height:1.3;">' + formEmoji(a.key) + ' ' + escHtml(a.name) + ' <span style="font-weight:normal;color:#666;font-size:11px;">' + escHtml(a.spec || '') + '</span></span>'
+                  + '<span style="font-weight:bold;color:' + (a.isAdopted ? '#28a745' : '#aaa') + '; white-space:nowrap; margin-left:8px;">' + (a.isAdopted ? '🏥 採用' : '') + ' ❯</span>'
+                + '</div>'
+                + '<div style="display:flex; gap:4px; align-items:center;">'
+                  + (a.isBrand ? '<span class="tag blue" style="font-size:10px; padding:2px 6px;">先</span>' : '')
+                  + (a.yj && a.yj.indexOf('8') === 0 ? '<span class="tag red" style="font-size:10px; padding:2px 6px;">麻</span>' : '')
+                  + (a.price && a.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;font-size:10px; padding:2px 6px;"><span style="color:#e65100;">￥</span>' + escHtml(a.price) + '</span>' : '')
+                + '</div>'
+              + '</div></div>';
+          }
+        } else {
+          html += '<div style="font-size:12px; color:#999; text-align:center; padding:10px;">切替候補が見つかりませんでしたカニ🦀</div>';
+        }
+
+        body.innerHTML = html;
+      } catch (e) {
+        body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">通信エラーが発生したカニ🦀💦</div>';
+      }
+    }
+
+    // モーダル内のクリック委譲（切替候補タップ→その薬の詳細へ、画像検索ボタン）
+    document.getElementById('modalBody').addEventListener('click', function(e){
+      const b = e.target.closest('.btn-img');
+      if (b) { openImageSearch(b.getAttribute('data-name') || ''); return; }
+      const a = e.target.closest('.alt-item[data-altkey]');
+      if (a) openDetail(a.getAttribute('data-altkey'));
+    });
+
+    function escHtml(s) {
+      return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ===== 📷 持参薬鑑別: OCR＆持参薬リスト（フェーズ1） =====
+    let kanbetsuList = [];   // {id, ocrName, name, usage, m:{found,key,name,spec,price,isBrand,isAdopted,yj}|null}
+    let kanbetsuSeq = 0;
+    let editTarget = null;   // {id, field}
+
+    // 🔧DEBUG: 通信エラーの原因特定用ヘルパー（原因判明後に削除予定）
+    function dbgSec(t0){ return Math.round((Date.now() - t0) / 100) / 10; }
+    function dbgErr(err){
+      if (!err) return '不明なエラー';
+      let s = (err.name ? err.name + ': ' : '') + (err.message || String(err));
+      if (err.name === 'TypeError' && /fetch|network|load/i.test(err.message || '')) s += '（回線切断・電波不安定の可能性大）';
+      if (err.name === 'AbortError') s += '（タイムアウト/中断）';
+      return s.slice(0, 200);
+    }
+
+    // 📶 弱い回線対策: 段階圧縮付きリトライ送信
+    // 指定サイズ・画質で圧縮（compressImage/HQのパラメータ版）
+    function compressTo(file, maxDim, quality) {
+      return new Promise(function(resolve, reject){
+        const img = new Image();
+        const fr = new FileReader();
+        fr.onload = function(){ img.src = fr.result; };
+        fr.onerror = reject;
+        img.onload = function(){
+          let w = img.width, h = img.height;
+          if (Math.max(w, h) > maxDim) {
+            const scale = maxDim / Math.max(w, h);
+            w = Math.round(w * scale); h = Math.round(h * scale);
+          }
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          cv.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(cv.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = reject;
+        fr.readAsDataURL(file);
+      });
+    }
+
+    // 送信失敗したらひと回り小さい画像で自動再送（plansの順に最大len回試行）
+    // 成功: { data, mb, attempt } を返す / 全滅: 最後のエラーをthrow
+    async function postImageWithRetry(apiUrl, file, plans, st, label) {
+      let lastErr = null;
+      for (let a = 0; a < plans.length; a++) {
+        const dataUrl = await compressTo(file, plans[a].dim, plans[a].q);  // 圧縮失敗は即throw（リトライ無意味）
+        const mb = (dataUrl.length / 1048576).toFixed(1);
+        if (a > 0) st.textContent = label + ' 電波が弱いので軽量化して再送信中(' + (a+1) + '回目・' + mb + 'MB)...🦀';
+        try {
+          const r = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ h: HID, image: dataUrl })
+          });
+          const raw = await r.text();
+          let data;
+          try { data = JSON.parse(raw); }
+          catch (pe) { throw new Error('HTTP ' + r.status + ' 非JSON応答: ' + raw.slice(0, 80)); }
+          return { data: data, mb: mb, attempt: a + 1 };
+        } catch (err) {
+          lastErr = err;  // → 次のプラン（より小さい画像）で再試行
+        }
+      }
+      throw lastErr;
+    }
+
+    document.getElementById('ocrFile').addEventListener('change', async function(e){
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      if (!files.length) return;
+      const st = document.getElementById('ocrStatus');
+      for (let i = 0; i < files.length; i++) {
+        st.textContent = '📷 ' + (i+1) + '/' + files.length + ' 枚目を読み取り中...🦀（少し時間がかかります）';
+        try {
+          const res = await postImageWithRetry('/api/kanbetsu-ocr', files[i],
+            [ {dim:1600, q:0.8}, {dim:1200, q:0.7}, {dim:900, q:0.6} ],
+            st, '📷 ' + (i+1) + '/' + files.length + ' 枚目');
+          const data = res.data;
+          if (data.error) { st.textContent = '⚠️ 読み取りエラー: ' + data.error; continue; }
+          if (!data.drugs || !data.drugs.length) { st.textContent = '📭 この写真からは薬が読み取れませんでしたカニ🦀💦'; continue; }
+          for (const d of data.drugs) {
+            kanbetsuSeq++;
+            kanbetsuList.push({ id: kanbetsuSeq, ocrName: d.name, name: d.name, usage: d.usage || '', m: (d.match && d.match.found) ? d.match : null });
+          }
+          st.textContent = '✅ ' + data.drugs.length + '件の薬を読み取りましたカニ🦀 続けて撮影もできます。';
+        } catch (err) {
+          st.textContent = '⚠️ 電波が不安定で送信できませんでしたカニ🦀💦（3回試しました）電波の良い場所で再度お試しください。詳細: ' + dbgErr(err);
+        }
+        renderJList();
+      }
+    });
+
+    // 画像を長辺1600pxのJPEGに圧縮（通信量とOCRコストの節約）
+    function compressImage(file) {
+      return new Promise(function(resolve, reject){
+        const img = new Image();
+        const fr = new FileReader();
+        fr.onload = function(){ img.src = fr.result; };
+        fr.onerror = reject;
+        img.onload = function(){
+          const maxDim = 1600;
+          let w = img.width, h = img.height;
+          if (Math.max(w, h) > maxDim) {
+            const scale = maxDim / Math.max(w, h);
+            w = Math.round(w * scale); h = Math.round(h * scale);
+          }
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          cv.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(cv.toDataURL('image/jpeg', 0.8));
+        };
+        img.onerror = reject;
+        fr.readAsDataURL(file);
+      });
+    }
+
+    // ===== 💊 裸錠まとめ撮り→刻印OCR（追加分） =====
+    // チップ { i, imprint, kind, confidence, note, used }
+    var kokuinChipList = [];
+    var kpTargetIdx = null;
+
+    // 刻印は小さいので高めの解像度で圧縮（長辺2000px・JPEG0.85）
+    function compressImageHQ(file) {
+      return new Promise(function(resolve, reject){
+        const img = new Image();
+        const fr = new FileReader();
+        fr.onload = function(){ img.src = fr.result; };
+        fr.onerror = reject;
+        img.onload = function(){
+          const maxDim = 2000;
+          let w = img.width, h = img.height;
+          if (Math.max(w, h) > maxDim) {
+            const scale = maxDim / Math.max(w, h);
+            w = Math.round(w * scale); h = Math.round(h * scale);
+          }
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          cv.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(cv.toDataURL('image/jpeg', 0.85));
+        };
+        img.onerror = reject;
+        fr.readAsDataURL(file);
+      });
+    }
+
+    document.getElementById('kokuinFile').addEventListener('change', async function(e){
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      if (!files.length) return;
+      const st = document.getElementById('ocrStatus');
+      st.textContent = '💊 錠剤の刻印を読み取り中...🦀（少し時間がかかります）';
+      try {
+        const res = await postImageWithRetry('/api/kokuin-ocr', files[0],
+          [ {dim:1600, q:0.8}, {dim:1280, q:0.75}, {dim:1000, q:0.7} ],
+          st, '💊 刻印OCR');
+        const data = res.data;
+        if (data.error) { st.textContent = '⚠️ 読み取りエラー: ' + data.error; return; }
+        if (!data.pills || !data.pills.length) { st.textContent = '📭 この写真からは錠剤が読み取れませんでしたカニ🦀💦 明るい場所で錠剤同士を離して撮ってみてね！'; return; }
+        for (const p of data.pills) {
+          kokuinChipList.push({ i: kokuinChipList.length, imprint: p.imprint || '', kind: p.kind || '', confidence: p.confidence || '中', note: p.note || '', used: false });
+        }
+        st.textContent = '✅ ' + data.pills.length + '錠分の刻印を読み取りましたカニ🦀 チップをタップしてお薬を特定してね！';
+        renderKokuinChips();
+      } catch (err) {
+        st.textContent = '⚠️ 電波が不安定で送信できませんでしたカニ🦀💦（3回試しました）電波の良い場所で再度お試しください。詳細: ' + dbgErr(err);
+      }
+    });
+
+    function renderKokuinChips() {
+      const box = document.getElementById('kokuinChips');
+      if (!kokuinChipList.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+      box.style.display = 'flex';
+      let html = '';
+      for (const c of kokuinChipList) {
+        if (!c.imprint) {
+          const ncls = c.used ? 'kchip used' : 'kchip noimp';
+          html += '<span class="' + ncls + '" data-knoimp="' + c.i + '">' + (c.used ? '✅ ' : '') + '（刻印なし）'
+            + (c.note ? '<span class="knote">' + escHtml(c.note) + '</span>' : '')
+            + (c.used ? '' : '<span class="knote">👆タップで手入力検索</span>')
+            + '</span>';
+        } else {
+          const cls = c.used ? 'kchip used' : (c.confidence === '低' ? 'kchip low' : 'kchip');
+          html += '<span class="' + cls + '" data-kchip="' + c.i + '">' + (c.used ? '✅ ' : '🔍 ') + escHtml(c.imprint)
+            + (c.confidence === '低' ? '<span class="knote">自信なし</span>' : '')
+            + (c.note ? '<span class="knote">' + escHtml(c.note) + '</span>' : '')
+            + '</span>';
+        }
+      }
+      box.innerHTML = html;
+    }
+
+    document.getElementById('kokuinChips').addEventListener('click', function(e){
+      const nc = e.target.closest('[data-knoimp]');
+      if (nc) { openPickerForAdd(Number(nc.getAttribute('data-knoimp'))); return; }
+      const ch = e.target.closest('[data-kchip]');
+      if (!ch) return;
+      openKp(Number(ch.getAttribute('data-kchip')));
+    });
+
+    function openKp(i) {
+      const c = kokuinChipList[i];
+      if (!c) return;
+      kpTargetIdx = i;
+      // 【】付きのロゴ補足は検索語から除外する
+      document.getElementById('kpQ').value = String(c.imprint || '').replace(/【[^】]*】/g, '').trim();
+      document.getElementById('kpResults').innerHTML = '';
+      document.getElementById('kpStatus').textContent = '';
+      document.getElementById('kpOverlay').style.display = 'flex';
+      kpSearch();
+    }
+    function closeKp() {
+      document.getElementById('kpOverlay').style.display = 'none';
+      kpTargetIdx = null;
+    }
+    document.getElementById('kpOverlay').addEventListener('click', closeKp);
+    document.getElementById('kpQ').addEventListener('keydown', function(e){ if (e.key === 'Enter') kpSearch(); });
+
+    async function kpSearch() {
+      const q = document.getElementById('kpQ').value.trim();
+      const st = document.getElementById('kpStatus');
+      const res = document.getElementById('kpResults');
+      res.innerHTML = '';
+      if (q.replace(/\s/g,'').length < 2) { st.textContent = '2文字以上で検索してくださいカニ🦀'; return; }
+      st.textContent = '検索中...🦀';
+      try {
+        const r = await fetch('/api/jisan-search?h=' + encodeURIComponent(HID) + '&q=' + encodeURIComponent(q));
+        const data = await r.json();
+        if (data.error === 'index_not_found') { st.textContent = '刻印データが未登録です。管理者にお問い合わせください。'; return; }
+        if (data.error) { st.textContent = 'エラーが発生しました（' + data.error + '）'; return; }
+        const list = data.results || [];
+        if (!list.length) {
+          st.textContent = '';
+          res.innerHTML = '<div class="no-results" style="padding:20px 10px;">📭 「' + escHtml(q) + '」に一致する刻印は見つかりませんでしたカニ🦀💦<br><span style="font-size:12px;color:#aaa;">刻印の一部だけで再検索してみてね！</span></div>';
+          return;
+        }
+        st.textContent = list.length + '件ヒット。正しいお薬をタップして選んでくださいカニ🦀';
+        let html = '';
+        const cap = Math.min(list.length, 30);
+        for (let i = 0; i < cap; i++) {
+          const it = list[i];
+          html += '<div class="pick-item ' + (it.isAdopted ? 'adopted' : '') + '" data-kpick="' + i + '">'
+            + '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">'
+              + '<div style="font-weight:bold; font-size:13px; line-height:1.4; flex:1;">' + formEmoji(it.key) + ' ' + escHtml(it.name || '') + '</div>'
+              + '<div style="flex-shrink:0; display:flex; gap:3px;">'
+                + (it.isBrand ? '<span class="tag blue" style="font-size:10px; padding:2px 6px;">先</span>' : '')
+                + (it.isAdopted ? '<span class="tag green" style="font-size:10px; padding:2px 6px;">🏥 採用</span>' : '')
+              + '</div>'
+            + '</div>'
+            + (it.spec ? '<div style="font-size:11px; color:#888; margin-top:4px;">📦 ' + escHtml(it.spec) + '</div>' : '')
+            + '<div style="font-size:11px; color:#d63384; margin-top:4px;">刻印: ' + escHtml(it.code || '') + (it.key ? '' : ' <span style="color:#aaa;">（マスタ未収載・継続/切替選択はできません）</span>') + '</div>'
+            + '</div>';
+        }
+        res.innerHTML = html;
+        window._kpList = list;
+      } catch (e) {
+        st.textContent = '通信エラーが発生したカニ🦀💦';
+      }
+    }
+
+    // 候補タップ→持参薬リストに追加（以降は既存の継続/切替・報告書フローに合流）
+    document.getElementById('kpResults').addEventListener('click', function(e){
+      const p = e.target.closest('[data-kpick]');
+      if (!p || kpTargetIdx === null) return;
+      const chosen = (window._kpList || [])[Number(p.getAttribute('data-kpick'))];
+      const c = kokuinChipList[kpTargetIdx];
+      if (!chosen || !c) return;
+      kanbetsuSeq++;
+      kanbetsuList.push({
+        id: kanbetsuSeq,
+        ocrName: '刻印 ' + (c.imprint || ''),
+        name: chosen.name,
+        usage: '',
+        m: { found: true, key: chosen.key || '', name: chosen.name, spec: chosen.spec || '', price: chosen.price || '', isBrand: !!chosen.isBrand, isAdopted: !!chosen.isAdopted, yj: chosen.yj || '' }
+      });
+      c.used = true;
+      closeKp();
+      renderKokuinChips();
+      renderJList();
+      document.getElementById('ocrStatus').textContent = '✅ 「' + chosen.name + '」を持参薬リストに追加しましたカニ🦀';
+    });
+
+    // ===== ➕ 手入力検索でお薬追加（刻印なし錠・OCR外のお薬用） =====
+    var pickerAddMode = false;
+    var pickerAddChipIdx = null;
+
+    function openPickerForAdd(chipIdx) {
+      pickerTargetId = null;          // 既存の紐付けリスナーを無効化（null時は既存側がreturnする）
+      pickerAddMode = true;
+      pickerAddChipIdx = (chipIdx === null || chipIdx === undefined) ? null : chipIdx;
+      document.getElementById('pickerQ').value = '';
+      document.getElementById('pickerResults').innerHTML = '';
+      document.getElementById('pickerStatus').textContent = 'お薬名（かな・カナ）で検索して、追加するお薬を選んでくださいカニ🦀';
+      document.getElementById('pickerOverlay').style.display = 'flex';
+      setTimeout(function(){ document.getElementById('pickerQ').focus(); }, 50);
+    }
+
+    // 既存のpickerResultsリスナーとは別に、新規追加モード専用のリスナーを重ねる
+    // （既存リスナーは pickerTargetId === null のとき何もしないので二重処理にはならない）
+    document.getElementById('pickerResults').addEventListener('click', function(e){
+      if (!pickerAddMode || pickerTargetId !== null) return;
+      const p = e.target.closest('[data-pick]');
+      if (!p) return;
+      const chosen = (window._pickerList || [])[Number(p.getAttribute('data-pick'))];
+      if (!chosen) return;
+      kanbetsuSeq++;
+      kanbetsuList.push({
+        id: kanbetsuSeq,
+        ocrName: pickerAddChipIdx !== null ? '刻印なし（手入力検索）' : '手入力検索',
+        name: chosen.name,
+        usage: '',
+        m: { found: true, key: chosen.key || '', name: chosen.name, spec: chosen.spec || '', price: chosen.price || '', isBrand: !!chosen.isBrand, isAdopted: !!chosen.isAdopted, yj: chosen.yj || '' }
+      });
+      if (pickerAddChipIdx !== null && kokuinChipList[pickerAddChipIdx]) {
+        kokuinChipList[pickerAddChipIdx].used = true;
+      }
+      pickerAddMode = false;
+      pickerAddChipIdx = null;
+      closePicker();
+      renderKokuinChips();
+      renderJList();
+      document.getElementById('ocrStatus').textContent = '✅ 「' + chosen.name + '」を持参薬リストに追加しましたカニ🦀';
+    });
+
+    // ピッカーを閉じたら追加モードは解除（既存closePickerは変更しない）
+    document.getElementById('pickerOverlay').addEventListener('click', function(){
+      pickerAddMode = false;
+      pickerAddChipIdx = null;
+    });
+
+    function renderJList() {
+      const area = document.getElementById('jlistArea');
+      const list = document.getElementById('jlist');
+      const cnt = document.getElementById('jlistCount');
+      if (!kanbetsuList.length) { area.style.display = 'none'; list.innerHTML = ''; return; }
+      area.style.display = 'block';
+      cnt.textContent = '（' + kanbetsuList.length + '件）';
+      let html = '';
+      for (const it of kanbetsuList) {
+        if (it.m) {
+          // ✅ KV照合ヒット: 通常検索と同じカード風
+          html += '<div class="jitem ' + (it.m.isAdopted ? 'adopted' : '') + '" data-jid="' + it.id + '" data-decide="' + it.id + '">'
+            + '<button class="del" data-del="' + it.id + '">✕</button>'
+            + '<div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; font-size:15px; gap:8px; padding-right:22px;">'
+              + '<div style="flex:1; line-height:1.4;">' + formEmoji(it.m.key) + ' ' + escHtml(it.m.name) + '</div>'
+              + '<div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">'
+                + (it.m.isBrand ? '<span class="tag blue">先</span>' : '')
+                + (it.m.price && it.m.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>' + escHtml(it.m.price) + '</span>' : '')
+                + (it.m.yj && it.m.yj.indexOf('8') === 0 ? '<span class="tag red">麻</span>' : '')
+                + (it.m.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>')
+              + '</div>'
+            + '</div>'
+            + (it.m.spec ? '<div style="font-size:12px; color:#888; margin-top:6px;">📦 ' + escHtml(it.m.spec) + '</div>' : '')
+            + '<div class="usage-line" data-editusage="' + it.id + '"><span class="lbl">📝 用法（タップで編集）:</span> ' + (it.usage ? escHtml(it.usage) : '<span style="color:#bbb;">未入力</span>') + '</div>'
+            + '<div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">'
+              + '<span class="ocr-src" style="margin-top:0;">' + (norm2(it.ocrName) !== norm2(it.m.name) ? 'OCR読み取り: ' + escHtml(it.ocrName) : '') + '</span>'
+              + '<span data-repick="' + it.id + '" style="font-size:11px; color:#0d6efd; cursor:pointer; text-decoration:underline dotted; white-space:nowrap;">🔁 別の薬に変更</span>'
+            + '</div>'
+            + decisionHTML(it)
+            + '</div>';
+        } else {
+          // ⚠️ 未照合: 名前タップで編集→自動再照合
+          html += '<div class="jitem unmatched" data-jid="' + it.id + '">'
+            + '<button class="del" data-del="' + it.id + '">✕</button>'
+            + '<div style="font-weight:bold; font-size:15px; padding-right:22px;">⚠️ <span class="name-edit" data-editname="' + it.id + '">' + escHtml(it.name) + '</span> <span style="font-size:11px; color:#e0a800; font-weight:normal;">未照合（名前をタップして検索から選べます）</span></div>'
+            + '<div class="usage-line" data-editusage="' + it.id + '"><span class="lbl">📝 用法（タップで編集）:</span> ' + (it.usage ? escHtml(it.usage) : '<span style="color:#bbb;">未入力</span>') + '</div>'
+            + '</div>';
+        }
+      }
+      list.innerHTML = html;
+    }
+    function norm2(s){ return String(s||'').normalize('NFKC').toUpperCase().replace(/\s+/g,''); }
+
+    // ===== 🌟フェーズ2: 継続/切替の決定表示 =====
+    function decisionHTML(it) {
+      if (!it.d) {
+        return '<div class="tap-hint">👆 カードをタップして【継続 / 切替】を選ぶカニ🦀</div>';
+      }
+      const d = it.d;
+      const isKeep = d.type === 'keep';
+      return '<div class="decide-box ' + (isKeep ? 'keep' : 'switch') + '">'
+        + '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">'
+          + '<div style="flex:1; line-height:1.4; font-size:13px;">'
+            + '<span class="decide-label" data-redecide="' + it.id + '">' + (isKeep ? '✅ 継続' : '🔄 切替') + ' →</span> '
+            + '<b>' + escHtml(d.name) + '</b>'
+            + (d.spec ? ' <span style="color:#888; font-size:11px;">' + escHtml(d.spec) + '</span>' : '')
+          + '</div>'
+          + '<div style="flex-shrink:0; display:flex; gap:3px;">'
+            + (d.isBrand ? '<span class="tag blue" style="font-size:10px; padding:2px 6px;">先</span>' : '')
+            + (d.isAdopted ? '<span class="tag green" style="font-size:10px; padding:2px 6px;">🏥 採用</span>' : '')
+          + '</div>'
+        + '</div>'
+        + '<div class="usage-line" data-editdusage="' + it.id + '" style="margin-top:8px;"><span class="lbl">📝 ' + (isKeep ? '継続後' : '切替後') + 'の用法（タップで編集）:</span> ' + (d.usage ? escHtml(d.usage) : '<span style="color:#bbb;">未入力</span>') + '</div>'
+        + '</div>';
+    }
+
+    // ===== 🌟フェーズ2: 継続/切替を選ぶモーダル =====
+    let decideTargetId = null;
+    async function openDecide(id) {
+      const it = kanbetsuList.find(function(x){ return x.id === id; });
+      if (!it || !it.m || !it.m.key) return;
+      decideTargetId = id;
+      const ov = document.getElementById('modalOverlay');
+      const body = document.getElementById('modalBody');
+      body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">切替候補を読み込み中...🦀</div>';
+      ov.style.display = 'flex';
+      try {
+        const r = await fetch('/api/detail?key=' + encodeURIComponent(it.m.key) + '&h=' + encodeURIComponent(HID));
+        const d = await r.json();
+        if (!d || d.error) { body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">候補を取得できませんでしたカニ🦀💦</div>'; return; }
+
+        let html = '';
+        html += '<div style="font-weight:bold; font-size:15px; color:#0056b3; line-height:1.4; margin-bottom:4px; padding-right:20px;">' + formEmoji(it.m.key) + ' ' + escHtml(it.m.name) + '</div>';
+        html += '<div style="font-size:12px; color:#888; margin-bottom:12px;">この持参薬をどうしますか？（切替先の用法は持参薬の用法をコピーします。後から編集できますカニ🦀）</div>';
+
+        // 【継続】: 同じ薬を一番上に
+        html += '<div class="alt-item ' + (it.m.isAdopted ? 'adopted' : '') + '" data-dc="keep" style="border-width:2px;">'
+          + '<div style="display:flex; justify-content:space-between; align-items:flex-start;">'
+            + '<span style="font-weight:bold; line-height:1.3;"><span style="background:#28a745; color:#fff; font-size:10px; padding:2px 8px; border-radius:10px; margin-right:6px;">継続</span>' + formEmoji(it.m.key) + ' ' + escHtml(it.m.name) + ' <span style="font-weight:normal;color:#666;font-size:11px;">' + escHtml(it.m.spec || '') + '</span></span>'
+            + '<span style="font-weight:bold;color:' + (it.m.isAdopted ? '#28a745' : '#aaa') + '; white-space:nowrap; margin-left:8px;">' + (it.m.isAdopted ? '🏥 採用' : '') + ' ❯</span>'
+          + '</div>'
+          + '<div style="font-size:11px; color:#888; margin-top:4px;">このまま同じ薬を続ける場合はこちらカニ🦀</div>'
+        + '</div>';
+
+        // 切替候補（採用×同mgソート済み）
+        html += '<div style="font-weight:bold; font-size:13px; color:#555; margin:12px 0 8px;">🔄 切替する場合はこちらから選択</div>';
+        if (d.alts && d.alts.length) {
+          window._decideAlts = d.alts;
+          for (let i = 0; i < d.alts.length; i++) {
+            const a = d.alts[i];
+            html += '<div class="alt-item ' + (a.isAdopted ? 'adopted' : '') + '" data-dc="alt" data-ai="' + i + '">'
+              + '<div style="display:flex; flex-direction:column; gap:6px;">'
+                + '<div style="display:flex; justify-content:space-between; align-items:flex-start;">'
+                  + '<span style="font-weight:bold; line-height:1.3;">' + formEmoji(a.key) + ' ' + escHtml(a.name) + ' <span style="font-weight:normal;color:#666;font-size:11px;">' + escHtml(a.spec || '') + '</span></span>'
+                  + '<span style="font-weight:bold;color:' + (a.isAdopted ? '#28a745' : '#aaa') + '; white-space:nowrap; margin-left:8px;">' + (a.isAdopted ? '🏥 採用' : '') + ' ❯</span>'
+                + '</div>'
+                + '<div style="display:flex; gap:4px; align-items:center;">'
+                  + (a.isBrand ? '<span class="tag blue" style="font-size:10px; padding:2px 6px;">先</span>' : '')
+                  + (a.yj && a.yj.indexOf('8') === 0 ? '<span class="tag red" style="font-size:10px; padding:2px 6px;">麻</span>' : '')
+                  + (a.price && a.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;font-size:10px; padding:2px 6px;"><span style="color:#e65100;">￥</span>' + escHtml(a.price) + '</span>' : '')
+                + '</div>'
+              + '</div></div>';
+          }
+        } else {
+          window._decideAlts = [];
+          html += '<div style="font-size:12px; color:#999; text-align:center; padding:10px;">切替候補が見つかりませんでしたカニ🦀</div>';
+        }
+        body.innerHTML = html;
+      } catch (e) {
+        body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">通信エラーが発生したカニ🦀💦</div>';
+      }
+    }
+
+    // 決定モーダル内のタップ（継続 / 切替候補）
+    document.getElementById('modalBody').addEventListener('click', function(e){
+      const dc = e.target.closest('[data-dc]');
+      if (!dc || decideTargetId === null) return;
+      const it = kanbetsuList.find(function(x){ return x.id === decideTargetId; });
+      if (!it) return;
+      if (dc.getAttribute('data-dc') === 'keep') {
+        it.d = { type: 'keep', key: it.m.key, name: it.m.name, spec: it.m.spec || '', price: it.m.price || '', isBrand: !!it.m.isBrand, isAdopted: !!it.m.isAdopted, yj: it.m.yj || '', usage: it.usage || '' };
+      } else {
+        const a = (window._decideAlts || [])[Number(dc.getAttribute('data-ai'))];
+        if (!a) return;
+        it.d = { type: 'switch', key: a.key, name: a.name, spec: a.spec || '', price: a.price || '', isBrand: !!a.isBrand, isAdopted: !!a.isAdopted, yj: a.yj || '', usage: it.usage || '' };
+      }
+      decideTargetId = null;
+      closeModal();
+      renderJList();
+    });
+
+    // ===== 🌟フェーズ3: 持参薬鑑別報告書 =====
+    let reportMemo = '';
+    let reportBiko = '';
+    let reportDate = '';
+
+    function fmtNow() {
+      const d = new Date();
+      const p = function(n){ return (n < 10 ? '0' : '') + n; };
+      return d.getFullYear() + '/' + p(d.getMonth()+1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+
+    function openReport() {
+      if (!kanbetsuList.length) return;
+      reportDate = fmtNow();
+      renderReport();
+      document.getElementById('rvHint').textContent = '';
+      document.getElementById('reportView').style.display = 'block';
+      window.scrollTo(0, 0);
+    }
+    function closeReport() { document.getElementById('reportView').style.display = 'none'; }
+
+    function renderReport() {
+      const BR = String.fromCharCode(10);
+      let html = '';
+      // ヘッダー: カニアイコン + タイトル（施設名はフッターへ移動）
+      html += '<div class="rv-head"><img class="rv-kani" src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" alt=""><span class="rv-title">メディカニ鑑別結果</span></div>';
+      html += '<div class="rv-metabox">'
+        + '<div>🗓️ <b>日時：</b>' + escHtml(reportDate) + '</div>'
+        + '<div class="rv-editrow" data-redit="rmemo">🆔 <b>ID等メモ：</b>' + (reportMemo ? escHtml(reportMemo) : '<span style="color:#bbb;">未入力</span>') + ' <span class="rv-edithint">（タップで編集）</span></div>'
+        + '</div>';
+      for (const it of kanbetsuList) {
+        const cls = it.d ? (it.d.type === 'keep' ? 'keep' : 'switch') : (it.m ? 'undecided' : 'unmatched');
+        const srcName = it.m ? it.m.name : it.name;
+        html += '<div class="rv-card ' + cls + '">';
+        html += '<div><span class="rv-lbl src">持参薬</span><span class="rv-dname">💊 ' + escHtml(srcName) + (it.m ? '' : '（未照合）') + '</span></div>';
+        html += '<div class="rv-usage">📝 ' + (it.usage ? escHtml(it.usage) : '用法未入力') + '</div>';
+        if (it.d) {
+          const isKeep = it.d.type === 'keep';
+          // 🌟継続/切替ラベルを2段目の薬品名の前にインラインで表示
+          html += '<div class="rv-dst"><span class="rv-lbl ' + (isKeep ? 'keep' : 'switch') + '">' + (isKeep ? '継続 →' : '切替 →') + '</span><span class="rv-dname">💊 ' + escHtml(it.d.name) + '</span>' + (it.d.isAdopted ? ' <span class="tag green" style="font-size:10px; padding:1px 6px;">🏥 採用</span>' : '') + '</div>';
+          html += '<div class="rv-usage">📝 ' + (it.d.usage ? escHtml(it.d.usage) : '用法未入力') + '</div>';
+        } else if (it.m) {
+          html += '<div class="rv-undecided">（継続／切替 未決定）</div>';
+        }
+        html += '</div>';
+      }
+      html += '<div class="rv-metabox"><div class="rv-editrow" data-redit="rbiko">📝 <b>備考：</b>' + (reportBiko ? escHtml(reportBiko).split(BR).join('<br>') : '<span style="color:#bbb;">未入力</span>') + ' <span class="rv-edithint">（タップで編集）</span></div></div>';
+      html += '<div class="rv-note">※本結果はメディカニ鑑別（β）による補助資料です。内容の最終確認は薬剤師が行ってください。</div>';
+      // フッター: タイトルの右側に施設名
+      html += '<div class="rv-footer"><span class="t1">🦀 メディカニ 医薬品検索</span>' + (HNAME ? '<span class="fac">🏥 ' + escHtml(HNAME) + '</span>' : '') + '</div>';
+      document.getElementById('reportBody').innerHTML = html;
+    }
+
+    // 報告書内のタップ編集（ID等メモ・備考）
+    document.getElementById('reportBody').addEventListener('click', function(e){
+      const r = e.target.closest('[data-redit]');
+      if (!r) return;
+      openReportEdit(r.getAttribute('data-redit'));
+    });
+    function openReportEdit(field) {
+      editTarget = { id: null, field: field };
+      document.getElementById('editModalTitle').textContent = field === 'rmemo' ? '✏️ ID等メモを編集' : '✏️ 備考を編集';
+      document.getElementById('editModalText').value = field === 'rmemo' ? reportMemo : reportBiko;
+      document.getElementById('editModalOverlay').style.display = 'flex';
+      setTimeout(function(){ document.getElementById('editModalText').focus(); }, 50);
+    }
+
+    // 📋 コピー: テキスト整形してクリップボードへ
+    function buildReportText() {
+      const NL = String.fromCharCode(10);
+      let t = '🦀 メディカニ鑑別結果' + NL;
+      if (HNAME) t += HNAME + NL;
+      t += '日時：' + reportDate + NL;
+      t += 'ID等メモ：' + (reportMemo || '') + NL + NL;
+      for (const it of kanbetsuList) {
+        const srcName = (it.m ? it.m.name : it.name + '（未照合）');
+        t += '■ 持参薬：' + srcName + '　用法：' + (it.usage || '') + NL;
+        if (it.d) {
+          t += '　 ' + (it.d.type === 'keep' ? '継続' : '切替') + ' → ' + it.d.name + '　用法：' + (it.d.usage || '') + NL;
+        } else if (it.m) {
+          t += '　 （継続／切替 未決定）' + NL;
+        }
+      }
+      t += NL + '備考：' + (reportBiko || '') + NL;
+      t += NL + '※本結果はメディカニ鑑別（β）による補助資料です。内容の最終確認は薬剤師が行ってください。' + NL;
+      return t;
+    }
+    async function copyReport() {
+      const text = buildReportText();
+      const hint = document.getElementById('rvHint');
+      try {
+        await navigator.clipboard.writeText(text);
+        hint.textContent = '📋 コピーしましたカニ🦀 電子カルテ等に貼り付けできます。';
+      } catch (e) {
+        // クリップボードAPIが使えない環境向けフォールバック
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); hint.textContent = '📋 コピーしましたカニ🦀'; }
+        catch (e2) { hint.textContent = '⚠️ コピーできませんでした。印刷をご利用ください。'; }
+        document.body.removeChild(ta);
+      }
+    }
+    function printReport() { window.print(); }
+    function pdfReport() {
+      document.getElementById('rvHint').textContent = '📄 印刷画面で送信先を「PDFに保存」にするとPDFで保存できますカニ🦀';
+      setTimeout(function(){ window.print(); }, 300);
+    }
+
+    // 持参薬リストのクリック委譲（削除・用法編集・名前編集）
+    document.getElementById('jlist').addEventListener('click', function(e){
+      const del = e.target.closest('[data-del]');
+      if (del) {
+        const id = Number(del.getAttribute('data-del'));
+        kanbetsuList = kanbetsuList.filter(function(x){ return x.id !== id; });
+        renderJList();
+        return;
+      }
+      const eu = e.target.closest('[data-editusage]');
+      if (eu) { openEditModal(Number(eu.getAttribute('data-editusage')), 'usage'); return; }
+      const en = e.target.closest('[data-editname]');
+      if (en) { openPicker(Number(en.getAttribute('data-editname'))); return; }
+      const rp = e.target.closest('[data-repick]');
+      if (rp) { openPicker(Number(rp.getAttribute('data-repick'))); return; }
+      const ed = e.target.closest('[data-editdusage]');
+      if (ed) { openEditModal(Number(ed.getAttribute('data-editdusage')), 'dusage'); return; }
+      const rd = e.target.closest('[data-redecide]');
+      if (rd) { openDecide(Number(rd.getAttribute('data-redecide'))); return; }
+      const dc = e.target.closest('.jitem[data-decide]');
+      if (dc) { openDecide(Number(dc.getAttribute('data-decide'))); return; }
+    });
+
+    function openEditModal(id, field) {
+      const it = kanbetsuList.find(function(x){ return x.id === id; });
+      if (!it) return;
+      editTarget = { id: id, field: field };
+      let t = '✏️ 薬品名を編集（保存すると再照合します）';
+      let v = it.name;
+      if (field === 'usage') { t = '✏️ 用法を編集'; v = it.usage; }
+      if (field === 'dusage') { t = '✏️ ' + (it.d && it.d.type === 'keep' ? '継続後' : '切替後') + 'の用法を編集'; v = it.d ? it.d.usage : ''; }
+      document.getElementById('editModalTitle').textContent = t;
+      document.getElementById('editModalText').value = v;
+      document.getElementById('editModalOverlay').style.display = 'flex';
+      setTimeout(function(){ document.getElementById('editModalText').focus(); }, 50);
+    }
+    function closeEditModal() {
+      document.getElementById('editModalOverlay').style.display = 'none';
+      editTarget = null;
+    }
+    async function saveEditModal() {
+      if (!editTarget) return;
+      const val = document.getElementById('editModalText').value.trim();
+      // 🌟報告書のID等メモ・備考（リストの薬とは無関係のフィールド）
+      if (editTarget.field === 'rmemo' || editTarget.field === 'rbiko') {
+        if (editTarget.field === 'rmemo') reportMemo = val; else reportBiko = val;
+        closeEditModal();
+        renderReport();
+        return;
+      }
+      const it = kanbetsuList.find(function(x){ return x.id === editTarget.id; });
+      if (!it) { closeEditModal(); return; }
+      if (editTarget.field === 'usage') {
+        it.usage = val;
+        closeEditModal();
+        renderJList();
+        return;
+      }
+      if (editTarget.field === 'dusage') {
+        if (it.d) it.d.usage = val;
+        closeEditModal();
+        renderJList();
+        return;
+      }
+      // 名前編集 → 保存後に自動で再照合
+      it.name = val;
+      closeEditModal();
+      renderJList();
+      if (!val) return;
+      const st = document.getElementById('ocrStatus');
+      st.textContent = '🔄 「' + val + '」を照合中...🦀';
+      try {
+        const r = await fetch('/api/kanbetsu-rematch?h=' + encodeURIComponent(HID) + '&q=' + encodeURIComponent(val));
+        const data = await r.json();
+        if (data.match && data.match.found) {
+          it.m = data.match;
+          st.textContent = '✅ 照合できましたカニ🦀';
+        } else {
+          it.m = null;
+          st.textContent = '📭 「' + val + '」は照合できませんでした。名前をもう少し正確にしてみてくださいカニ🦀';
+        }
+      } catch (e) {
+        st.textContent = '⚠️ 照合の通信エラーが発生したカニ🦀💦';
+      }
+      renderJList();
+    }
+    document.getElementById('editModalOverlay').addEventListener('click', closeEditModal);
+
+    // ===== 🔍 メディカニ検索ピッカー（未照合の紐付け・誤マッチの変更） =====
+    let pickerTargetId = null;
+    let pickerCat = '[内]';
+
+    function openPicker(id) {
+      const it = kanbetsuList.find(function(x){ return x.id === id; });
+      if (!it) return;
+      pickerTargetId = id;
+      // 初期検索語: 薬品名の先頭のかな漢字部分（数字・規格の手前まで）→メディカニ通常検索に馴染む形
+      const base = String(it.name || it.ocrName || '');
+      const m = base.match(/^[ぁ-んァ-ヶー一-龠Ａ-Ｚａ-ｚA-Za-z]+/);
+      document.getElementById('pickerQ').value = m ? m[0] : base;
+      document.getElementById('pickerResults').innerHTML = '';
+      document.getElementById('pickerStatus').textContent = 'そのまま検索するか、名前を編集して検索してくださいカニ🦀';
+      document.getElementById('pickerOverlay').style.display = 'flex';
+      pickerSearch();
+    }
+    function closePicker() {
+      document.getElementById('pickerOverlay').style.display = 'none';
+      pickerTargetId = null;
+    }
+    document.getElementById('pickerOverlay').addEventListener('click', closePicker);
+    document.getElementById('pickerQ').addEventListener('keydown', function(e){ if (e.key === 'Enter') pickerSearch(); });
+    // カテゴリ切替
+    document.querySelectorAll('[data-pcat]').forEach(function(b){
+      b.addEventListener('click', function(){
+        pickerCat = b.getAttribute('data-pcat');
+        document.querySelectorAll('[data-pcat]').forEach(function(x){ x.classList.remove('on'); });
+        b.classList.add('on');
+        pickerSearch();
+      });
+    });
+
+    async function pickerSearch() {
+      const q = document.getElementById('pickerQ').value.trim();
+      const st = document.getElementById('pickerStatus');
+      const res = document.getElementById('pickerResults');
+      res.innerHTML = '';
+      if (q.length < 2) { st.textContent = '2文字以上で検索してくださいカニ🦀'; return; }
+      st.textContent = '検索中...🦀';
+      try {
+        const r = await fetch('/api/search?q=' + encodeURIComponent(q) + '&c=' + encodeURIComponent(pickerCat) + '&h=' + encodeURIComponent(HID));
+        const data = await r.json();
+        const list = Array.isArray(data) ? data : [];
+        if (!list.length) { st.textContent = '見つかりませんでした。名前を短くして再検索してみてカニ🦀'; return; }
+        // 採用薬を上に
+        list.sort(function(a,b){ return (b.isAdopted?1:0) - (a.isAdopted?1:0); });
+        st.textContent = list.length + '件ヒット。正しい薬をタップして選んでくださいカニ🦀';
+        let html = '';
+        const cap = Math.min(list.length, 30);
+        for (let i = 0; i < cap; i++) {
+          const it = list[i];
+          html += '<div class="pick-item ' + (it.isAdopted ? 'adopted' : '') + '" data-pick="' + i + '">'
+            + '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">'
+              + '<div style="font-weight:bold; font-size:13px; line-height:1.4; flex:1;">' + formEmoji(it.key) + ' ' + escHtml(it.name || '') + '</div>'
+              + '<div style="flex-shrink:0; display:flex; gap:3px;">'
+                + (it.isBrand ? '<span class="tag blue" style="font-size:10px; padding:2px 6px;">先</span>' : '')
+                + (it.isAdopted ? '<span class="tag green" style="font-size:10px; padding:2px 6px;">🏥 採用</span>' : '')
+              + '</div>'
+            + '</div>'
+            + (it.spec ? '<div style="font-size:11px; color:#888; margin-top:4px;">📦 ' + escHtml(it.spec) + '</div>' : '')
+            + '</div>';
+        }
+        res.innerHTML = html;
+        window._pickerList = list;
+      } catch (e) {
+        st.textContent = '通信エラーが発生したカニ🦀💦';
+      }
+    }
+    // 候補タップで紐付け
+    document.getElementById('pickerResults').addEventListener('click', function(e){
+      const p = e.target.closest('[data-pick]');
+      if (!p || pickerTargetId === null) return;
+      const chosen = (window._pickerList || [])[Number(p.getAttribute('data-pick'))];
+      const it = kanbetsuList.find(function(x){ return x.id === pickerTargetId; });
+      if (!chosen || !it) return;
+      it.m = { found: true, key: chosen.key, name: chosen.name, spec: chosen.spec || '', price: chosen.price || '', isBrand: !!chosen.isBrand, isAdopted: !!chosen.isAdopted, yj: chosen.yj || '' };
+      it.name = chosen.name;
+      closePicker();
+      renderJList();
+      document.getElementById('ocrStatus').textContent = '✅ 「' + chosen.name + '」に紐付けましたカニ🦀';
+    });
+  </script>
+</body></html>`;
+}
+
+// === 🦀持参薬鑑別(開発版): ページ生成関数 (ここまで) ===
+
+
 
 export default {
   async fetch(request, env) {
@@ -1215,23 +2200,6 @@ export default {
       });
     }
     // === 🦀休薬チェッカー: 管理画面ルート (ここまで) ===
-
-    // === 🦀休薬チェッカー: 判定画面ルート /{hId}/kyuyaku（オプション施設のみ・ここから） ===
-    if (hospitalId && pathParts[1] === "kyuyaku") {
-      const isSuperK = hospitalId === (env.SUPER_ADMIN_HID || "HPTEST1");
-      if (!isSuperK) {
-        const planK = await env.MEDI_KV.get(`${hospitalId}_plan`) || "";
-        if (!planK.endsWith("_KY")) {
-          return new Response("休薬チェッカーオプションが有効ではありませんカニ🦀", {
-            status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" }
-          });
-        }
-      }
-      return new Response(kyuyakuCheckerPage(hospitalId), {
-        headers: { "Content-Type": "text/html; charset=utf-8" }
-      });
-    }
-    // === 🦀休薬チェッカー: 判定画面ルート (ここまで) ===
 
     // === 新規追加: ユーザーパスワード機能 (ここから) ===
     const isUserLoginPage = pathParts[1] === "login" && pathParts[0] !== "api";
@@ -1319,6 +2287,24 @@ export default {
         });
       }
       // === 🦀メディカニ鑑別: ページルート (ここまで) ===
+
+      // === 🦀持参薬鑑別(開発版): ページルート /{hId}/kanbetsu (ここから) ===
+      // jisanと同じゲート（Z列オプション or スーパー管理施設）。OCR付きの開発版画面。
+      if (hospitalId && pathParts[1] === "kanbetsu") {
+        const isSuperKanbetsu = hospitalId === (env.SUPER_ADMIN_HID || "HPTEST1");
+        if (!isSuperKanbetsu) {
+          const kanbetsuFlag = await env.MEDI_KV.get(`${hospitalId}_jisan`) || "";
+          if (kanbetsuFlag !== "1") {
+            return new Response("持参薬オプションが有効ではありませんカニ🦀", {
+              status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" }
+            });
+          }
+        }
+        return new Response(kanbetsuPage(hospitalId, hospitalName), {
+          headers: { "Content-Type": "text/html; charset=utf-8" }
+        });
+      }
+      // === 🦀持参薬鑑別(開発版): ページルート (ここまで) ===
 
       // === 新規追加: 掲示板データ取得 API (ここから) ===
       if (url.pathname.includes("/api/board")) {
@@ -1557,6 +2543,32 @@ export default {
         }
       }
       // === 🦀メディカニ鑑別: 刻印検索 API (ここまで) ===
+
+      // === 🦀持参薬鑑別: 単名再照合 API /api/kanbetsu-rematch?h=&q= (ここから) ===
+      // 未照合の薬品名を編集した時に、1件だけKV照合し直すためのAPI
+      if (url.pathname.includes("/api/kanbetsu-rematch")) {
+        try {
+          const hId = url.searchParams.get("h") || "";
+          const isSuperK = hId === (env.SUPER_ADMIN_HID || "HPTEST1");
+          if (!isSuperK) {
+            const flag = (hId ? await env.MEDI_KV.get(`${hId}_jisan`) : "") || "";
+            if (flag !== "1") {
+              return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+            }
+          }
+          const q = url.searchParams.get("q") || "";
+          if (!q.trim()) {
+            return new Response(JSON.stringify({ error: "empty" }), { status: 400, headers: { "Content-Type": "application/json" } });
+          }
+          const matched = await kanbetsuMatchNames([q], hId, env);
+          return new Response(JSON.stringify({ match: matched[0] || { found: false } }), {
+            headers: { "Content-Type": "application/json" }
+          });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+      }
+      // === 🦀持参薬鑑別: 単名再照合 API (ここまで) ===
 
       // === 🦀新規追加: 休薬マスタ取得 API（デフォルト＋施設オーバーライドを返す） ===
       if (url.pathname.includes("/api/kyuyaku/master")) {
@@ -1851,6 +2863,166 @@ export default {
     }
 
     // === 新規追加: 報告投稿API (ユーザー側) ===
+    // === 🦀持参薬鑑別: 手帳OCR API POST /api/kanbetsu-ocr (ここから) ===
+    // お薬手帳の写真をOpenAI Vision(gpt-4o-mini)でOCRし、薬品名＋用法を抽出。
+    // 続けて各薬品名をKV照合（マスタ＋採用薬）し、マッチ情報付きで返す。
+    if (request.method === "POST" && url.pathname.includes("/api/kanbetsu-ocr")) {
+      try {
+        const body = await request.json();
+        const hId = body.h || "";
+        const isSuperK = hId === (env.SUPER_ADMIN_HID || "HPTEST1");
+        if (!isSuperK) {
+          const flag = (hId ? await env.MEDI_KV.get(`${hId}_jisan`) : "") || "";
+          if (flag !== "1") {
+            return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+          }
+        }
+        const image = body.image || "";
+        if (!image.startsWith("data:image/")) {
+          return new Response(JSON.stringify({ error: "画像データがありません" }), { status: 400, headers: { "Content-Type": "application/json" } });
+        }
+        if (!env.OPENAI_API_KEY) {
+          return new Response(JSON.stringify({ error: "OPENAI_API_KEY未設定" }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+
+        // --- OpenAI Vision でOCR ---
+        const ocrPrompt = "あなたは病院薬剤部のOCR補助AIです。お薬手帳の写真から、処方されている薬を読み取ってください。\n【厳守ルール】\n1. 写真に写っている薬だけを抽出し、写っていない薬を絶対に追加しない（ハルシネーション禁止）。\n2. 薬品名は2行に折り返されていることが多い。特に「トーワ」「サワイ」「日医工」などのメーカー名だけが次の行に来やすいので、続きの行を必ず結合して1つの薬品名として読み取る。例:「デュロキセチンカプセル２０ｍｇ「」+「トーワ」」→「デュロキセチンカプセル20mg「トーワ」」\n3. 薬品名には規格(mg・g・%等)と「メーカー名」まで含める。\n4. 【般】(一般名)の行と◆付きの販売名の行が両方ある場合は、◆の販売名を name に使う。処方箋【〇〇】のような参考表記の行は薬として数えない。\n5. 規格の数値は写真の通りに正確に読む。0.5mgと1mgの混同、小数点の見落としは重大事故につながるため絶対に禁止。自信が持てない場合も見えた通りに書く。\n6. usage には、1日量(例: 1日1C、1日2錠、1日3錠)と用法(例: 1日1回 朝食後、1日2回 朝・夕食後、1日3回 毎食後)の両方を読み取り、半角スペースで結合する。例:「1日1C 1日1回 朝食後」「1日2錠 1日2回 朝・夕食後」。用量と用法は離れた場所に書かれていることが多いので、その薬のブロック全体から探して結合すること。\n7. 「21日分」「14日分」などの処方日数は usage に含めない。\n8. 薬以外の行（病院名・日付・患者名・効能効果・服用の注意など）は含めない。\n9. 必ず次のJSON形式のみで出力: {\"drugs\":[{\"name\":\"薬品名\",\"usage\":\"用量 用法\"}]}\n10. 薬が1つも読み取れない場合は {\"drugs\":[]} を返す。";
+        const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "user", content: [
+                { type: "text", text: ocrPrompt },
+                { type: "image_url", image_url: { url: image, detail: "high" } }
+              ] }
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.0,
+            max_tokens: 2000
+          })
+        });
+        if (!aiRes.ok) {
+          const errText = await aiRes.text();
+          return new Response(JSON.stringify({ error: "OCR APIエラー: " + errText.slice(0, 200) }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+        const aiData = await aiRes.json();
+        let drugs = [];
+        try {
+          const parsed = JSON.parse(aiData.choices[0].message.content);
+          drugs = Array.isArray(parsed.drugs) ? parsed.drugs : [];
+        } catch (e) { drugs = []; }
+        // 名前が空のものは除外し、最大30件に制限
+        drugs = drugs.filter(d => d && String(d.name || "").trim()).slice(0, 30)
+                     .map(d => ({ name: String(d.name).trim(), usage: String(d.usage || "").trim() }));
+
+        // --- KV照合（1回のスキャンで全薬をマッチング） ---
+        const matches = drugs.length ? await kanbetsuMatchNames(drugs.map(d => d.name), hId, env) : [];
+        const result = drugs.map((d, i) => ({ name: d.name, usage: d.usage, match: matches[i] || { found: false } }));
+
+        return new Response(JSON.stringify({ drugs: result }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+    }
+    // === 🦀持参薬鑑別: 手帳OCR API (ここまで) ===
+
+    // === 🦀持参薬鑑別: 裸錠刻印OCR API POST /api/kokuin-ocr (ここから) ===
+    // 裸錠（PTPから出した錠剤・カプセル）のまとめ撮り写真をOpenAI Vision(gpt-4o-mini)でOCRし、
+    // 各錠剤の刻印文字列を配列で返す。薬剤の特定はAIにさせない（人が刻印検索で確定する設計）。
+    if (request.method === "POST" && url.pathname.includes("/api/kokuin-ocr")) {
+      try {
+        const body = await request.json();
+        const hId = body.h || "";
+        const isSuperKokuin = hId === (env.SUPER_ADMIN_HID || "HPTEST1");
+        if (!isSuperKokuin) {
+          const flag = (hId ? await env.MEDI_KV.get(`${hId}_jisan`) : "") || "";
+          if (flag !== "1") {
+            return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+          }
+        }
+        const image = body.image || "";
+        if (!image.startsWith("data:image/")) {
+          return new Response(JSON.stringify({ error: "画像データがありません" }), { status: 400, headers: { "Content-Type": "application/json" } });
+        }
+        if (image.length > 6000000) {
+          return new Response(JSON.stringify({ error: "画像が大きすぎます。撮り直してください" }), { status: 400, headers: { "Content-Type": "application/json" } });
+        }
+        if (!env.OPENAI_API_KEY) {
+          return new Response(JSON.stringify({ error: "OPENAI_API_KEY未設定" }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+
+        const kokuinPrompt = "あなたは裸錠（PTPシートから出した錠剤・カプセル）の刻印・印字を書き起こすOCRアシスタントです。\n【厳守ルール】\n1. 写真に写っている錠剤・カプセルを1つずつ見て、それぞれの表面の刻印・印字（英数字・カタカナ・記号）を見えたとおりに imprint に書き起こす。例: KW 123、Tw.050、EE5。\n2. 写っていない錠剤を絶対に追加しない（ハルシネーション禁止）。\n3. 薬の名前や成分を推測して imprint に入れない。見えた文字の書き起こしだけ。\n4. 会社ロゴ・マークなど文字でない印は【ロゴ】【三角】のように【】で補足する。\n5. 割線（スコア線）のみで刻印が読めない錠剤は imprint を空文字にし、note に「割線のみ・刻印なし」と書く。\n6. 同じ1錠の表面と裏面が両方見える場合は、同じ1要素の imprint にスペース区切りでまとめてよい。別の錠剤と混同しないこと。\n7. 0とO、1とIなど紛らわしい文字も見えたとおりに書き、自信がない錠剤は confidence を「低」にする（その場合も必ず1要素として残す）。";
+        const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "user", content: [
+                { type: "text", text: kokuinPrompt },
+                { type: "image_url", image_url: { url: image, detail: "high" } }
+              ] }
+            ],
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: "kokuin_result",
+                strict: true,
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    pills: {
+                      type: "array",
+                      description: "写真内の各錠剤/カプセルごとの刻印",
+                      items: {
+                        type: "object",
+                        additionalProperties: false,
+                        properties: {
+                          imprint: { type: "string", description: "刻印・印字の書き起こし。ロゴ等は【】で補足。無ければ空文字" },
+                          kind: { type: "string", enum: ["錠剤", "カプセル", "その他"], description: "剤形の見た目" },
+                          confidence: { type: "string", enum: ["高", "中", "低"], description: "読み取り自信度" },
+                          note: { type: "string", description: "割線/かすれ等の補足。無ければ空文字" }
+                        },
+                        required: ["imprint", "kind", "confidence", "note"]
+                      }
+                    }
+                  },
+                  required: ["pills"]
+                }
+              }
+            },
+            temperature: 0.0,
+            max_tokens: 1500
+          })
+        });
+        if (!aiRes.ok) {
+          const errText = await aiRes.text();
+          return new Response(JSON.stringify({ error: "OCR APIエラー: " + errText.slice(0, 200) }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+        const aiData = await aiRes.json();
+        let pills = [];
+        try {
+          const parsed = JSON.parse(aiData.choices[0].message.content);
+          pills = Array.isArray(parsed.pills) ? parsed.pills : [];
+        } catch (e) { pills = []; }
+        // 整形: 最大20錠・文字数制限
+        pills = pills.slice(0, 20).map(p => ({
+          imprint: String(p.imprint || "").trim().slice(0, 40),
+          kind: p.kind || "その他",
+          confidence: p.confidence || "中",
+          note: String(p.note || "").trim().slice(0, 60)
+        }));
+
+        return new Response(JSON.stringify({ pills: pills }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+    }
+    // === 🦀持参薬鑑別: 裸錠刻印OCR API (ここまで) ===
+
     if (request.method === "POST" && url.pathname.includes("/api/report")) {
       try {
         const body = await request.json();
@@ -3485,20 +4657,6 @@ if (ayj && ayj.substring(0, 7) === yj7) {
         let adoptedDisplayCount = 0;
         let currentAdoptedCat = '';
 
-        // 🌟追加: 採用薬一覧の上に出す「カテゴリ切替ボタン」を作る（今開いているカテゴリは色付きで表示）
-        function adoptedCatSwitcherHTML() {
-          const cats = [ ['[内]', '採用💊 内服'], ['[外]', '採用🩹 外用'], ['[注]', '採用💉 注射'] ];
-          let btns = '';
-          for (const c of cats) {
-            const isActive = (currentAdoptedCat === c[0]);
-            const style = isActive
-              ? 'padding: 8px 4px; background: #4dd0e1; border: 1.5px solid #4dd0e1; border-radius: 10px; font-size: 11px; font-weight: bold; color: #fff; cursor: pointer; outline: none;'
-              : 'padding: 8px 4px; background: #f0fafd; border: 1.5px dashed #4dd0e1; border-radius: 10px; font-size: 11px; font-weight: bold; color: #00838f; cursor: pointer; outline: none;';
-            btns += '<button onclick="loadAdoptedList(\\'' + c[0] + '\\')" style="' + style + '">' + c[1] + '</button>';
-          }
-          return '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px;">' + btns + '</div>';
-        }
-
         async function loadAdoptedList(cat) {
           document.getElementById('q').value = ''; // 検索窓に入っている文字を綺麗にする
           currentAdoptedCat = cat;
@@ -3513,8 +4671,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
             adoptedDisplayCount = 0;
             
             if (adoptedFullList.length === 0) {
-              // 🌟修正: 0件でもカテゴリ切替ボタンは出したままにする
-              resDiv.innerHTML = adoptedCatSwitcherHTML() + '<div class="no-results">📭 該当する採用薬が登録されていませんカニ🦀</div>';
+              resDiv.innerHTML = '<div class="no-results">📭 該当する採用薬が登録されていませんカニ🦀</div>';
               return;
             }
             renderAdoptedMore(true); // 最初の50件を描画
@@ -3554,8 +4711,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           }).join('');
 
           if (isFirst) {
-            // 🌟修正: 一覧の先頭にカテゴリ切替ボタンを付けて、他の採用薬一覧へ直接移動できるようにする
-            resDiv.innerHTML = adoptedCatSwitcherHTML() + html;
+            resDiv.innerHTML = html;
           } else {
             // 2回目以降（追加読み込み）は、スクロール位置を崩さず一番下にお薬を継ぎ足す
             resDiv.insertAdjacentHTML('beforeend', html);
