@@ -620,6 +620,411 @@ loadMaster();
 </script></body></html>`;
 }
 // === 🦀休薬チェッカー: ページ生成関数 (ここまで) ===
+// === 🦀休薬チェッカー: 利用ページ生成関数 (ここから) ===
+// 患者の薬リストを作り（手入力／写真OCR）、休薬マスタと突合して帳票印刷する利用者向けページ。
+// マスタ取得は既存 /api/kyuyaku/master、手入力照合は /api/kyuyaku/lookup、写真は既存 /api/kanbetsu-ocr を流用。
+// === 🦀休薬チェッカー: 利用ページ生成関数 (ここから) ===
+// 患者の薬リストを作り（検索して確定／写真OCR→チップ→検索して確定）、休薬マスタと突合して帳票印刷する。
+// 候補検索は /api/kyuyaku/search、写真は /api/kyuyaku/ocr（お薬手帳・薬情の両対応）。
+// 刻印検索と同じ「読み取る→候補を出す→人が確定する」フローで統一。
+function kyuyakuCheckerPage(hId, isSuper) {
+  return `<!DOCTYPE html>
+<html lang="ja"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>メディカニ休薬チェッカー 🦀</title>
+<style>
+  :root { --pink:#e84c88; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN",sans-serif; margin:0; background:#faf7f8; color:#333; }
+  .wrap { max-width:720px; margin:0 auto; padding:16px; }
+  h1 { font-size:19px; margin:6px 0 2px; }
+  .sub { font-size:12px; color:#888; margin-bottom:14px; }
+  .card { background:#fff; border:1px solid #eee; border-radius:14px; padding:14px; margin-bottom:12px; }
+  .set-row { display:flex; gap:10px; flex-wrap:wrap; }
+  .set-row .fld { flex:1; min-width:130px; }
+  label { display:block; font-size:12px; color:#666; margin-bottom:4px; font-weight:bold; }
+  select, input[type=text], input[type=date] { width:100%; padding:11px; font-size:16px; border:1.5px solid #ddd; border-radius:10px; outline:none; }
+  select:focus, input:focus { border-color:var(--pink); }
+  .addrow { display:flex; gap:8px; margin-top:4px; }
+  .addrow input { flex:1; }
+  .btn { padding:12px 16px; border:none; border-radius:10px; font-weight:bold; font-size:14px; cursor:pointer; white-space:nowrap; }
+  .btn.pink { background:var(--pink); color:#fff; }
+  .btn.photo { width:100%; margin-top:8px; background:#fff; color:var(--pink); border:2px solid var(--pink); }
+  .btn.print { width:100%; margin-top:6px; background:#2e7d32; color:#fff; padding:15px; font-size:16px; }
+  .btn.ghost { background:#f4f4f4; color:#666; font-size:12px; padding:9px 12px; }
+  #status { text-align:center; font-size:13px; color:#888; margin:8px 0; min-height:18px; }
+  .empty { text-align:center; color:#aaa; font-size:13px; padding:18px; }
+  /* OCRチップ */
+  #chipBox { display:none; }
+  .chiphead { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .chip { display:inline-block; background:#fff0f6; border:1.5px solid #ffc2da; color:#c2185b; border-radius:18px; padding:8px 14px; margin:0 6px 6px 0; font-size:13px; font-weight:bold; cursor:pointer; text-align:left; }
+  .chip:active { background:#ffd9e6; }
+  .chip.used { background:#f2f2f2; border-color:#e0e0e0; color:#aaa; }
+  .chip .cu { display:block; font-size:10px; font-weight:normal; color:#999; margin-top:2px; }
+  .chiptip { font-size:11px; color:#a06; margin-bottom:8px; }
+  /* 検索候補 */
+  #resultBox { display:none; }
+  .cand { display:flex; align-items:center; gap:10px; padding:11px 8px; border-bottom:1px solid #f2f2f2; cursor:pointer; }
+  .cand:active { background:#fff5f9; }
+  .cinfo { flex:1; min-width:0; }
+  .cname { font-weight:bold; font-size:14px; line-height:1.4; }
+  .cbadges { display:flex; gap:4px; flex-wrap:wrap; margin:4px 0 2px; }
+  .bd { font-size:10px; padding:2px 7px; border-radius:5px; border:1px solid #ddd; background:#fafafa; color:#666; }
+  .bd.adopt { background:#e8f5e9; border-color:#a5d6a7; color:#2e7d32; font-weight:bold; }
+  .bd.brand { background:#e3f2fd; border-color:#bbdefb; color:#0056b3; }
+  .bd.price { background:#fff3cd; border-color:#ffe69c; color:#e65100; }
+  .bd.comp { background:#f3e5f5; border-color:#e1bee7; color:#7b1fa2; }
+  .cspec { font-size:11px; color:#888; }
+  .mtag { display:inline-block; font-size:11px; font-weight:bold; margin-top:4px; padding:3px 8px; border-radius:6px; background:#fff8f0; border:1px solid #ffe0c0; }
+  .cadd { flex-shrink:0; font-size:12px; font-weight:bold; color:var(--pink); border:1.5px solid var(--pink); border-radius:8px; padding:8px 10px; }
+  /* リスト */
+  .row { display:flex; align-items:center; gap:10px; padding:11px 6px; border-bottom:1px solid #f0f0f0; }
+  .rname { flex:1; font-weight:bold; font-size:14px; }
+  .rname .sub2 { display:block; font-size:11px; color:#e84c88; font-weight:normal; margin-top:2px; }
+  .rjudge { font-size:13px; font-weight:bold; text-align:right; }
+  .rjudge .sd { display:block; font-size:11px; font-weight:normal; color:#555; }
+  .j-continue { color:#2e7d32; }
+  .j-stop { color:#c62828; }
+  .j-consult { color:#e65100; }
+  .j-none { color:#999; }
+  .j-unknown { color:#b8860b; }
+  .rdel { background:#f2f2f2; border:none; border-radius:50%; width:26px; height:26px; font-size:15px; color:#888; cursor:pointer; flex-shrink:0; }
+  .notice { font-size:11px; color:#a06; background:#fff3f7; border:1px solid #ffd9e6; border-radius:10px; padding:10px; margin-top:6px; }
+  .footer { text-align:center; font-size:11px; color:#bbb; padding:20px 0; }
+  /* 帳票（印刷用）*/
+  #report { display:none; }
+  @media print {
+    body { background:#fff; }
+    .no-print { display:none !important; }
+    .wrap { max-width:none; padding:0; }
+    #report { display:block; }
+    #report h2 { text-align:center; font-size:18px; margin:0 0 10px; }
+    #report table { width:100%; border-collapse:collapse; margin-bottom:10px; }
+    #report .meta td { border:1px solid #999; padding:5px 8px; font-size:12px; }
+    #report .meta td:nth-child(odd) { background:#f2f2f2; font-weight:bold; width:70px; white-space:nowrap; }
+    #report .rep th, #report .rep td { border:1px solid #999; padding:5px 7px; font-size:12px; text-align:left; }
+    #report .rep th { background:#f2f2f2; }
+    #report .j-stop { color:#c62828; font-weight:bold; }
+    #report .j-consult { color:#e65100; font-weight:bold; }
+    #report .disc { font-size:10px; color:#333; border:1px solid #ccc; padding:8px; margin-top:6px; }
+    #report .sign { display:flex; gap:30px; margin-top:16px; font-size:13px; }
+  }
+</style>
+</head><body>
+<div class="wrap">
+  <div class="no-print">
+    <h1>🦀 メディカニ休薬チェッカー</h1>
+    <div class="sub">患者さんの薬を追加して、術式・検査ごとの休薬判定を確認・印刷できますカニ🦀</div>
+
+    <div class="card">
+      <div class="set-row">
+        <div class="fld"><label>分類（術式・検査）</label><select id="catSel" onchange="onCatChange()"></select></div>
+        <div class="fld"><label>手術予定日</label><input type="date" id="opDate" onchange="renderList()"></div>
+      </div>
+      <div class="fld" style="margin-top:10px;"><label>患者名・ID（任意・帳票用）</label><input type="text" id="ptName" placeholder="空欄でもOK" autocomplete="off"></div>
+    </div>
+
+    <div class="card">
+      <label>薬を検索して追加</label>
+      <div class="addrow">
+        <input type="text" id="nameInput" placeholder="薬の名前・成分名（例：ワーファリン／アスピリン）" autocomplete="off">
+        <button class="btn pink" onclick="doSearch()">🔍 検索</button>
+      </div>
+      <button class="btn photo" onclick="document.getElementById('photoFile').click()">📷 お薬手帳・薬情を撮って読み取る</button>
+      <input type="file" id="photoFile" accept="image/*" style="display:none">
+    </div>
+
+    <div class="card" id="chipBox">
+      <div class="chiphead">
+        <label style="margin:0;">📷 写真から読み取った薬名</label>
+        <button class="btn ghost" onclick="clearChips()">クリア</button>
+      </div>
+      <div class="chiptip">タップすると検索されますカニ🦀 候補から正しい薬を選んで確定してね。</div>
+      <div id="chipList"></div>
+    </div>
+
+    <div id="status"></div>
+
+    <div class="card" id="resultBox">
+      <div class="chiphead">
+        <label style="margin:0;">🔎 「<span id="resultQ"></span>」の検索結果</label>
+        <button class="btn ghost" onclick="closeResults()">閉じる</button>
+      </div>
+      <div id="resultList"></div>
+      <div id="rawAddBox" style="margin-top:10px; display:none;">
+        <button class="btn ghost" style="width:100%;" onclick="addRaw()">見つからない → 入力した名前のまま追加（判定は行われません）</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>薬リストと休薬判定</label>
+      <div id="list"><div class="empty">まだ薬がありません。検索か写真で追加してくださいカニ🦀</div></div>
+      <div class="notice">「リスト対象外」は休薬マスタの対象外という意味で、継続してよいかを保証するものではありませんカニ🦀 最終判断は必ず処方医・薬剤師へ。</div>
+    </div>
+
+    <button class="btn print" onclick="printReport()">🖨️ 休薬チェッカー確認票を印刷</button>
+    <div class="footer">🦀 メディカニ休薬チェッカー</div>
+  </div>
+
+  <div id="report"></div>
+</div>
+
+<script>
+const HID = "${hId}";
+const HOSP = "${hId}";
+const ACT = { continue:"継続可", stop:"休薬", consult:"処方元に照会" };
+let MASTER = { cats:[], comps:[] };
+let YJ7IDX = {};
+let LIST = [];
+let RESULTS = [];
+let CHIPS = [];
+let seq = 0;
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function currentCat(){ const el=document.getElementById('catSel'); return el ? el.value : ''; }
+function onCatChange(){ renderList(); if (RESULTS.length) renderResults(document.getElementById('resultQ').textContent); }
+
+async function loadMaster(){
+  const st = document.getElementById('status');
+  try {
+    const res = await fetch('/api/kyuyaku/master?h=' + encodeURIComponent(HID));
+    const data = await res.json();
+    if (data.error){ st.textContent = '⚠️ 休薬マスタを取得できません（' + data.error + '）'; return; }
+    const DEF = data.def || { categories:[], components:[] };
+    const OVR = data.ovr || { components:[] };
+    const ovrMap = {}; (OVR.components||[]).forEach(function(c){ ovrMap[c.id]=c; });
+    const defIds = {}; (DEF.components||[]).forEach(function(c){ defIds[c.id]=1; });
+    let comps = (DEF.components||[]).map(function(c){ return ovrMap[c.id] ? Object.assign({}, ovrMap[c.id]) : Object.assign({}, c); });
+    (OVR.components||[]).forEach(function(c){ if(!defIds[c.id]) comps.push(Object.assign({}, c)); });
+    MASTER.cats = DEF.categories || [];
+    MASTER.comps = comps;
+    YJ7IDX = {};
+    comps.forEach(function(c){ (c.yj7List||[]).forEach(function(y){ YJ7IDX[String(y).slice(0,7)] = c; }); });
+    const sel = document.getElementById('catSel');
+    if (MASTER.cats.length) {
+      sel.innerHTML = MASTER.cats.map(function(c){ return '<option value="'+esc(c.id)+'">'+esc(c.label)+'</option>'; }).join('');
+    } else {
+      sel.innerHTML = '<option value="">（分類が未設定です）</option>';
+    }
+    st.textContent = '';
+    renderList();
+  } catch(e){ st.textContent = '⚠️ 通信エラーが発生しましたカニ🦀'; }
+}
+
+function compOf(yj){ if(!yj) return null; return YJ7IDX[String(yj).slice(0,7)] || null; }
+
+function computeStop(days){
+  if (days==null) return '';
+  const v = document.getElementById('opDate').value;
+  if (!v) return '';
+  const d = new Date(v + 'T00:00:00');
+  d.setDate(d.getDate() - Number(days));
+  const w = ['日','月','火','水','木','金','土'][d.getDay()];
+  return (d.getMonth()+1) + '/' + d.getDate() + '（' + w + '）から';
+}
+
+function judge(item){
+  if (!item.yj) return { label:'⚠️ 薬を特定できず', cls:'j-unknown', comp:'', comment:'', stopDate:'' };
+  const comp = compOf(item.yj);
+  if (!comp) return { label:'リスト対象外', cls:'j-none', comp:'', comment:'', stopDate:'' };
+  const rule = (comp.rules||{})[currentCat()] || { action:'consult', days:null, comment:'' };
+  const act = rule.action || 'consult';
+  let label = ACT[act] || act;
+  let stopDate = '';
+  if (act === 'stop') {
+    const dtxt = (rule.days===0) ? '当日から' : (rule.days!=null ? rule.days+'日前から' : '日数未設定');
+    label = '休薬（' + dtxt + '）';
+    stopDate = computeStop(rule.days);
+  }
+  return { label:label, cls:'j-'+act, comp:comp.name||comp.component||'', comment:rule.comment||'', stopDate:stopDate };
+}
+
+/* ===== 検索して確定するフロー ===== */
+async function doSearch(){
+  const q = document.getElementById('nameInput').value.trim();
+  const st = document.getElementById('status');
+  if (q.length < 2){ st.textContent = '2文字以上で入力してくださいカニ🦀'; return; }
+  st.textContent = '🔍 メディカニで検索中...🦀';
+  try {
+    const res = await fetch('/api/kyuyaku/search?h=' + encodeURIComponent(HID) + '&q=' + encodeURIComponent(q));
+    const data = await res.json();
+    RESULTS = data.results || [];
+    if (data.error && !RESULTS.length){ st.textContent = '⚠️ ' + data.error; }
+    else if (!RESULTS.length){ st.textContent = '📭 該当する薬が見つかりませんでしたカニ🦀'; }
+    else { st.textContent = '🔎 ' + RESULTS.length + '件の候補が見つかりましたカニ🦀 正しい薬をタップしてね'; }
+    renderResults(q);
+  } catch(e){ st.textContent = '⚠️ 通信エラーが発生しましたカニ🦀'; }
+}
+
+function renderResults(q){
+  document.getElementById('resultQ').textContent = q;
+  document.getElementById('resultBox').style.display = 'block';
+  document.getElementById('rawAddBox').style.display = 'block';
+  const list = document.getElementById('resultList');
+  if (!RESULTS.length){
+    list.innerHTML = '<div class="empty">該当する薬が見つかりませんでしたカニ🦀<br>表記を変えて再検索するか、下のボタンでそのまま追加できます。</div>';
+    return;
+  }
+  list.innerHTML = RESULTS.map(function(r, i){
+    const c = compOf(r.yj);
+    let tag = '';
+    if (c){
+      const rule = (c.rules||{})[currentCat()] || {};
+      const act = rule.action || 'consult';
+      let lab = ACT[act] || act;
+      if (act === 'stop'){
+        const dtxt = (rule.days===0) ? '当日から' : (rule.days!=null ? rule.days+'日前から' : '日数未設定');
+        lab = '休薬（' + dtxt + '）';
+      }
+      tag = '<div class="mtag ' + ('j-'+act) + '">🩸 休薬マスタ対象：' + esc(c.name||c.component||'') + ' → ' + esc(lab) + '</div>';
+    }
+    return '<div class="cand" onclick="addFromResult(' + i + ')">'
+      + '<div class="cinfo">'
+      +   '<div class="cname">' + esc(r.name) + '</div>'
+      +   '<div class="cbadges">'
+      +     (r.isAdopted ? '<span class="bd adopt">当院採用</span>' : '')
+      +     (r.isBrand ? '<span class="bd brand">先発</span>' : '')
+      +     (r.price && r.price !== '-' ? '<span class="bd price">￥' + esc(r.price) + '</span>' : '')
+      +     (r.component ? '<span class="bd comp">🧬 ' + esc(r.component) + '</span>' : '')
+      +   '</div>'
+      +   (r.spec ? '<div class="cspec">📦 ' + esc(r.spec) + '</div>' : '')
+      +   tag
+      + '</div>'
+      + '<div class="cadd">＋追加</div>'
+      + '</div>';
+  }).join('');
+}
+
+function addFromResult(i){
+  const r = RESULTS[i];
+  if (!r) return;
+  seq++;
+  LIST.push({ id:seq, name:r.name, yj:r.yj||'', spec:r.spec||'' });
+  document.getElementById('status').textContent = '✅「' + r.name + '」を追加しましたカニ🦀';
+  document.getElementById('nameInput').value = '';
+  closeResults();
+  renderList();
+}
+
+function addRaw(){
+  const q = document.getElementById('nameInput').value.trim();
+  if (q.length < 2) return;
+  seq++;
+  LIST.push({ id:seq, name:q, yj:'', spec:'' });
+  document.getElementById('status').textContent = '⚠️「' + q + '」を名前のまま追加しました（判定は行われません）';
+  document.getElementById('nameInput').value = '';
+  closeResults();
+  renderList();
+}
+
+function closeResults(){
+  RESULTS = [];
+  document.getElementById('resultBox').style.display = 'none';
+}
+
+/* ===== 写真OCR → チップ → 検索 → 確定 ===== */
+function compressImage(file){
+  return new Promise(function(resolve, reject){
+    const img = new Image(); const fr = new FileReader();
+    fr.onload = function(){ img.src = fr.result; }; fr.onerror = reject;
+    img.onload = function(){
+      let w = img.width, h = img.height; const maxDim = 1600;
+      if (Math.max(w,h) > maxDim){ const sc = maxDim/Math.max(w,h); w=Math.round(w*sc); h=Math.round(h*sc); }
+      const cv = document.createElement('canvas'); cv.width=w; cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0,w,h);
+      resolve(cv.toDataURL('image/jpeg', 0.8));
+    };
+    img.onerror = reject; fr.readAsDataURL(file);
+  });
+}
+
+document.getElementById('photoFile').addEventListener('change', async function(e){
+  const files = Array.from(e.target.files || []); e.target.value = '';
+  if (!files.length) return;
+  const st = document.getElementById('status');
+  st.textContent = '📷 写真から薬名を読み取り中...🦀（少し時間がかかります）';
+  try {
+    const dataUrl = await compressImage(files[0]);
+    const r = await fetch('/api/kyuyaku/ocr', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ h:HID, image:dataUrl }) });
+    const data = await r.json();
+    if (data.error){ st.textContent = '⚠️ ' + data.error; return; }
+    const names = data.names || [];
+    if (!names.length){ st.textContent = '📭 この写真からは薬名を読み取れませんでしたカニ🦀💦 明るい場所で、薬名の列がまっすぐ入るように撮ってみてね'; return; }
+    names.forEach(function(n){ CHIPS.push({ name:n.name, usage:n.usage||'', used:false }); });
+    st.textContent = '✅ ' + names.length + '件の薬名を読み取りましたカニ🦀 タップして検索→確定してね';
+    renderChips();
+    document.getElementById('chipBox').scrollIntoView({ behavior:'smooth', block:'center' });
+  } catch(e){ st.textContent = '⚠️ 通信エラーが発生しましたカニ🦀'; }
+});
+
+function renderChips(){
+  const box = document.getElementById('chipBox');
+  if (!CHIPS.length){ box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  document.getElementById('chipList').innerHTML = CHIPS.map(function(c, i){
+    return '<button class="chip' + (c.used ? ' used' : '') + '" onclick="chipTap(' + i + ')">'
+      + esc(c.name)
+      + (c.usage ? '<span class="cu">' + esc(c.usage) + '</span>' : '')
+      + '</button>';
+  }).join('');
+}
+
+function chipTap(i){
+  const c = CHIPS[i];
+  if (!c) return;
+  document.getElementById('nameInput').value = c.name;
+  c.used = true;
+  renderChips();
+  doSearch();
+}
+
+function clearChips(){ CHIPS = []; renderChips(); }
+
+/* ===== リストと帳票 ===== */
+function renderList(){
+  const box = document.getElementById('list');
+  if (!LIST.length){ box.innerHTML = '<div class="empty">まだ薬がありません。検索か写真で追加してくださいカニ🦀</div>'; return; }
+  box.innerHTML = LIST.map(function(it){
+    const j = judge(it);
+    return '<div class="row">'
+      + '<div class="rname">' + esc(it.name) + (j.comp ? '<span class="sub2">' + esc(j.comp) + '</span>' : '') + '</div>'
+      + '<div class="rjudge ' + j.cls + '">' + esc(j.label) + (j.stopDate ? '<span class="sd">→ ' + esc(j.stopDate) + '</span>' : '') + '</div>'
+      + '<button class="rdel" onclick="removeItem(' + it.id + ')">×</button>'
+      + '</div>';
+  }).join('');
+}
+function removeItem(id){ LIST = LIST.filter(function(x){ return x.id!==id; }); renderList(); }
+
+function printReport(){
+  if (!LIST.length){ alert('先に薬を追加してくださいカニ🦀'); return; }
+  const cat = MASTER.cats.filter(function(c){ return c.id===currentCat(); })[0];
+  const catLabel = cat ? cat.label : '';
+  const op = document.getElementById('opDate').value;
+  const pt = document.getElementById('ptName').value.trim();
+  const rows = LIST.map(function(it){
+    const j = judge(it);
+    return '<tr><td>' + esc(it.name) + '</td><td>' + esc(j.comp||'') + '</td><td class="' + j.cls + '">' + esc(j.label) + '</td><td>' + esc(j.stopDate||'') + '</td><td>' + esc(j.comment||'') + '</td></tr>';
+  }).join('');
+  const t = new Date();
+  const td = t.getFullYear() + '/' + (t.getMonth()+1) + '/' + t.getDate();
+  document.getElementById('report').innerHTML =
+    '<h2>メディカニ休薬チェッカー 確認票</h2>'
+    + '<table class="meta"><tr><td>施設</td><td>' + esc(HOSP) + '</td><td>作成日</td><td>' + td + '</td></tr>'
+    + '<tr><td>患者</td><td>' + esc(pt||'　') + '</td><td>手術予定日</td><td>' + esc(op||'　') + '</td></tr>'
+    + '<tr><td>分類</td><td colspan="3">' + esc(catLabel||'　') + '</td></tr></table>'
+    + '<table class="rep"><thead><tr><th>薬剤</th><th>成分</th><th>判定</th><th>休薬開始</th><th>備考</th></tr></thead><tbody>' + rows + '</tbody></table>'
+    + '<div class="disc">※本票の判定は休薬マスタに基づく参考情報です。最終的な休薬の可否・時期は必ず処方医・薬剤師がご確認ください。「リスト対象外」は休薬マスタの対象外を示すもので、継続の可否を保証するものではありません。</div>'
+    + '<div class="sign"><div>確認者：＿＿＿＿＿＿＿＿＿＿</div></div>';
+  window.print();
+}
+
+document.getElementById('nameInput').addEventListener('keydown', function(e){ if (e.key==='Enter') doSearch(); });
+loadMaster();
+</script>
+</body></html>`;
+}
+// === 🦀休薬チェッカー: 利用ページ生成関数 (ここまで) ===　
 
 // === 🦀メディカニ鑑別（持参薬サポート）: ページ生成関数 (ここから) ===
 function jisanPage(hId, hospitalName) {
@@ -645,6 +1050,18 @@ function jisanPage(hId, hospitalName) {
   #kokuin:focus { border-color:var(--pink); }
   #btnSearch { padding:13px 20px; background:var(--pink); color:#fff; border:none; border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; white-space:nowrap; }
   #btnSearch:active { transform:scale(0.97); }
+  /* ▼ 🧪裸錠の刻印OCR（試験中）追加分 */
+  .btn-kokuin { width:100%; margin-top:10px; padding:14px 10px; background:#fff; color:var(--pink); border:2px solid var(--pink); border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; }
+  .btn-kokuin:active { transform:scale(0.97); }
+  .btn-kokuin .beta { font-size:11px; background:var(--pink); color:#fff; border-radius:8px; padding:1px 7px; margin-left:6px; vertical-align:middle; }
+  #kokuinChips { display:none; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .kchip { display:inline-block; background:#fff; border:1.5px solid var(--pink); color:var(--pink); border-radius:20px; padding:9px 14px; font-size:14px; font-weight:bold; cursor:pointer; line-height:1.2; }
+  .kchip:active { transform:scale(0.96); }
+  .kchip.low { border-style:dashed; border-color:#e0a800; color:#b8860b; }
+  .kchip.used { background:#f2fff2; border-color:#a5d6a7; color:#2e7d32; }
+  .kchip.noimp { background:#f5f5f5; border-color:#ddd; color:#aaa; cursor:default; }
+  .kchip .knote { font-size:10px; font-weight:normal; color:#999; margin-left:4px; }
+  #kokuinStatus { text-align:center; font-size:13px; color:#888; margin-top:10px; }
   .hint { font-size:11px; color:#999; margin-top:8px; line-height:1.6; }
   .notice { background:#fff8e1; border:1px solid #ffe082; border-radius:10px; padding:10px 12px; font-size:11px; color:#8a6d3b; line-height:1.6; margin-top:12px; }
   #status { text-align:center; font-size:13px; color:#888; margin:18px 0 8px; }
@@ -688,6 +1105,10 @@ function jisanPage(hId, hospitalName) {
         <button id="btnSearch" onclick="doSearch()">🔍 検索</button>
       </div>
       <div class="hint">💡 英数字2文字以上で検索できます。大文字小文字・全角半角・スペースの違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。</div>
+      <button class="btn-kokuin" onclick="document.getElementById('kokuinFile').click()">🧪 裸錠の刻印OCR<span class="beta">試験中</span></button>
+      <input type="file" id="kokuinFile" accept="image/*" style="display:none">
+      <div id="kokuinChips"></div>
+      <div id="kokuinStatus"></div>
     </div>
     <div class="notice">
       ⚠️ 本ツールはPMDA添付文書の識別コード情報をもとに候補を絞り込む<b>補助ツール</b>です。同じ刻印が複数の製品に該当する場合や、刻印情報が登録されていない製剤もあります。<b>最終的な同定は必ず現物・添付文書でご確認ください。</b>
@@ -733,6 +1154,106 @@ function jisanPage(hId, hospitalName) {
       const url = 'https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(name + ' 錠剤');
       window.open(url, 'kanbetsu_img', 'width=900,height=700,scrollbars=yes');
     }
+
+    // ===== 🧪 裸錠の刻印OCR（試験中）: 撮影→刻印チップ→タップで検索窓に入れて検索 =====
+    var jKokuinChips = [];
+
+    function jCompress(file, maxDim, quality) {
+      return new Promise(function(resolve, reject){
+        const img = new Image();
+        const fr = new FileReader();
+        fr.onload = function(){ img.src = fr.result; };
+        fr.onerror = reject;
+        img.onload = function(){
+          let w = img.width, h = img.height;
+          if (Math.max(w, h) > maxDim) { const sc = maxDim / Math.max(w, h); w = Math.round(w*sc); h = Math.round(h*sc); }
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          cv.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(cv.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = reject;
+        fr.readAsDataURL(file);
+      });
+    }
+
+    async function jPostKokuin(file, st) {
+      const plans = [ {dim:1600,q:0.8}, {dim:1280,q:0.75}, {dim:1000,q:0.7} ];
+      let lastErr = null;
+      for (let a = 0; a < plans.length; a++) {
+        const dataUrl = await jCompress(file, plans[a].dim, plans[a].q);
+        if (a > 0) st.textContent = '📶 電波が弱いので軽量化して再送信中(' + (a+1) + '回目)...🦀';
+        try {
+          const r = await fetch('/api/kokuin-ocr', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ h: HID, image: dataUrl })
+          });
+          const raw = await r.text();
+          try { return JSON.parse(raw); }
+          catch (pe) { throw new Error('HTTP ' + r.status + ' 非JSON応答'); }
+        } catch (err) { lastErr = err; }
+      }
+      throw lastErr;
+    }
+
+    function jRenderKokuinChips() {
+      const box = document.getElementById('kokuinChips');
+      if (!jKokuinChips.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+      box.style.display = 'flex';
+      let html = '';
+      for (const c of jKokuinChips) {
+        if (!c.imprint) {
+          html += '<span class="kchip noimp">（刻印なし）' + (c.note ? '<span class="knote">' + escHtml(c.note) + '</span>' : '') + '</span>';
+        } else {
+          const cls = c.used ? 'kchip used' : (c.confidence === '低' ? 'kchip low' : 'kchip');
+          html += '<span class="' + cls + '" data-jchip="' + c.i + '">' + (c.used ? '✅ ' : '🔍 ') + escHtml(c.imprint)
+            + (c.confidence === '低' ? '<span class="knote">自信なし</span>' : '')
+            + (c.note ? '<span class="knote">' + escHtml(c.note) + '</span>' : '')
+            + '</span>';
+        }
+      }
+      box.innerHTML = html;
+    }
+
+    async function jHandleKokuinFile(e) {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      if (!files.length) return;
+      const st = document.getElementById('kokuinStatus');
+      st.textContent = '💊 錠剤の刻印を読み取り中...🦀（少し時間がかかります）';
+      try {
+        const data = await jPostKokuin(files[0], st);
+        if (data.error) { st.textContent = '⚠️ 読み取りエラー: ' + data.error; return; }
+        if (!data.pills || !data.pills.length) { st.textContent = '📭 この写真からは錠剤が読み取れませんでしたカニ🦀💦 明るい場所で錠剤同士を離して撮ってみてね！'; return; }
+        for (const ppp of data.pills) {
+          jKokuinChips.push({ i: jKokuinChips.length, imprint: ppp.imprint || '', confidence: ppp.confidence || '中', note: ppp.note || '', used: false });
+        }
+        st.textContent = '✅ ' + data.pills.length + '錠分の刻印を読み取りましたカニ🦀 チップをタップすると検索できます！';
+        jRenderKokuinChips();
+      } catch (err) {
+        st.textContent = '⚠️ 電波が不安定で送信できませんでしたカニ🦀💦（3回試しました）電波の良い場所で再度お試しください。';
+      }
+    }
+
+    function jHandleChipTap(e) {
+      const ch = e.target.closest('[data-jchip]');
+      if (!ch) return;
+      const c = jKokuinChips[Number(ch.getAttribute('data-jchip'))];
+      if (!c || !c.imprint) return;
+      inp.value = String(c.imprint).replace(/【[^】]*】/g, '').trim();
+      c.used = true;
+      jRenderKokuinChips();
+      doSearch();
+      document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // ページ読み込み時にリスナーを登録（★doSearchの外で登録するのが重要）
+    (function bindKokuinOcr(){
+      const fileEl = document.getElementById('kokuinFile');
+      const chipsEl = document.getElementById('kokuinChips');
+      if (fileEl) fileEl.addEventListener('change', jHandleKokuinFile);
+      if (chipsEl) chipsEl.addEventListener('click', jHandleChipTap);
+    })();
 
     async function doSearch() {
       const q = inp.value.trim();
@@ -1045,6 +1566,18 @@ function kanbetsuPage(hId, hospitalName) {
   .btn-ocr { flex:1; padding:14px 10px; background:#d63384; color:#fff; border:none; border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; }
   .btn-ocr:active { transform:scale(0.97); }
   .btn-phone { flex:1; padding:14px 10px; background:#e9ecef; color:#adb5bd; border:1px solid #dee2e6; border-radius:12px; font-weight:bold; font-size:13px; cursor:not-allowed; }
+  /* ▼ 📱手帳QR（JAHIS）追加分 */
+  .btn-qr { flex:1; padding:14px 10px; background:#fff; color:var(--pink); border:2px solid var(--pink); border-radius:12px; font-weight:bold; font-size:13px; cursor:pointer; }
+  .btn-qr:active { transform:scale(0.97); }
+  #qrOverlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); display:none; z-index:1400; flex-direction:column; justify-content:center; align-items:center; padding:16px; box-sizing:border-box; }
+  #qrVideoWrap { position:relative; width:100%; max-width:360px; aspect-ratio:1/1; background:#000; border-radius:16px; overflow:hidden; }
+  #qrVideo { width:100%; height:100%; object-fit:cover; }
+  #qrFrame { position:absolute; inset:12%; border:3px solid #fff; border-radius:12px; pointer-events:none; }
+  #qrCount { color:#fff; font-weight:bold; font-size:15px; margin:14px 0 4px; text-align:center; }
+  #qrHint { color:#ddd; font-size:12px; text-align:center; margin-bottom:14px; }
+  .qr-btn { width:100%; max-width:360px; padding:14px; border:none; border-radius:12px; font-weight:bold; font-size:15px; cursor:pointer; margin-top:8px; }
+  .qr-btn.go { background:var(--pink); color:#fff; }
+  .qr-btn.cancel { background:#555; color:#fff; }
   /* ▼ 💊裸錠まとめ撮り→刻印OCR 追加分 */
   .btn-kokuin { width:100%; margin-top:8px; padding:14px 10px; background:#fff; color:var(--pink); border:2px solid var(--pink); border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; }
   .btn-kokuin:active { transform:scale(0.97); }
@@ -1154,7 +1687,7 @@ function kanbetsuPage(hId, hospitalName) {
     </div>
     <div class="ocr-row">
       <button class="btn-ocr" onclick="document.getElementById('ocrFile').click()">📷 手帳OCR（撮影・選択）</button>
-      <button class="btn-phone" disabled>📱 スマホ連携（準備中）</button>
+      <button class="btn-qr" onclick="openQrScanner()">📱 手帳QR</button>
     </div>
     <input type="file" id="ocrFile" accept="image/*" multiple style="display:none">
     <button class="btn-kokuin" onclick="document.getElementById('kokuinFile').click()">💊 裸錠の刻印OCR（まとめ撮り対応）</button>
@@ -1162,6 +1695,13 @@ function kanbetsuPage(hId, hospitalName) {
     <div id="kokuinChips"></div>
     <button class="btn-addmed" onclick="openPickerForAdd(null)">➕ お薬名で検索して追加（刻印なし・手入力用）</button>
     <div id="ocrStatus" style="text-align:center; font-size:13px; color:#888; margin-top:10px;"></div>
+    <div id="qrOverlay">
+      <div id="qrVideoWrap"><video id="qrVideo" playsinline muted></video><div id="qrFrame"></div></div>
+      <div id="qrCount">お薬手帳のQRを枠に合わせてね🦀</div>
+      <div id="qrHint">QRが複数あるときは1個ずつ順番にかざしてください</div>
+      <button class="qr-btn go" id="qrGoBtn" onclick="analyzeQr()" style="display:none;">この内容で解析する</button>
+      <button class="qr-btn cancel" onclick="closeQrScanner()">閉じる</button>
+    </div>
     <div id="jlistArea" style="display:none;">
       <div class="jlist-title">📋 持参薬リスト <span id="jlistCount" style="font-weight:normal; color:#999; font-size:12px;"></span></div>
       <div id="jlist"></div>
@@ -1490,6 +2030,101 @@ function kanbetsuPage(hId, hospitalName) {
     });
 
     // 画像を長辺1600pxのJPEGに圧縮（通信量とOCRコストの節約）
+    // ===== 📱 手帳QR（JAHIS規格）: 1個ずつスキャンして貯める =====
+    var qrStream = null, qrScanning = false, qrTexts = [], qrSeen = null, qrLibLoading = null;
+
+    function loadJsQR() {
+      if (window.jsQR) return Promise.resolve();
+      if (qrLibLoading) return qrLibLoading;
+      qrLibLoading = new Promise(function(resolve, reject){
+        var sc = document.createElement('script');
+        sc.src = '/vendor/jsqr.js';
+        sc.onload = resolve;
+        sc.onerror = function(){ reject(new Error('QRライブラリの読み込みに失敗')); };
+        document.head.appendChild(sc);
+      });
+      return qrLibLoading;
+    }
+
+    async function openQrScanner() {
+      const ov = document.getElementById('qrOverlay');
+      qrTexts = []; qrSeen = {};
+      document.getElementById('qrGoBtn').style.display = 'none';
+      document.getElementById('qrCount').textContent = 'カメラを起動中...🦀';
+      ov.style.display = 'flex';
+      try {
+        await loadJsQR();
+        qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        const v = document.getElementById('qrVideo');
+        v.srcObject = qrStream; v.setAttribute('playsinline', ''); await v.play();
+        document.getElementById('qrCount').textContent = 'QRを枠に合わせてね🦀';
+        qrScanning = true;
+        requestAnimationFrame(qrTick);
+      } catch (e) {
+        document.getElementById('qrCount').textContent = '⚠️ カメラを起動できませんでした（' + (e && e.message ? e.message : e) + '）';
+      }
+    }
+
+    function qrTick() {
+      if (!qrScanning) return;
+      const v = document.getElementById('qrVideo');
+      if (v && v.readyState === v.HAVE_ENOUGH_DATA && window.jsQR) {
+        const cv = document.createElement('canvas');
+        cv.width = v.videoWidth; cv.height = v.videoHeight;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(v, 0, 0, cv.width, cv.height);
+        const img = ctx.getImageData(0, 0, cv.width, cv.height);
+        const code = window.jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
+        if (code) {
+          var text = '';
+          try { text = new TextDecoder('shift-jis').decode(new Uint8Array(code.binaryData)); }
+          catch (e) { text = code.data || ''; }
+          const key = text.slice(0, 40) + '|' + text.length;
+          if (text && !qrSeen[key]) {
+            qrSeen[key] = 1; qrTexts.push(text);
+            document.getElementById('qrCount').textContent = '✅ ' + qrTexts.length + '個 読み取り済み';
+            document.getElementById('qrGoBtn').style.display = 'block';
+            if (navigator.vibrate) navigator.vibrate(60);
+          }
+        }
+      }
+      requestAnimationFrame(qrTick);
+    }
+
+    function stopQrCamera() {
+      qrScanning = false;
+      if (qrStream) { qrStream.getTracks().forEach(function(t){ t.stop(); }); qrStream = null; }
+    }
+    function closeQrScanner() {
+      stopQrCamera();
+      document.getElementById('qrOverlay').style.display = 'none';
+    }
+
+    async function analyzeQr() {
+      if (!qrTexts.length) return;
+      stopQrCamera();
+      document.getElementById('qrOverlay').style.display = 'none';
+      const st = document.getElementById('ocrStatus');
+      st.textContent = '📱 手帳QRを解析中...🦀';
+      try {
+        const r = await fetch('/api/techo-qr', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ h: HID, texts: qrTexts })
+        });
+        const data = await r.json();
+        if (data.error) { st.textContent = '⚠️ 解析エラー: ' + data.error; return; }
+        if (!data.drugs || !data.drugs.length) { st.textContent = '📭 QRから薬を読み取れませんでしたカニ🦀💦 QRが全部揃っているか確認してね'; return; }
+        for (const d of data.drugs) {
+          kanbetsuSeq++;
+          kanbetsuList.push({ id: kanbetsuSeq, ocrName: d.name, name: d.name, usage: d.usage || '', m: (d.match && d.match.found) ? d.match : null });
+        }
+        st.textContent = '✅ 手帳QRから ' + data.drugs.length + '件の薬を取り込みましたカニ🦀';
+        renderJList();
+      } catch (e) {
+        st.textContent = '⚠️ 通信エラーが発生したカニ🦀💦 もう一度お試しください。';
+      }
+    }
+
     function compressImage(file) {
       return new Promise(function(resolve, reject){
         const img = new Image();
@@ -2159,6 +2794,18 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+      // 📦 jsQRライブラリを同一オリジンで配信（ページCSP回避）。jsDelivrを中継しエッジキャッシュ
+      if (url.pathname === "/vendor/jsqr.js") {
+        try {
+          let up = await fetch("https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js", { cf: { cacheTtl: 604800, cacheEverything: true } });
+          if (!up.ok) up = await fetch("https://unpkg.com/jsqr@1.4.0/dist/jsQR.js");
+          const jsBody = await up.text();
+          return new Response(jsBody, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=604800" } });
+        } catch (e) {
+          return new Response("/* jsQR load failed */", { status: 502, headers: { "content-type": "application/javascript; charset=utf-8" } });
+        }
+      }
+
     const pathParts = url.pathname.split('/').filter(p => p);
     
     // パスの1番目を施設IDとして取得（apiパスは除外）
@@ -2200,6 +2847,23 @@ export default {
       });
     }
     // === 🦀休薬チェッカー: 管理画面ルート (ここまで) ===
+    // === 🦀休薬チェッカー: 利用ページルート (ここから) ===
+    // /{hId}/kyuyaku 患者の薬リスト→休薬判定→帳票印刷（_KYプランでゲート）
+    if (hospitalId && pathParts[1] === "kyuyaku") {
+      const isSuper = hospitalId === (env.SUPER_ADMIN_HID || "HPTEST1");
+      if (!isSuper) {
+        const plan = await env.MEDI_KV.get(`${hospitalId}_plan`) || "";
+        if (!plan.endsWith("_KY")) {
+          return new Response("休薬チェッカーオプションが有効ではありませんカニ🦀", {
+            status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" }
+          });
+        }
+      }
+      return new Response(kyuyakuCheckerPage(hospitalId, isSuper), {
+        headers: { "Content-Type": "text/html; charset=utf-8" }
+      });
+    }
+    // === 🦀休薬チェッカー: 利用ページルート (ここまで) ===
 
     // === 新規追加: ユーザーパスワード機能 (ここから) ===
     const isUserLoginPage = pathParts[1] === "login" && pathParts[0] !== "api";
@@ -2591,6 +3255,104 @@ export default {
         }
       }
 
+      // === 🌟新規追加: 休薬チェッカー 候補検索API GET /api/kyuyaku/search?h=&q= (ここから) ===
+      // メディカニ本体と同じキー構造ロジックで、薬品名・成分名の両方から候補を返す。
+      // ⚠️ GETなので必ず if (request.method === "GET") ブロックの内側に置くこと。
+      // プラン判定は行わない（ページ自体がプランで守られているため）。
+      if (url.pathname.includes("/api/kyuyaku/search")) {
+        try {
+          const hId = url.searchParams.get("h") || "";
+          const rawQ = url.searchParams.get("q") || "";
+          // 全角英数を半角に、ひらがなをカタカナに寄せる（本体検索と同じ前処理）
+          const q = hiraToKata(
+            rawQ.replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).trim()
+          );
+          if (q.length < 2) {
+            return new Response(JSON.stringify({ error: "2文字以上で検索してください", results: [] }), { status: 400, headers: { "Content-Type": "application/json" } });
+          }
+          if (!env.MEDI_KV) {
+            return new Response(JSON.stringify({ error: "KV未設定", results: [] }), { status: 500, headers: { "Content-Type": "application/json" } });
+          }
+
+          // --- キー一覧を1回だけ取得（マスタ3カテゴリ＋施設採用薬）---
+          let masterKeys = [];
+          let adoptedKeys = [];
+          for (const c of ["[内]", "[外]", "[注]"]) {
+            let mCur = "";
+            do {
+              const list = await env.MEDI_KV.list({ prefix: c, limit: 1000, cursor: mCur || undefined });
+              masterKeys.push(...list.keys.map(k => k.name));
+              mCur = list.list_complete ? "" : list.cursor;
+            } while (mCur);
+            if (hId) {
+              let aCur = "";
+              do {
+                const list = await env.MEDI_KV.list({ prefix: `${hId}_${c}`, limit: 1000, cursor: aCur || undefined });
+                adoptedKeys.push(...list.keys.map(k => k.name));
+                aCur = list.list_complete ? "" : list.cursor;
+              } while (aCur);
+            }
+          }
+
+          // メディカニ本体と同じ切り出しロジック
+          const getDrugNamePart = (key) => key.split("_").find(p => p.includes("[")) || key;
+          const getComponentPart = (key) => { const ps = key.split("_"); return ps.length > 2 ? ps[ps.length - 2] : ""; };
+          // 🌟薬品名 or 成分名 のどちらかに含まれればヒット（1スキャンで両対応）
+          const isHit = (k) => getDrugNamePart(k).includes(q) || getComponentPart(k).includes(q);
+
+          const mHit = masterKeys.filter(isHit);
+          const aHit = adoptedKeys.filter(isHit);
+          // 採用薬とYJが重複するマスタは落とす
+          const aYJ = new Set(aHit.map(k => k.split("_").pop()));
+          const finalKeys = [...aHit, ...mHit.filter(k => !aYJ.has(k.split("_").pop()))].slice(0, 40);
+
+          const built = await Promise.all(finalKeys.map(async (key) => {
+            const val = await env.MEDI_KV.get(key);
+            if (!val) return null;
+            let parts = String(val).split(/[,\uFF0C]/);
+            const yj = getBestYJ(key, parts);
+            const isAdopted = hId ? key.startsWith(`${hId}_`) : false;
+            // 採用薬はマスタ情報で上書きして先発マーク・薬価を復活（本体検索と同じ）
+            if (isAdopted && yj && yj !== "NONE") {
+              const masterKey = masterKeys.find(k => k.endsWith(`_${yj}`) || k.endsWith(yj));
+              if (masterKey) {
+                const mVal = await env.MEDI_KV.get(masterKey);
+                if (mVal) {
+                  const mParts = String(mVal).split(/[,\uFF0C]/);
+                  const mYjIdx = mParts.findIndex(p => p.replace(/[^a-zA-Z0-9]/g, "") === yj);
+                  if (mYjIdx !== -1) parts = mParts.slice(0, mYjIdx + 1);
+                }
+              }
+            }
+            const ext = extractDrugData(parts, yj);
+            const isBrand = parts.some(p => String(p).includes("先発"));
+            return {
+              key: key,
+              name: ext.name,
+              spec: ext.spec,
+              price: ext.price,
+              type: ext.type.replace(/先発品?/g, ""),
+              yj: yj,
+              isAdopted: isAdopted,
+              isBrand: isBrand,
+              component: getComponentPart(key)
+            };
+          }));
+
+          const results = built.filter(r => r !== null).sort((a, b) => {
+            if (b.isAdopted !== a.isAdopted) return b.isAdopted - a.isAdopted;      // 採用薬を上へ
+            const ap = getDrugNamePart(a.key).includes("]" + q) ? 1 : 0;            // 薬品名の前方一致を上へ
+            const bp = getDrugNamePart(b.key).includes("]" + q) ? 1 : 0;
+            return bp - ap;
+          });
+
+          return new Response(JSON.stringify({ results: results }), { headers: { "Content-Type": "application/json" } });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: String(e), results: [] }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+      }
+      // === 🌟新規追加: 休薬チェッカー 候補検索API (ここまで) ===
+
       // === 🦀新規追加: 休薬マスタ保存 API（パスワード必須） ===
       if (url.pathname.includes("/api/admin/kyuyaku") && request.method === "POST") {
         try {
@@ -2621,6 +3383,27 @@ export default {
           return new Response(JSON.stringify({ success: false, error: String(e) }), { status: 500 });
         }
       }
+      // === 🦀休薬チェッカー: 手入力照合API POST /api/kyuyaku/lookup (ここから) ===
+      // 手入力された薬名を既存 kanbetsuMatchNames でKV照合し、YJ付きで返す（休薬判定はフロントでマスタ突合）。
+      if (url.pathname.includes("/api/kyuyaku/lookup") && request.method === "POST") {
+        try {
+          const body = await request.json();
+          const hId = body.h || "";
+          if (!(await kyuyakuPlanOk(hId))) {
+            return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+          }
+          const names = Array.isArray(body.names) ? body.names.slice(0, 50).map(n => String(n)) : [];
+          if (!names.length) {
+            return new Response(JSON.stringify({ results: [] }), { headers: { "Content-Type": "application/json" } });
+          }
+          const matches = await kanbetsuMatchNames(names, hId, env);
+          const results = names.map((n, i) => ({ name: n, match: matches[i] || { found: false } }));
+          return new Response(JSON.stringify({ results: results }), { headers: { "Content-Type": "application/json" } });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+      }
+      // === 🦀休薬チェッカー: 手入力照合API (ここまで) ===
       // === 🦀休薬チェッカー: API (ここまで) ===
       // 検索API (Web用)
       if (url.pathname.includes("/api/search")) {
@@ -2861,8 +3644,139 @@ export default {
       // メイン画面の表示（第4引数に globalInfo を追加）
       return new Response(this.getAdminHTML(env, hospitalId, hospitalName, globalInfo), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
     }
+    // 👆【目印】ここが if (request.method === "GET") { ... } の閉じカッコ。以下はGETブロックの外側。
 
-    // === 新規追加: 報告投稿API (ユーザー側) ===
+    // ===== 🌟修正追加: 休薬チェッカーのPOST API を GETブロックの外に設置 (ここから) =====
+    // 【経緯】/api/kyuyaku/lookup と /api/admin/kyuyaku は POST なのに
+    //   if (request.method === "GET") の内側に置かれていたため永久に到達せず、
+    //   最終フォールバックの 404 "Not Found"（プレーンテキスト）が返り、
+    //   フロントの res.json() が例外→「通信エラー」表示になっていた。
+    // 【方針】ブロック内の旧コードは消さずに残す（到達不能な死にコードとして無害）。
+    //   なお kyuyakuPlanOk() はGETブロック内で定義されておりここからは参照できないため、
+    //   プラン判定は同じ条件をインラインで実装する。
+
+    // --- 🦀休薬チェッカー: 手入力照合API POST /api/kyuyaku/lookup ---
+    if (request.method === "POST" && url.pathname.includes("/api/kyuyaku/lookup")) {
+      try {
+        const body = await request.json();
+        const hId = body.h || "";
+        let planOk = false;
+        if (hId) {
+          if (hId === (env.SUPER_ADMIN_HID || "HPTEST1")) {
+            planOk = true;
+          } else {
+            const plan = (await env.MEDI_KV.get(`${hId}_plan`)) || "";
+            planOk = plan.endsWith("_KY");
+          }
+        }
+        if (!planOk) {
+          return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+        }
+        const names = Array.isArray(body.names) ? body.names.slice(0, 50).map(n => String(n)) : [];
+        if (!names.length) {
+          return new Response(JSON.stringify({ results: [] }), { headers: { "Content-Type": "application/json" } });
+        }
+        const matches = await kanbetsuMatchNames(names, hId, env);
+        const results = names.map((n, i) => ({ name: n, match: matches[i] || { found: false } }));
+        return new Response(JSON.stringify({ results: results }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+    }
+
+    // --- 🦀休薬チェッカー: 休薬マスタ保存API POST /api/admin/kyuyaku（パスワード必須） ---
+    if (request.method === "POST" && url.pathname.includes("/api/admin/kyuyaku")) {
+      try {
+        const hId = url.searchParams.get("h") || "";
+        let planOk = false;
+        if (hId) {
+          if (hId === (env.SUPER_ADMIN_HID || "HPTEST1")) {
+            planOk = true;
+          } else {
+            const plan = (await env.MEDI_KV.get(`${hId}_plan`)) || "";
+            planOk = plan.endsWith("_KY");
+          }
+        }
+        if (!planOk) {
+          return new Response(JSON.stringify({ success: false, error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+        }
+        const body = await request.json();
+        const pwd = await env.MEDI_KV.get(`${hId}_pwd`);
+        if (!hId || !pwd || body.pwd !== pwd) {
+          return new Response(JSON.stringify({ success: false, error: "auth" }), { status: 403, headers: { "Content-Type": "application/json" } });
+        }
+        const data = body.data || {};
+        data.updatedAt = new Date().toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" });
+
+        if (body.scope === "default") {
+          if (hId !== (env.SUPER_ADMIN_HID || "HPTEST1")) {
+            return new Response(JSON.stringify({ success: false, error: "forbidden" }), { status: 403, headers: { "Content-Type": "application/json" } });
+          }
+          await env.MEDI_KV.put("KYUYAKU_DEFAULT_json", JSON.stringify(data));
+        } else {
+          await env.MEDI_KV.put(`${hId}_kyuyaku_json`, JSON.stringify(data));
+        }
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) {
+        return new Response(JSON.stringify({ success: false, error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+    }
+    // ===== 🌟修正追加: 休薬チェッカーのPOST API (ここまで) =====
+// 👆【目印】ここまでが前回追加した /api/kyuyaku/lookup と /api/admin/kyuyaku
+
+    // === 🌟新規追加: 休薬チェッカー専用OCR API POST /api/kyuyaku/ocr (ここから) ===
+    // お薬手帳・薬剤情報提供書（薬情）・処方箋控え・薬剤リストのいずれにも対応。
+    // 薬剤の特定はAIにさせず「読めた名前」だけを返す（人が検索して確定する設計）。
+    // ⚠️ 鑑別の /api/kanbetsu-ocr とは別物。あちらのプロンプトは無改変で精度を維持する。
+    if (request.method === "POST" && url.pathname.includes("/api/kyuyaku/ocr")) {
+      try {
+        const body = await request.json();
+        const image = body.image || "";
+        if (!image.startsWith("data:image/")) {
+          return new Response(JSON.stringify({ error: "画像データがありません" }), { status: 400, headers: { "Content-Type": "application/json" } });
+        }
+        if (!env.OPENAI_API_KEY) {
+          return new Response(JSON.stringify({ error: "OPENAI_API_KEY未設定" }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+
+        const kyuOcrPrompt = "あなたは病院薬剤部のOCR補助AIです。写真から「薬の名前」だけを抜き出してください。\n写真は お薬手帳／薬剤情報提供書（薬情）／処方箋の控え／院内の持参薬リスト／手書きや印刷の薬名一覧 など様々な形式があります。どの形式でも同じルールで抽出してください。\n【厳守ルール】\n1. 写真に写っている薬だけを抽出し、写っていない薬を絶対に追加しない（ハルシネーション禁止）。\n2. 薬品名が2行に折り返されている場合は結合して1つの薬品名にする。「トーワ」「サワイ」「日医工」などのメーカー名だけが次の行に来やすいので必ず結合する。\n3. 規格(mg・g・%等)やメーカー名「」が書かれていればそれも含める。書かれていない場合は無理に補わず、書かれている通りに返す。\n4. 成分名だけが並んだ一覧（例:「アスピリン」「ワーファリン」「アムロジピン」）でも、それぞれを薬品名として抽出する。番号付きの箇条書きでも同様。\n5. 規格の数値は写真の通りに正確に読む。0.5mgと1mgの混同、小数点の見落としは重大事故につながるため絶対に禁止。\n6. 【般】(一般名)の行と◆付きの販売名の行が両方ある場合は、◆の販売名を優先する。\n7. 剤形（錠・カプセル・OD錠・散・顆粒・軟膏・貼付剤など）が書かれていれば含める。\n8. 病院名・薬局名・日付・患者名・効能効果・服用の注意・処方日数・「以上」などの行は薬として数えない。\n9. usage には用量と用法（例:「1日2錠 1日2回 朝・夕食後」）が読み取れれば入れる。読み取れなければ空文字にする。\n10. 必ず次のJSON形式のみで出力: {\"names\":[{\"name\":\"薬品名\",\"usage\":\"用量 用法\"}]}\n11. 薬が1つも読み取れない場合は {\"names\":[]} を返す。";
+
+        const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "user", content: [
+                { type: "text", text: kyuOcrPrompt },
+                { type: "image_url", image_url: { url: image, detail: "high" } }
+              ] }
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.0,
+            max_tokens: 2000
+          })
+        });
+        if (!aiRes.ok) {
+          const errText = await aiRes.text();
+          return new Response(JSON.stringify({ error: "OCR APIエラー: " + errText.slice(0, 200) }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+        const aiData = await aiRes.json();
+        let names = [];
+        try {
+          const parsed = JSON.parse(aiData.choices[0].message.content);
+          names = Array.isArray(parsed.names) ? parsed.names : [];
+        } catch (e) { names = []; }
+        names = names.filter(n => n && String(n.name || "").trim()).slice(0, 40)
+                     .map(n => ({ name: String(n.name).trim(), usage: String(n.usage || "").trim() }));
+
+        return new Response(JSON.stringify({ names: names }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+    }
+    // === 🌟新規追加: 休薬チェッカー専用OCR API (ここまで) ===
+
     // === 🦀持参薬鑑別: 手帳OCR API POST /api/kanbetsu-ocr (ここから) ===
     // お薬手帳の写真をOpenAI Vision(gpt-4o-mini)でOCRし、薬品名＋用法を抽出。
     // 続けて各薬品名をKV照合（マスタ＋採用薬）し、マッチ情報付きで返す。
@@ -2870,13 +3784,7 @@ export default {
       try {
         const body = await request.json();
         const hId = body.h || "";
-        const isSuperK = hId === (env.SUPER_ADMIN_HID || "HPTEST1");
-        if (!isSuperK) {
-          const flag = (hId ? await env.MEDI_KV.get(`${hId}_jisan`) : "") || "";
-          if (flag !== "1") {
-            return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
-          }
-        }
+        // 🌟修正: プラン/オプション判定を撤去（ページ側で既にゲート済みのため）
         const image = body.image || "";
         if (!image.startsWith("data:image/")) {
           return new Response(JSON.stringify({ error: "画像データがありません" }), { status: 400, headers: { "Content-Type": "application/json" } });
@@ -2927,6 +3835,69 @@ export default {
       }
     }
     // === 🦀持参薬鑑別: 手帳OCR API (ここまで) ===
+
+    // === 🦀持参薬鑑別: 手帳QR API POST /api/techo-qr (ここから) ===
+    // お薬手帳QR（JAHIS規格）のデコード済みテキストを受け取り、201=医薬品/301=用法をパース。
+    // 各薬品名を既存の kanbetsuMatchNames でKV照合し、手帳OCRと同じ {drugs:[{name,usage,match}]} で返す。
+    if (request.method === "POST" && url.pathname.includes("/api/techo-qr")) {
+      try {
+        const body = await request.json();
+        const hId = body.h || "";
+        const isSuperQ = hId === (env.SUPER_ADMIN_HID || "HPTEST1");
+        if (!isSuperQ) {
+          const flag = (hId ? await env.MEDI_KV.get(`${hId}_jisan`) : "") || "";
+          if (flag !== "1") {
+            return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+          }
+        }
+        // texts: スキャンした複数QRのデコード済み文字列（スキャン順）。分割QRは連結して解釈する
+        const texts = Array.isArray(body.texts) ? body.texts : (body.text ? [String(body.text)] : []);
+        if (!texts.length) {
+          return new Response(JSON.stringify({ error: "QRデータがありません" }), { status: 400, headers: { "Content-Type": "application/json" } });
+        }
+        const full = texts.join("");
+        const lines = full.split(/\r\n|\n|\r/);
+        const parsed = [];
+        const pend = [];
+        let curUsage = "";
+        const flush = () => {
+          for (const idx of pend) {
+            parsed[idx].usage = [parsed[idx].qty, curUsage].filter(Boolean).join(" ").trim();
+          }
+          pend.length = 0;
+        };
+        for (const line of lines) {
+          const f = line.split(/[,\uFF0C]/);
+          const rec = (f[0] || "").trim();
+          if (rec === "201") {                 // 医薬品レコード
+            const name = (f[2] || "").trim();
+            if (!name) continue;
+            const qty = ((f[3] || "") + (f[4] || "")).trim();
+            parsed.push({ name: name, usage: "", qty: qty });
+            pend.push(parsed.length - 1);
+          } else if (rec === "301") {            // 用法レコード
+            const yoho = (f[2] || "").trim();
+            const days = ((f[3] || "") + (f[4] || "")).trim();
+            curUsage = [yoho, days].filter(Boolean).join(" ");
+            flush();                             // 直前までの薬に用法を付与
+          }
+        }
+        // 用法行が付かなかった薬（頃用など）は qty だけ usage に入れる
+        for (const d of parsed) { if (!d.usage) d.usage = d.qty || ""; }
+        const drugs = parsed.filter(d => d.name).slice(0, 30).map(d => ({ name: d.name, usage: (d.usage || "").trim() }));
+        if (!drugs.length) {
+          return new Response(JSON.stringify({ drugs: [] }), { headers: { "Content-Type": "application/json" } });
+        }
+        // --- KV照合（手帳OCRと完全に同じロジック）---
+        const matches = await kanbetsuMatchNames(drugs.map(d => d.name), hId, env);
+        const result = drugs.map((d, i) => ({ name: d.name, usage: d.usage, match: matches[i] || { found: false } }));
+
+        return new Response(JSON.stringify({ drugs: result }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+    }
+    // === 🦀持参薬鑑別: 手帳QR API (ここまで) ===
 
     // === 🦀持参薬鑑別: 裸錠刻印OCR API POST /api/kokuin-ocr (ここから) ===
     // 裸錠（PTPから出した錠剤・カプセル）のまとめ撮り写真をOpenAI Vision(gpt-4o-mini)でOCRし、
