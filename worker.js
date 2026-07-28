@@ -1532,6 +1532,20 @@ function kanbetsuPage(hId, hospitalName) {
   #kokuin:focus { border-color:var(--pink); }
   #btnSearch { padding:13px 20px; background:var(--pink); color:#fff; border:none; border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; white-space:nowrap; }
   #btnSearch:active { transform:scale(0.97); }
+  /* ▼ 🌟追加: 検索モード切替（🔍刻印 ／ 🔍薬名） */
+  .mode-row { display:flex; gap:8px; margin-top:8px; }
+  .mode-btn { flex:1; padding:13px 10px; background:#fff; color:var(--pink); border:2px solid var(--pink); border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; }
+  .mode-btn.on { background:var(--pink); color:#fff; }
+  .mode-btn:active { transform:scale(0.97); }
+  /* ▼ 🌟追加: 結果カードの「鑑別リストに追加」 */
+  .card-actions { display:flex; gap:8px; margin-top:10px; }
+  .btn-add { flex:1; background:var(--pink); color:#fff; border:none; border-radius:10px; padding:11px 12px; font-size:13px; font-weight:bold; cursor:pointer; }
+  .btn-add:active { transform:scale(0.97); }
+  .btn-add.done { background:#e8f5e9; color:#1b5e20; border:1px solid #a5d6a7; }
+  .card.added { border-left-color:var(--pink); background:#fffafc; }
+  /* ▼ 🌟追加: 外用・注射も含めて再検索 */
+  .btn-widen { display:block; width:100%; margin-top:12px; padding:12px; background:#fff; color:#0056b3; border:1.5px dashed #90caf9; border-radius:10px; font-size:13px; font-weight:bold; cursor:pointer; }
+  .btn-widen:active { transform:scale(0.98); }
   .hint { font-size:11px; color:#999; margin-top:8px; line-height:1.6; }
   .notice { background:#fff8e1; border:1px solid #ffe082; border-radius:10px; padding:10px 12px; font-size:11px; color:#8a6d3b; line-height:1.6; margin-top:12px; }
   #status { text-align:center; font-size:13px; color:#888; margin:18px 0 8px; }
@@ -1680,10 +1694,13 @@ function kanbetsuPage(hId, hospitalName) {
   <div class="container">
     <div class="search-box">
       <div class="search-row">
-        <input type="text" id="kokuin" placeholder="刻印を入力（例：HP211、TA 111）" autocomplete="off">
-        <button id="btnSearch" onclick="doSearch()">🔍 検索</button>
+        <input type="text" id="kokuin" placeholder="刻印を入力（例：HP211、TA 111）" autocomplete="off" inputmode="latin">
       </div>
-      <div class="hint">💡 英数字2文字以上で検索できます。大文字小文字・全角半角・スペースの違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。</div>
+      <div class="mode-row">
+        <button class="mode-btn on" id="btnModeKokuin" onclick="doSearch('kokuin')">🔍 刻印</button>
+        <button class="mode-btn" id="btnModeName" onclick="doSearch('name')">🔍 薬名</button>
+      </div>
+      <div class="hint" id="searchHint">💡 英数字2文字以上で検索できます。大文字小文字・全角半角・スペースの違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。</div>
     </div>
     <div class="ocr-row">
       <button class="btn-ocr" onclick="document.getElementById('ocrFile').click()">📷 手帳OCR（撮影・選択）</button>
@@ -1693,7 +1710,7 @@ function kanbetsuPage(hId, hospitalName) {
     <button class="btn-kokuin" onclick="document.getElementById('kokuinFile').click()">💊 裸錠の刻印OCR（まとめ撮り対応）</button>
     <input type="file" id="kokuinFile" accept="image/*" style="display:none">
     <div id="kokuinChips"></div>
-    <button class="btn-addmed" onclick="openPickerForAdd(null)">➕ お薬名で検索して追加（刻印なし・手入力用）</button>
+    <!-- 🌟撤去: ➕お薬名で検索して追加 → 検索窓の「🔍 薬名」に統合。openPickerForAdd() は刻印なしチップから使うので関数は残す -->
     <div id="ocrStatus" style="text-align:center; font-size:13px; color:#888; margin-top:10px;"></div>
     <div id="qrOverlay">
       <div id="qrVideoWrap"><video id="qrVideo" playsinline muted></video><div id="qrFrame"></div></div>
@@ -1777,6 +1794,9 @@ function kanbetsuPage(hId, hospitalName) {
     inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') doSearch(); });
     // 🖼️画像検索は委譲、カードタップは詳細モーダルを開く（ボタン優先）
     document.getElementById('results').addEventListener('click', function(e){
+      // 🌟追加: カードタップ（詳細モーダル）より先に「➕追加」を拾う
+      const a = e.target.closest('.btn-add');
+      if (a) { e.stopPropagation(); addFromSearch(Number(a.getAttribute('data-add')), a); return; }
       const b = e.target.closest('.btn-img');
       if (b) { openImageSearch(b.getAttribute('data-name') || ''); return; }
       const c = e.target.closest('.card[data-key]');
@@ -1801,54 +1821,148 @@ function kanbetsuPage(hId, hospitalName) {
       window.open(url, 'kanbetsu_img', 'width=900,height=700,scrollbars=yes');
     }
 
-    async function doSearch() {
+    // ===== 🌟追加: 検索モード管理（🔍刻印 ／ 🔍薬名） =====
+    var searchMode = 'kokuin';   // 'kokuin' | 'name'
+    window._searchList = [];     // 追加処理から参照するため検索結果を保持
+
+    function setSearchMode(mode) {
+      searchMode = mode;
+      document.getElementById('btnModeKokuin').classList.toggle('on', mode === 'kokuin');
+      document.getElementById('btnModeName').classList.toggle('on', mode === 'name');
+      const el = document.getElementById('kokuin');
+      if (mode === 'kokuin') {
+        el.placeholder = '刻印を入力（例：HP211、TA 111）';
+        el.setAttribute('inputmode', 'latin');
+        document.getElementById('searchHint').innerHTML = '💡 英数字2文字以上で検索できます。大文字小文字・全角半角・スペースの違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。';
+      } else {
+        el.placeholder = 'お薬名を入力（例：ロキソプロフェン、ばいあすぴりん）';
+        el.setAttribute('inputmode', 'text');
+        document.getElementById('searchHint').innerHTML = '💡 2文字以上で検索できます。ひらがなでもOKカニ🦀 まずは<b>内服薬</b>から探します。見つからないときは外用・注射も再検索できます。';
+      }
+      // 刻印の結果と薬名の結果が混ざると危険なので、モード切替では必ずクリアする
+      document.getElementById('results').innerHTML = '';
+      document.getElementById('status').textContent = '';
+      window._searchList = [];
+    }
+
+    // 引数なし（Enterキー）のときは現在のモードで検索する
+    async function doSearch(mode) {
+      if (mode && mode !== searchMode) setSearchMode(mode);
       const q = inp.value.trim();
       const st = document.getElementById('status');
       const res = document.getElementById('results');
       res.innerHTML = '';
+      window._searchList = [];
       if (q.replace(/\s/g,'').length < 2) {
         st.textContent = '2文字以上入力してくださいカニ🦀';
         return;
       }
+      if (searchMode === 'kokuin') { await runKokuinSearch(q); }
+      else { await runNameSearch(q, false); }
+    }
+
+    // ----- 🔍刻印: PMDA識別コード索引から検索 -----
+    async function runKokuinSearch(q) {
+      const st = document.getElementById('status');
+      const res = document.getElementById('results');
       st.textContent = '検索中...🦀';
       try {
         const r = await fetch('/api/jisan-search?h=' + encodeURIComponent(HID) + '&q=' + encodeURIComponent(q));
         const data = await r.json();
         if (data.error === 'index_not_found') { st.textContent = '刻印データが未登録です。管理者にお問い合わせください。'; return; }
         if (data.error) { st.textContent = 'エラーが発生しました（' + data.error + '）'; return; }
-        if (!data.results || data.results.length === 0) {
+        const list = data.results || [];
+        if (!list.length) {
           st.textContent = '';
           res.innerHTML = '<div class="no-results">📭 「' + escHtml(q) + '」に一致する刻印は見つかりませんでしたカニ🦀💦<br><span style="font-size:12px;color:#aaa;">刻印の一部だけで再検索してみてね！</span></div>';
           return;
         }
-        st.textContent = data.count + '件の候補が見つかりました' + (data.count >= 50 ? '（上位50件を表示。文字を足して絞り込めます）' : '') + 'カニ🦀';
-        let html = '';
-        for (const i of data.results) {
-          const nameForImg = String(i.name || '');
-          html += '<div class="card ' + (i.isAdopted ? 'adopted' : '') + '"' + (i.key ? ' data-key="' + escHtml(i.key) + '"' : '') + '>'
-            + '<div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; font-size:15px; gap:8px;">'
-              + '<div style="flex:1; line-height:1.4;">' + formEmoji(i.key) + ' ' + escHtml(i.name) + '</div>'
-              + '<div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">'
-                + (i.isBrand ? '<span class="tag blue">先</span>' : '')
-                + (i.price && i.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>' + escHtml(i.price) + '</span>' : '')
-                + (i.yj && i.yj.indexOf('8') === 0 ? '<span class="tag red">麻</span>' : '')
-                + (i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>')
-              + '</div>'
-            + '</div>'
-            + (i.spec ? '<div style="font-size:12px; color:#888; margin-top:8px;">📦 ' + escHtml(i.spec) + ' ' + (i.type ? '/ ' + escHtml(i.type) : '') + '</div>' : '')
-            + '<div class="code-row">'
-              + '<span class="code-chip">刻印: ' + escHtml(i.code) + '</span>'
-              + '<button class="btn-img" data-name="' + escHtml(nameForImg) + '">🖼️ 画像検索</button>'
-            + '</div>'
-            + (i.key
-                ? '<div class="tap-hint">👆 タップでお薬詳細・切替候補を表示カニ🦀</div>'
-                : '<a class="pmda-link" href="https://www.pmda.go.jp/PmdaSearch/rdSearch/02/' + escHtml(i.yj) + '?user=1" target="_blank" onclick="event.stopPropagation()">📄 添付文書等のお薬詳細を見る（PMDA公式）</a>')
-            + '</div>';
-        }
-        res.innerHTML = html;
+        st.textContent = list.length + '件の候補が見つかりました' + (list.length >= 50 ? '（上位50件を表示。文字を足して絞り込めます）' : '') + 'カニ🦀';
+        window._searchList = list;
+        res.innerHTML = list.map(function(i, idx){ return searchCardHtml(i, idx, 'kokuin'); }).join('');
       } catch (e) {
         st.textContent = '通信エラーが発生したカニ🦀💦 少し待ってからもう一度お試しください。';
       }
+    }
+
+    // ----- 🔍薬名: メディカニ本体の検索。既定は内服のみ、ヒットゼロなら外用・注射に広げる -----
+    async function runNameSearch(q, wide) {
+      const st = document.getElementById('status');
+      const res = document.getElementById('results');
+      st.textContent = wide ? '外用・注射も含めて検索中...🦀' : '内服薬を検索中...🦀';
+      try {
+        const cat = wide ? 'all' : '[内]';
+        const r = await fetch('/api/search?q=' + encodeURIComponent(q) + '&c=' + encodeURIComponent(cat) + '&h=' + encodeURIComponent(HID));
+        const data = await r.json();
+        if (data && data.error) { st.textContent = 'エラーが発生しました（' + data.error + '）'; return; }
+        const list = Array.isArray(data) ? data : [];
+        if (!list.length) {
+          st.textContent = '';
+          res.innerHTML = '<div class="no-results">📭 「' + escHtml(q) + '」に一致する' + (wide ? 'お薬' : '内服薬') + 'は見つかりませんでしたカニ🦀💦</div>'
+            + (wide ? '' : '<button class="btn-widen" onclick="widenNameSearch()">🔎 外用・注射も含めて再検索する（湿布・点眼・軟膏など）</button>');
+          return;
+        }
+        st.textContent = list.length + '件の候補が見つかりましたカニ🦀' + (wide ? '（外用・注射を含む）' : '（内服薬）');
+        window._searchList = list;
+        res.innerHTML = list.map(function(i, idx){ return searchCardHtml(i, idx, 'name'); }).join('');
+      } catch (e) {
+        st.textContent = '通信エラーが発生したカニ🦀💦';
+      }
+    }
+
+    function widenNameSearch() {
+      const q = inp.value.trim();
+      if (q.replace(/\s/g,'').length >= 2) runNameSearch(q, true);
+    }
+
+    // ----- 結果カード（刻印・薬名で見た目を統一。どちらも「追加」できる）-----
+    function searchCardHtml(i, idx, mode) {
+      const nameForImg = String(i.name || '');
+      const chip = (mode === 'kokuin')
+        ? '<span class="code-chip">刻印: ' + escHtml(i.code || '') + '</span>'
+        : (i.component
+            ? '<span class="code-chip" style="border-style:solid; background:#f3e5f5; color:#7b1fa2; border-color:#e1bee7;">🧬 ' + escHtml(i.component) + '</span>'
+            : '<span></span>');
+      return '<div class="card ' + (i.isAdopted ? 'adopted' : '') + '"' + (i.key ? ' data-key="' + escHtml(i.key) + '"' : '') + '>'
+        + '<div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; font-size:15px; gap:8px;">'
+          + '<div style="flex:1; line-height:1.4;">' + formEmoji(i.key) + ' ' + escHtml(i.name) + '</div>'
+          + '<div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">'
+            + (i.isBrand ? '<span class="tag blue">先</span>' : '')
+            + (i.price && i.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>' + escHtml(i.price) + '</span>' : '')
+            + (i.yj && i.yj.indexOf('8') === 0 ? '<span class="tag red">麻</span>' : '')
+            + (i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>')
+          + '</div>'
+        + '</div>'
+        + (i.spec ? '<div style="font-size:12px; color:#888; margin-top:8px;">📦 ' + escHtml(i.spec) + ' ' + (i.type ? '/ ' + escHtml(i.type) : '') + '</div>' : '')
+        + '<div class="code-row">' + chip + '<button class="btn-img" data-name="' + escHtml(nameForImg) + '">🖼️ 画像検索</button></div>'
+        + '<div class="card-actions"><button class="btn-add" data-add="' + idx + '">➕ 鑑別リストに追加</button></div>'
+        + (i.key
+            ? '<div class="tap-hint">👆 カードをタップでお薬詳細・切替候補を表示カニ🦀</div>'
+            : '<div style="margin-top:8px;"><span class="tag red" style="font-size:10px;">薬価マスタ未収載</span> <a class="pmda-link" href="https://www.pmda.go.jp/PmdaSearch/rdSearch/02/' + escHtml(i.yj) + '?user=1" target="_blank" onclick="event.stopPropagation()">📄 添付文書等のお薬詳細を見る（PMDA公式）</a></div>')
+        + '</div>';
+    }
+
+    // ----- 検索結果 → 持参薬リストに追加（刻印・薬名 共通の出口）-----
+    function addFromSearch(idx, btnEl) {
+      const it = (window._searchList || [])[idx];
+      if (!it) return;
+      const dup = kanbetsuList.some(function(x){ return x.m && x.m.yj && it.yj && x.m.yj === it.yj; });
+      kanbetsuSeq++;
+      kanbetsuList.push({
+        id: kanbetsuSeq,
+        ocrName: (searchMode === 'kokuin') ? ('刻印 ' + (it.code || '')) : '薬名検索',
+        name: it.name,
+        usage: '',
+        m: { found: true, key: it.key || '', name: it.name, spec: it.spec || '', price: it.price || '', isBrand: !!it.isBrand, isAdopted: !!it.isAdopted, yj: it.yj || '' }
+      });
+      const card = btnEl.closest('.card');
+      if (card) card.classList.add('added');
+      btnEl.textContent = '✅ 追加済み（もう一度押すと再追加）';
+      btnEl.classList.add('done');
+      renderJList();
+      const msg = (dup ? '⚠️ 同じ薬がすでにリストにあります：' : '✅ ') + '「' + it.name + '」を持参薬リストに追加しましたカニ🦀';
+      document.getElementById('status').textContent = msg;
+      document.getElementById('ocrStatus').textContent = msg;
     }
 
     // ===== お薬詳細モーダル（メインのメディカニと同じ内容構成） =====
