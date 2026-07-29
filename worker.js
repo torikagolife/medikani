@@ -60,6 +60,79 @@ function extractDrugData(parts, yj) {
 // ====================================================================
 // 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用), ASK_FORM_URL(問合せフォームURL), G_FORM_ID(フォームの施設ID項目), STRIPE_PORTAL_URL(StripeカスタマーポータルのURL)
 // ===== 🌟新規追加: 採用薬の1本化JSONを再構築する強力な関数 =====
+// ===== 🌟追加: KVキー一覧のメモリキャッシュ（全件listの連打を防ぐ） =====
+// KVの list() は get() と違い cacheTtl が効かないため、アイソレート内の
+// メモリに一定時間だけ保持して使い回す。TTL経過後は自動で取り直す。
+// ⚠️ 採用薬を管理画面で更新した直後、最大 KEYLIST_TTL_MS の間は
+//    古い一覧が使われる可能性がある（既定3分）。
+const KEYLIST_CACHE = new Map();
+const KEYLIST_TTL_MS = 180000; // 3分
+
+async function listKeysCached(cacheKey, prefixes, env) {
+  const now = Date.now();
+  const hit = KEYLIST_CACHE.get(cacheKey);
+  if (hit && (now - hit.at) < KEYLIST_TTL_MS) return hit.keys.slice();
+  const keys = [];
+  for (const p of prefixes) {
+    let cursor = "";
+    do {
+      const list = await env.MEDI_KV.list({ prefix: p, limit: 1000, cursor: cursor || undefined });
+      keys.push(...list.keys.map(k => k.name));
+      cursor = list.list_complete ? "" : list.cursor;
+    } while (cursor);
+  }
+  if (KEYLIST_CACHE.size > 30) KEYLIST_CACHE.clear(); // 施設が増えても膨らませない
+  KEYLIST_CACHE.set(cacheKey, { at: now, keys: keys });
+  return keys.slice(); // 呼び出し側が書き換えてもキャッシュを壊さないようコピーを返す
+}
+
+// マスタ3カテゴリ（[内][外][注]）のキー一覧
+async function getMasterKeysCached(env) {
+  return await listKeysCached("__MASTER__", ["[内]", "[外]", "[注]"], env);
+}
+
+// 施設の採用薬キー一覧（hIdが空なら空配列）
+async function getAdoptedKeysCached(hId, env) {
+  if (!hId) return [];
+  return await listKeysCached("ADOPTED_" + hId, [`${hId}_[内]`, `${hId}_[外]`, `${hId}_[注]`], env);
+}
+
+// ===== 🌟追加: 検索用の正規化ヘルパー =====
+// ⚠️ マスタのキー名は英数字が【全角】（例:「ロキソプロフェン錠６０ｍｇ」）。
+//    クエリだけ半角にして素の includes で比べると規格入りの名前が絶対に当たらないため、
+//    比較の前に必ず【両側】を同じルールで正規化する（鑑別の kanbetsuMatchNames と同じ考え方）。
+function kvNormName(s) {
+  return hiraToKata(
+    String(s || "")
+      .replace(/[Ａ-Ｚａ-ｚ０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+      .replace(/．/g, ".").replace(/，/g, ",").replace(/％/g, "%")
+      .replace(/｢/g, "「").replace(/｣/g, "」")
+  ).normalize("NFKC").toUpperCase().replace(/\s+/g, "");
+}
+// キーから薬品名部分／成分名部分を取り出す（本体検索と同じ切り出し）
+function kvDrugNamePart(key) { return key.split("_").find(p => p.includes("[")) || key; }
+function kvComponentPart(key) { const ps = key.split("_"); return ps.length > 2 ? ps[ps.length - 2] : ""; }
+
+// 正規化済みの検索インデックス（キー一覧と同じTTLでメモリに保持）
+// 返り値は共有オブジェクトなので、呼び出し側で書き換えないこと（読むだけ）。
+const NAMEIDX_CACHE = new Map();
+async function getNameIndexCached(hId, env) {
+  const cacheKey = "NAMEIDX_" + (hId || "-");
+  const now = Date.now();
+  const hit = NAMEIDX_CACHE.get(cacheKey);
+  if (hit && (now - hit.at) < KEYLIST_TTL_MS) return hit.idx;
+  const masterKeys = await getMasterKeysCached(env);
+  const adoptedKeys = await getAdoptedKeysCached(hId, env);
+  const idx = [];
+  // 採用薬を先に積む（同点なら採用薬が残るようにするため）
+  for (const k of adoptedKeys) idx.push({ k: k, n: kvNormName(kvDrugNamePart(k)), c: kvNormName(kvComponentPart(k)), adopted: true });
+  for (const k of masterKeys)  idx.push({ k: k, n: kvNormName(kvDrugNamePart(k)), c: kvNormName(kvComponentPart(k)), adopted: false });
+  if (NAMEIDX_CACHE.size > 30) NAMEIDX_CACHE.clear();
+  NAMEIDX_CACHE.set(cacheKey, { at: now, idx: idx });
+  return idx;
+}
+// ==========================================================================
+
 async function rebuildAdoptedJson(hId, env) {
   let currentKeys = [];
   let cursorStr = "";
@@ -632,6 +705,9 @@ function kyuyakuCheckerPage(hId, isSuper) {
 <html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kyu.png">
+<link rel="apple-touch-icon" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kyu.png">
+<meta name="apple-mobile-web-app-title" content="休薬チェッカー">
 <title>メディカニ休薬チェッカー 🦀</title>
 <style>
   :root { --pink:#e84c88; }
@@ -1009,7 +1085,7 @@ function printReport(){
   const t = new Date();
   const td = t.getFullYear() + '/' + (t.getMonth()+1) + '/' + t.getDate();
   document.getElementById('report').innerHTML =
-    '<h2>メディカニ休薬チェッカー 確認票</h2>'
+    '<h2>🦀メディカニ休薬チェッカー 確認票</h2>'
     + '<table class="meta"><tr><td>施設</td><td>' + esc(HOSP) + '</td><td>作成日</td><td>' + td + '</td></tr>'
     + '<tr><td>患者</td><td>' + esc(pt||'　') + '</td><td>手術予定日</td><td>' + esc(op||'　') + '</td></tr>'
     + '<tr><td>分類</td><td colspan="3">' + esc(catLabel||'　') + '</td></tr></table>'
@@ -1035,6 +1111,9 @@ function jisanPage(hId, hospitalName) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
+<link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png">
+<link rel="apple-touch-icon" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png">
+<meta name="apple-mobile-web-app-title" content="メディカニ鑑別">
 <title>メディカニ鑑別 | 刻印から探す</title>
 <style>
   :root { --pink:#d63384; --bg:#fffaf5; }
@@ -1104,7 +1183,7 @@ function jisanPage(hId, hospitalName) {
         <input type="text" id="kokuin" placeholder="刻印を入力（例：HP211、TA 111）" autocomplete="off">
         <button id="btnSearch" onclick="doSearch()">🔍 検索</button>
       </div>
-      <div class="hint">💡 英数字2文字以上で検索できます。大文字小文字・全角半角・スペースの違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。</div>
+      <div class="hint">💡 英数字2文字以上で検索できます。全角半角違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。</div>
       <button class="btn-kokuin" onclick="document.getElementById('kokuinFile').click()">🧪 裸錠の刻印OCR<span class="beta">試験中</span></button>
       <input type="file" id="kokuinFile" accept="image/*" style="display:none">
       <div id="kokuinChips"></div>
@@ -1413,24 +1492,9 @@ async function kanbetsuMatchNames(names, hId, env) {
   };
 
   // マスタ3カテゴリ＋施設の採用薬キーを1回だけ全リスト
-  let masterKeys = [];
-  let adoptedKeys = [];
-  for (const c of ["[内]", "[外]", "[注]"]) {
-    let mCursor = "";
-    do {
-      const list = await env.MEDI_KV.list({ prefix: c, limit: 1000, cursor: mCursor || undefined });
-      masterKeys.push(...list.keys.map(k => k.name));
-      mCursor = list.list_complete ? "" : list.cursor;
-    } while (mCursor);
-    if (hId) {
-      let aCursor = "";
-      do {
-        const list = await env.MEDI_KV.list({ prefix: `${hId}_${c}`, limit: 1000, cursor: aCursor || undefined });
-        adoptedKeys.push(...list.keys.map(k => k.name));
-        aCursor = list.list_complete ? "" : list.cursor;
-      } while (aCursor);
-    }
-  }
+  // 🌟変更: 毎回の全件list（4万件×3カテゴリ）をやめ、メモリキャッシュから取得する
+  const masterKeys = await getMasterKeysCached(env);
+  const adoptedKeys = await getAdoptedKeysCached(hId, env);
   const adoptedYJset = new Set(adoptedKeys.map(k => { const t = k.split("_").pop(); return t; }));
 
   // 🌟規格(用量)を名前から取り出す: 「エチゾラム錠0.5MG「NP」」→「0.5MG」。無ければ空文字
@@ -1517,7 +1581,10 @@ function kanbetsuPage(hId, hospitalName) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
-<title>持参薬鑑別 | メディカニ（開発版）</title>
+<link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png">
+<link rel="apple-touch-icon" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png">
+<meta name="apple-mobile-web-app-title" content="メディカニ鑑別">
+<title>🦀メディカニ鑑別（開発版）</title>
 <style>
   :root { --pink:#d63384; --bg:#fffaf5; }
   * { box-sizing:border-box; }
@@ -1687,7 +1754,7 @@ function kanbetsuPage(hId, hospitalName) {
 </style></head>
 <body>
   <div class="header">
-    <h1>📋 持参薬鑑別 <span style="font-size:11px; color:#a58; font-weight:normal;">開発版</span></h1>
+    <h1>📋 メディカニ鑑別 <span style="font-size:11px; color:#a58; font-weight:normal;">開発版</span></h1>
     <div class="sub">お薬手帳のOCRと刻印検索で持参薬を鑑別するツールですカニ🦀</div>
     ${facilityBadge}
   </div>
@@ -1703,7 +1770,7 @@ function kanbetsuPage(hId, hospitalName) {
       <div class="hint" id="searchHint">💡 英数字2文字以上で検索できます。大文字小文字・全角半角・スペースの違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。</div>
     </div>
     <div class="ocr-row">
-      <button class="btn-ocr" onclick="document.getElementById('ocrFile').click()">📷 手帳OCR（撮影・選択）</button>
+      <button class="btn-ocr" onclick="document.getElementById('ocrFile').click()">📷 手帳OCR</button>
       <button class="btn-qr" onclick="openQrScanner()">📱 手帳QR</button>
     </div>
     <input type="file" id="ocrFile" accept="image/*" multiple style="display:none">
@@ -1719,16 +1786,17 @@ function kanbetsuPage(hId, hospitalName) {
       <button class="qr-btn go" id="qrGoBtn" onclick="analyzeQr()" style="display:none;">この内容で解析する</button>
       <button class="qr-btn cancel" onclick="closeQrScanner()">閉じる</button>
     </div>
+    <!-- 🌟変更: 検索候補（status／results）を持参薬リストより【上】に移動 -->
+    <div id="status"></div>
+    <div id="results"></div>
     <div id="jlistArea" style="display:none;">
       <div class="jlist-title">📋 持参薬リスト <span id="jlistCount" style="font-weight:normal; color:#999; font-size:12px;"></span></div>
       <div id="jlist"></div>
       <button class="btn-report" onclick="openReport()">📄 メディカニ鑑別結果を作成する 🦀</button>
     </div>
     <div class="notice">
-      ⚠️ 本ツールはPMDA添付文書の識別コード情報をもとに候補を絞り込む<b>補助ツール</b>です。同じ刻印が複数の製品に該当する場合や、刻印情報が登録されていない製剤もあります。<b>最終的な同定は必ず現物・添付文書でご確認ください。</b>
+      ⚠️ 本ツールは添付文書の識別コード情報をもとに候補を絞り込む<b>補助ツール</b>です。刻印情報が登録されていない製剤もあります。<b>最終的な同定は必ず現物・添付文書でご確認ください。</b>
     </div>
-    <div id="status"></div>
-    <div id="results"></div>
   </div>
   <div class="footer">
     🦀 メディカニ鑑別（β）<br>© 2026 🐔トリの巣ワークス メディカニ運営事務局
@@ -1831,7 +1899,7 @@ function kanbetsuPage(hId, hospitalName) {
       document.getElementById('btnModeName').classList.toggle('on', mode === 'name');
       const el = document.getElementById('kokuin');
       if (mode === 'kokuin') {
-        el.placeholder = '刻印を入力（例：HP211、TA 111）';
+        el.placeholder = '刻印や薬名を入力（例：HP211、タケキャブ)';
         el.setAttribute('inputmode', 'latin');
         document.getElementById('searchHint').innerHTML = '💡 英数字2文字以上で検索できます。大文字小文字・全角半角・スペースの違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。';
       } else {
@@ -2545,14 +2613,19 @@ function kanbetsuPage(hId, hospitalName) {
     let decideTargetId = null;
     async function openDecide(id) {
       const it = kanbetsuList.find(function(x){ return x.id === id; });
-      if (!it || !it.m || !it.m.key) return;
+      // 🌟変更: keyが無くてもYJがあれば切替候補を出す（薬価マスタ未収載の薬に対応）
+      if (!it || !it.m || (!it.m.key && !it.m.yj)) return;
       decideTargetId = id;
       const ov = document.getElementById('modalOverlay');
       const body = document.getElementById('modalBody');
       body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">切替候補を読み込み中...🦀</div>';
       ov.style.display = 'flex';
       try {
-        const r = await fetch('/api/detail?key=' + encodeURIComponent(it.m.key) + '&h=' + encodeURIComponent(HID));
+        // 🌟変更: keyがあれば従来どおり、無ければYJで問い合わせる
+        const dq = it.m.key
+          ? ('key=' + encodeURIComponent(it.m.key))
+          : ('yj=' + encodeURIComponent(it.m.yj || '') + '&spec=' + encodeURIComponent(it.m.spec || ''));
+        const r = await fetch('/api/detail?' + dq + '&h=' + encodeURIComponent(HID));
         const d = await r.json();
         if (!d || d.error) { body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">候補を取得できませんでしたカニ🦀💦</div>'; return; }
 
@@ -3243,24 +3316,9 @@ export default {
           }
 
           // ===== 🌟通常検索と同じ見た目にするため、MEDI_KVからマスタ・採用情報を突き合わせる =====
-          let masterKeys = [];
-          let adoptedKeys = [];
-          for (const c of ["[内]", "[外]", "[注]"]) {
-            let mCursor = "";
-            do {
-              const list = await env.MEDI_KV.list({ prefix: c, limit: 1000, cursor: mCursor || undefined });
-              masterKeys.push(...list.keys.map(k => k.name));
-              mCursor = list.list_complete ? "" : list.cursor;
-            } while (mCursor);
-            if (hId) {
-              let aCursor = "";
-              do {
-                const list = await env.MEDI_KV.list({ prefix: `${hId}_${c}`, limit: 1000, cursor: aCursor || undefined });
-                adoptedKeys.push(...list.keys.map(k => k.name));
-                aCursor = list.list_complete ? "" : list.cursor;
-              } while (aCursor);
-            }
-          }
+          // 🌟変更: 全件listはメモリキャッシュ経由にして読み取り回数を削減
+          const masterKeys = await getMasterKeysCached(env);
+          const adoptedKeys = await getAdoptedKeysCached(hId, env);
 
           // キー末尾のYJがヒット集合に含まれるものを拾う
           const keyYj = (k) => { const t = k.split("_").pop(); return /^[0-9a-zA-Z]{7,12}$/.test(t) ? t : ""; };
@@ -3377,48 +3435,64 @@ export default {
         try {
           const hId = url.searchParams.get("h") || "";
           const rawQ = url.searchParams.get("q") || "";
-          // 全角英数を半角に、ひらがなをカタカナに寄せる（本体検索と同じ前処理）
-          const q = hiraToKata(
-            rawQ.replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).trim()
-          );
-          if (q.length < 2) {
-            return new Response(JSON.stringify({ error: "2文字以上で検索してください", results: [] }), { status: 400, headers: { "Content-Type": "application/json" } });
-          }
           if (!env.MEDI_KV) {
             return new Response(JSON.stringify({ error: "KV未設定", results: [] }), { status: 500, headers: { "Content-Type": "application/json" } });
           }
 
-          // --- キー一覧を1回だけ取得（マスタ3カテゴリ＋施設採用薬）---
-          let masterKeys = [];
-          let adoptedKeys = [];
-          for (const c of ["[内]", "[外]", "[注]"]) {
-            let mCur = "";
-            do {
-              const list = await env.MEDI_KV.list({ prefix: c, limit: 1000, cursor: mCur || undefined });
-              masterKeys.push(...list.keys.map(k => k.name));
-              mCur = list.list_complete ? "" : list.cursor;
-            } while (mCur);
-            if (hId) {
-              let aCur = "";
-              do {
-                const list = await env.MEDI_KV.list({ prefix: `${hId}_${c}`, limit: 1000, cursor: aCur || undefined });
-                adoptedKeys.push(...list.keys.map(k => k.name));
-                aCur = list.list_complete ? "" : list.cursor;
-              } while (aCur);
-            }
+          // ===== 🌟修正: 全角/半角のズレで必ず0件になっていた不具合の対応 (ここから) =====
+          // 【症状】手入力でもOCRチップでも「該当する薬が見つかりませんでした」になる。
+          // 【原因】マスタのキー名は英数字が全角（例:「錠６０ｍｇ」）なのに、クエリだけ
+          //   半角に変換して素の includes で比較していたため、規格や英字を含む名前が
+          //   一切ヒットしなかった。OCRチップはフルネームを投げるので特に全滅していた。
+          // 【対策】キー側も同じルールで正規化（kvNormName）したインデックスと突き合わせ、
+          //   さらに「メーカー名を外す→規格を外す→先頭一致」と段階的に緩めて候補を拾う。
+          const qn = kvNormName(rawQ);
+          if (qn.length < 2) {
+            return new Response(JSON.stringify({ error: "2文字以上で検索してください", results: [] }), { status: 400, headers: { "Content-Type": "application/json" } });
           }
+          const qNoMaker = qn.replace(/「[^」]*」/g, "");                                          // 「トーワ」等のメーカー名を外した版
+          const qCore = qNoMaker.replace(/[0-9]+(?:\.[0-9]+)?(?:MG|ΜG|MCG|G|ML|%|単位|IU)/g, "");  // 規格（60MG等）も外した版
 
-          // メディカニ本体と同じ切り出しロジック
+          // マスタ情報の上書きに使うのでキー一覧も取っておく（メモリキャッシュ経由）
+          const masterKeys = await getMasterKeysCached(env);
+          // 正規化済みインデックス（採用薬が先頭に積まれている）
+          const IDX = await getNameIndexCached(hId, env);
+
+          // メディカニ本体と同じ切り出しロジック（結果組み立てで使用）
           const getDrugNamePart = (key) => key.split("_").find(p => p.includes("[")) || key;
           const getComponentPart = (key) => { const ps = key.split("_"); return ps.length > 2 ? ps[ps.length - 2] : ""; };
-          // 🌟薬品名 or 成分名 のどちらかに含まれればヒット（1スキャンで両対応）
-          const isHit = (k) => getDrugNamePart(k).includes(q) || getComponentPart(k).includes(q);
 
-          const mHit = masterKeys.filter(isHit);
-          const aHit = adoptedKeys.filter(isHit);
-          // 採用薬とYJが重複するマスタは落とす
-          const aYJ = new Set(aHit.map(k => k.split("_").pop()));
-          const finalKeys = [...aHit, ...mHit.filter(k => !aYJ.has(k.split("_").pop()))].slice(0, 40);
+          // 一致の強さでスコアリング（採用薬は必ず上に来るよう大きく加点）
+          const scored = [];
+          for (const e of IDX) {
+            if (!e.n) continue;
+            let s = 0;
+            if (e.n === qn) s = 500;                                                  // 完全一致
+            else if (e.n.includes(qn)) s = 300;                                       // 薬品名に丸ごと含まれる
+            else if (qNoMaker.length >= 3 && e.n.includes(qNoMaker)) s = 260;          // メーカー名を外せば一致
+            else if (qn.length >= 4 && qn.includes(e.n) && e.n.length >= 4) s = 220;   // 入力の方が長い（規格込み入力）
+            else if (qCore.length >= 3 && e.n.includes(qCore)) s = 200;                // 規格も外せば一致
+            else if (e.c && qCore.length >= 3 && e.c.includes(qCore)) s = 140;         // 成分名で一致
+            else if (qCore.length >= 4 && e.n.includes("]" + qCore.slice(0, 4))) s = 90; // 先頭4文字が同じ
+            if (!s) continue;
+            if (e.adopted) s += 1000;                                                  // 🏥採用薬を最優先
+            if (e.n.includes("]" + qn) || (qCore.length >= 3 && e.n.includes("]" + qCore))) s += 40; // 薬品名の前方一致を優先
+            scored.push({ e: e, s: s });
+          }
+          // スコア降順 → 同点なら名前が短い方（＝余計な修飾が少ない方）を上に
+          scored.sort((a, b) => (b.s - a.s) || (a.e.n.length - b.e.n.length));
+
+          // 同じYJコードは1件に絞る（採用薬の方がスコアが高いので採用薬が残る）
+          const seenYJ = new Set();
+          const finalKeys = [];
+          for (const it of scored) {
+            const t = it.e.k.split("_").pop();
+            if (t && seenYJ.has(t)) continue;
+            if (t) seenYJ.add(t);
+            finalKeys.push(it.e.k);
+            if (finalKeys.length >= 40) break;
+          }
+          // ===== 🌟修正: 全角/半角のズレで必ず0件になっていた不具合の対応 (ここまで) =====
 
           const built = await Promise.all(finalKeys.map(async (key) => {
             const val = await env.MEDI_KV.get(key);
@@ -3453,12 +3527,10 @@ export default {
             };
           }));
 
-          const results = built.filter(r => r !== null).sort((a, b) => {
-            if (b.isAdopted !== a.isAdopted) return b.isAdopted - a.isAdopted;      // 採用薬を上へ
-            const ap = getDrugNamePart(a.key).includes("]" + q) ? 1 : 0;            // 薬品名の前方一致を上へ
-            const bp = getDrugNamePart(b.key).includes("]" + q) ? 1 : 0;
-            return bp - ap;
-          });
+          // 🌟変更: 並び順は上のスコアリング結果（finalKeys の順）をそのまま使う
+          const order = new Map(finalKeys.map((k, i) => [k, i]));
+          const results = built.filter(r => r !== null)
+            .sort((a, b) => (order.get(a.key) || 0) - (order.get(b.key) || 0));
 
           return new Response(JSON.stringify({ results: results }), { headers: { "Content-Type": "application/json" } });
         } catch (e) {
@@ -3467,57 +3539,15 @@ export default {
       }
       // === 🌟新規追加: 休薬チェッカー 候補検索API (ここまで) ===
 
-      // === 🦀新規追加: 休薬マスタ保存 API（パスワード必須） ===
-      if (url.pathname.includes("/api/admin/kyuyaku") && request.method === "POST") {
-        try {
-          const hId = url.searchParams.get("h") || "";
-          if (!(await kyuyakuPlanOk(hId))) {
-            return new Response(JSON.stringify({ success: false, error: "option_disabled" }), { status: 403 });
-          }
-          const body = await request.json();
-          // 施設管理パスワードで認証（既存の {hId}_pwd を流用）
-          const pwd = await env.MEDI_KV.get(`${hId}_pwd`);
-          if (!hId || !pwd || body.pwd !== pwd) {
-            return new Response(JSON.stringify({ success: false, error: "auth" }), { status: 403 });
-          }
-          const data = body.data || {};
-          data.updatedAt = new Date().toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" });
-
-          if (body.scope === "default") {
-            // 共通デフォルトの更新はスーパー管理施設のみ
-            if (hId !== (env.SUPER_ADMIN_HID || "HPTEST1")) {
-              return new Response(JSON.stringify({ success: false, error: "forbidden" }), { status: 403 });
-            }
-            await env.MEDI_KV.put("KYUYAKU_DEFAULT_json", JSON.stringify(data));
-          } else {
-            await env.MEDI_KV.put(`${hId}_kyuyaku_json`, JSON.stringify(data));
-          }
-          return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
-        } catch (e) {
-          return new Response(JSON.stringify({ success: false, error: String(e) }), { status: 500 });
-        }
-      }
-      // === 🦀休薬チェッカー: 手入力照合API POST /api/kyuyaku/lookup (ここから) ===
-      // 手入力された薬名を既存 kanbetsuMatchNames でKV照合し、YJ付きで返す（休薬判定はフロントでマスタ突合）。
-      if (url.pathname.includes("/api/kyuyaku/lookup") && request.method === "POST") {
-        try {
-          const body = await request.json();
-          const hId = body.h || "";
-          if (!(await kyuyakuPlanOk(hId))) {
-            return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
-          }
-          const names = Array.isArray(body.names) ? body.names.slice(0, 50).map(n => String(n)) : [];
-          if (!names.length) {
-            return new Response(JSON.stringify({ results: [] }), { headers: { "Content-Type": "application/json" } });
-          }
-          const matches = await kanbetsuMatchNames(names, hId, env);
-          const results = names.map((n, i) => ({ name: n, match: matches[i] || { found: false } }));
-          return new Response(JSON.stringify({ results: results }), { headers: { "Content-Type": "application/json" } });
-        } catch (e) {
-          return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
-        }
-      }
-      // === 🦀休薬チェッカー: 手入力照合API (ここまで) ===
+      // === 🦀休薬チェッカー: 旧POST APIの死にコードを削除しました（ここから） ===
+      // 【経緯】/api/admin/kyuyaku と /api/kyuyaku/lookup は POST なのに
+      //   if (request.method === "GET") の内側に置かれており、永久に到達しない
+      //   死にコードになっていた（動作には影響なし・二重管理で紛らわしいだけ）。
+      // 【現在】実際に動いているのは GETブロックの外側にある↓の2本です。
+      //   ・POST /api/kyuyaku/lookup      … 「休薬チェッカーのPOST API」節
+      //   ・POST /api/admin/kyuyaku       … 同上
+      //   直すときは必ずそちらを編集してください。
+      // === 🦀休薬チェッカー: 旧POST APIの死にコードを削除しました（ここまで） ===
       // === 🦀休薬チェッカー: API (ここまで) ===
       // 検索API (Web用)
       if (url.pathname.includes("/api/search")) {
@@ -3561,6 +3591,15 @@ export default {
         try {
           const key = url.searchParams.get("key") || "";
           const hId = url.searchParams.get("h") || "";
+          // ===== 🌟追加: key が無く yj だけ渡された場合の口 (ここから) =====
+          // 刻印検索で見つかったが薬価マスタ(MEDI_KV)に無い薬（key空・PMDA名フォールバック）用。
+          // YJ前方7桁の兄弟薬を全カテゴリから集めて切替候補として返す。
+          const yjParam = url.searchParams.get("yj") || "";
+          if (!key && yjParam) {
+            const byYj = await this.handleWebDetailByYj(yjParam, hId, env, url.searchParams.get("spec") || "");
+            return new Response(JSON.stringify(byYj), { headers: { "Content-Type": "application/json" } });
+          }
+          // ===== 🌟追加: key が無く yj だけ渡された場合の口 (ここまで) =====
           const result = await this.handleWebDetail(key, hId, env);
           return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
         } catch (e) {
@@ -5514,6 +5553,91 @@ if (ayj && ayj.substring(0, 7) === yj7) {
 
     return { key: kvKey, label, fullName, yj, isAdopted, isBrand, comment, price, pmdaEfficacy, pmdaUsage, pmdaContra, pmdaWarnings, pmdaLastUpdated, alts };
   },
+
+  // ===== 🌟追加: YJコードだけで切替候補を返す（薬価マスタ未収載＝key空の薬用） =====
+  // 刻印検索のPMDA名フォールバックでリストに入れた薬は MEDI_KV にキーが無いため
+  // handleWebDetail(kvKey) が使えない。ここではYJ前方7桁が同じ薬を
+  // マスタ3カテゴリ＋施設採用薬から集めて alts として返す。
+  // 戻り値の形は handleWebDetail と揃えてあるのでフロント側は同じ扱いでよい。
+  async handleWebDetailByYj(yj, hospitalId, env, baseSpec = "") {
+    const cleanYj = String(yj || "").replace(/[^a-zA-Z0-9]/g, "");
+    const empty = {
+      key: "", label: "[内]", fullName: "", yj: cleanYj, isAdopted: false, isBrand: false,
+      comment: "", price: "", pmdaEfficacy: "", pmdaUsage: "", pmdaContra: "",
+      pmdaWarnings: null, pmdaLastUpdated: "", alts: []
+    };
+    if (!cleanYj || cleanYj.length < 7) return empty;
+    const yj7 = cleanYj.substring(0, 7);
+
+    // キー一覧はメモリキャッシュから（採用薬を先頭に置いて優先させる）
+    const masterKeys = await getMasterKeysCached(env);
+    const adoptedKeys = await getAdoptedKeysCached(hospitalId, env);
+    const allKeys = [...adoptedKeys, ...masterKeys];
+
+    // YJ前方7桁が一致するキーだけ拾う（同じYJの重複は先に来た方＝採用薬を採用）
+    const seenYJs = new Set();
+    const keysToFetch = [];
+    for (const k of allKeys) {
+      const tail = k.split("_").pop();
+      if (!tail || tail.length < 7 || tail.substring(0, 7) !== yj7) continue;
+      if (tail === cleanYj) continue;   // 自分自身は切替候補に出さない
+      if (seenYJs.has(tail)) continue;
+      seenYJs.add(tail);
+      keysToFetch.push(k);
+    }
+    if (!keysToFetch.length) return empty;
+
+    const altPromises = keysToFetch.slice(0, 50).map(async (k) => {
+      const v = await env.MEDI_KV.get(k);
+      if (!v) return null;
+      let p = String(v).split(/[,\uFF0C]/);
+      const ayj = getBestYJ(k, p);
+      const aIsAdopted = hospitalId ? k.startsWith(`${hospitalId}_`) : false;
+      if (aIsAdopted) {
+        // 採用薬はコメント部分を落としてから、マスタ情報で上書き（既存の詳細APIと同じ処理）
+        const ayjIndex = p.findIndex(x => x.replace(/[^a-zA-Z0-9]/g, "") === ayj);
+        if (ayjIndex !== -1 && ayjIndex < p.length - 1) { p = p.slice(0, ayjIndex + 1); }
+        if (ayj && ayj !== "NONE") {
+          const masterKey = masterKeys.find(mk => mk.endsWith(`_${ayj}`) || mk.endsWith(ayj));
+          if (masterKey) {
+            const mVal = await env.MEDI_KV.get(masterKey);
+            if (mVal) {
+              const mP = String(mVal).split(/[,\uFF0C]/);
+              const mYjIdx = mP.findIndex(x => x.replace(/[^a-zA-Z0-9]/g, "") === ayj);
+              if (mYjIdx !== -1) p = mP.slice(0, mYjIdx + 1);
+            }
+          }
+        }
+      }
+      if (!ayj || ayj === "NONE" || ayj.substring(0, 7) !== yj7) return null;
+      const extAlt = extractDrugData(p, ayj);
+      const aIsBrand = p.some(x => String(x).includes("先発"));
+      return { key: k, name: extAlt.name, spec: extAlt.spec, yj: ayj, isAdopted: aIsAdopted, isBrand: aIsBrand, price: extAlt.price };
+    });
+
+    let alts = (await Promise.all(altPromises)).filter(a => a !== null);
+    // 名前＋規格が同じものは1つに
+    const seen = new Set();
+    alts = alts.filter(a => {
+      const id = `${a.name}-${a.spec}`;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    }).slice(0, 15);
+
+    // 並び順は既存の詳細APIと同じ思想（採用薬 → 同mg数）
+    const baseDose = normalizeDose(baseSpec);
+    alts.sort((a, b) => {
+      if (b.isAdopted !== a.isAdopted) return b.isAdopted - a.isAdopted;
+      const aSame = normalizeDose(a.spec) === baseDose && baseDose !== "";
+      const bSame = normalizeDose(b.spec) === baseDose && baseDose !== "";
+      if (aSame !== bSame) return (bSame ? 1 : 0) - (aSame ? 1 : 0);
+      return 0;
+    });
+
+    return Object.assign({}, empty, { alts: alts });
+  },
+  // ===== 🌟追加: YJコードだけで切替候補を返す (ここまで) =====
 
   getAdminHTML(env, hospitalId, hospitalName = "", globalInfo = "") {
     const isHospitalMode = hospitalId !== "";
