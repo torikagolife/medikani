@@ -234,6 +234,180 @@ async function rebuildAdoptedJson(hId, env) {
 // ==============================================================
 
 // === 🦀休薬チェッカー: ページ生成関数 (ここから) ===
+// ============================================================================
+// 🦀メディカニ鑑別: 用法マスタ／単位／定型文のデフォルト定義 (ここから)
+// ----------------------------------------------------------------------------
+// 【採番ルール】区分ごとに「デフォルト帯」と「施設追加帯」を分けている。
+//   コード昇順に並べるだけで 内服→頓服→外用… の順に綺麗に並ぶ。
+//     内服      : デフォルト 100番台 / 施設追加  200番台
+//     頓服      : デフォルト 300番台 / 施設追加  400番台
+//     外用      : デフォルト 500番台 / 施設追加  600番台
+//     外用(眼)  : デフォルト 700番台 / 施設追加  800番台
+//     外用(鼻)  : デフォルト 900番台 / 施設追加 1000番台
+//     外用(他)  : デフォルト1100番台 / 施設追加 1200番台
+// ============================================================================
+const YOHO_CAT_BLOCKS = [
+  { cat: "内服",     def: 100,  add: 200 },
+  { cat: "頓服",     def: 300,  add: 400 },
+  { cat: "外用",     def: 500,  add: 600 },
+  { cat: "外用(眼)", def: 700,  add: 800 },
+  { cat: "外用(鼻)", def: 900,  add: 1000 },
+  { cat: "外用(他)", def: 1100, add: 1200 }
+];
+
+// デフォルト用法マスタ（トリさん提供CSV＋現場で頻用のものを追加）
+const YOHO_DEFAULT_LIST = [
+  // --- 内服 (100番台) ---
+  { code: 101, cat: "内服", name: "1日1回朝食後",          abbr: "1×朝後" },
+  { code: 102, cat: "内服", name: "1日1回昼食後",          abbr: "1×昼後" },
+  { code: 103, cat: "内服", name: "1日1回夕食後",          abbr: "1×夕後" },
+  { code: 104, cat: "内服", name: "1日1回就寝前",          abbr: "1×眠前" },
+  { code: 105, cat: "内服", name: "1日2回朝夕食後",        abbr: "2×朝夕後" },
+  { code: 106, cat: "内服", name: "1日2回朝食後・就寝前",  abbr: "2×朝後・眠前" },
+  { code: 107, cat: "内服", name: "1日3回毎食後",          abbr: "3×毎食後" },
+  { code: 108, cat: "内服", name: "1日3回毎食前",          abbr: "3×毎食前" },
+  { code: 109, cat: "内服", name: "1日4回毎食後・就寝前",  abbr: "4×毎食後・眠前" },
+  { code: 110, cat: "内服", name: "1日1回起床時",          abbr: "1×起床時" },
+  { code: 111, cat: "内服", name: "1日1回夕食直前",        abbr: "1×夕直前" },
+  { code: 112, cat: "内服", name: "1日1回朝食前",          abbr: "1×朝前" },
+  { code: 113, cat: "内服", name: "1日2回朝夕食前",        abbr: "2×朝夕前" },
+  { code: 114, cat: "内服", name: "1日3回毎食直前",        abbr: "3×毎食直前" },
+  { code: 115, cat: "内服", name: "週1回起床時",            abbr: "週1×起床時" },
+  { code: 116, cat: "内服", name: "隔日1回朝食後",          abbr: "隔日1×朝後" },
+  // --- 頓服 (300番台) ---
+  { code: 301, cat: "頓服", name: "必要時に",       abbr: "必要時" },
+  { code: 302, cat: "頓服", name: "発熱時に",       abbr: "発熱時" },
+  { code: 303, cat: "頓服", name: "疼痛時に",       abbr: "疼痛時" },
+  { code: 304, cat: "頓服", name: "不眠時に",       abbr: "不眠時" },
+  { code: 305, cat: "頓服", name: "便秘時に",       abbr: "便秘時" },
+  { code: 306, cat: "頓服", name: "発作時に",       abbr: "発作時" },
+  { code: 307, cat: "頓服", name: "嘔気時に",       abbr: "嘔気時" },
+  { code: 308, cat: "頓服", name: "めまい時に",     abbr: "めまい時" },
+  { code: 309, cat: "頓服", name: "咳嗽時に",       abbr: "咳嗽時" },
+  { code: 310, cat: "頓服", name: "下痢時に",       abbr: "下痢時" },
+  { code: 311, cat: "頓服", name: "血圧高値時に",   abbr: "血圧高値時" },
+  // --- 外用 (500番台) ---
+  { code: 501, cat: "外用", name: "1日1回患部に塗布",   abbr: "1×塗布" },
+  { code: 502, cat: "外用", name: "1日2回患部に塗布",   abbr: "2×塗布" },
+  { code: 503, cat: "外用", name: "1日1回患部に貼付",   abbr: "1×貼付" },
+  { code: 504, cat: "外用", name: "1日2回患部に貼付",   abbr: "2×貼付" },
+  { code: 505, cat: "外用", name: "痛いところに塗布",   abbr: "痛時塗布" },
+  { code: 506, cat: "外用", name: "痛いところに貼付",   abbr: "痛時貼付" },
+  { code: 507, cat: "外用", name: "1日数回患部に塗布",  abbr: "数回塗布" },
+  { code: 508, cat: "外用", name: "1日1回就寝前に貼付", abbr: "1×眠前貼付" },
+  // --- 外用(眼) (700番台) ---
+  { code: 701, cat: "外用(眼)", name: "1日1回右眼に点眼", abbr: "1×右点眼" },
+  { code: 702, cat: "外用(眼)", name: "1日1回左眼に点眼", abbr: "1×左点眼" },
+  { code: 703, cat: "外用(眼)", name: "1日1回両眼に点眼", abbr: "1×両点眼" },
+  { code: 704, cat: "外用(眼)", name: "1日2回両眼に点眼", abbr: "2×両点眼" },
+  { code: 705, cat: "外用(眼)", name: "1日4回両眼に点眼", abbr: "4×両点眼" },
+  // --- 外用(鼻) (900番台) ---
+  { code: 901, cat: "外用(鼻)", name: "1日1回両鼻に噴霧", abbr: "1×両鼻噴霧" },
+  { code: 902, cat: "外用(鼻)", name: "1日2回両鼻に噴霧", abbr: "2×両鼻噴霧" },
+  // --- 外用(他) (1100番台) ---
+  { code: 1101, cat: "外用(他)", name: "1日1回肛門内に挿入",   abbr: "1×坐薬挿入" },
+  { code: 1102, cat: "外用(他)", name: "発熱時に肛門内に挿入", abbr: "発熱時坐薬" },
+  { code: 1103, cat: "外用(他)", name: "1日1回吸入",           abbr: "1×吸入" },
+  { code: 1104, cat: "外用(他)", name: "1日2回吸入",           abbr: "2×吸入" }
+];
+
+// 単位プルダウンの初期値（管理画面で施設ごとに編集可）
+const YOHO_UNIT_DEFAULT = ["錠", "カプセル", "包", "g", "mL", "滴", "枚", "個", "本", "吸入", "プッシュ", "単位"];
+// 用量プルダウンの初期値
+const YOHO_DOSE_DEFAULT = ["0.5", "1", "1.5", "2", "3", "4", "5", "6", "8", "10"];
+
+// 帳票の定型テキスト／定型署名の初期値
+const KANBETSU_TMPL_TEXT_DEFAULT = "上記持参薬について鑑別を行いました。継続・切替の可否および用法用量のご指示をお願いいたします。";
+const KANBETSU_TMPL_SIGN_DEFAULT = "鑑別実施　薬剤師：＿＿＿＿＿＿＿＿\n確　　認　医　師：＿＿＿＿＿＿＿＿";
+
+// 共通デフォルト（KVに KANBETSU_DEFAULT_json があればそちらを優先）
+function kanbetsuBuiltinDefault() {
+  return {
+    version: 1,
+    yoho: YOHO_DEFAULT_LIST.map(x => ({ ...x })),
+    units: YOHO_UNIT_DEFAULT.slice(),
+    doses: YOHO_DOSE_DEFAULT.slice(),
+    tmplText: KANBETSU_TMPL_TEXT_DEFAULT,
+    tmplSign: KANBETSU_TMPL_SIGN_DEFAULT
+  };
+}
+
+// KVから共通デフォルトを読む（無ければコード内蔵の値）
+async function loadKanbetsuDefault(env) {
+  try {
+    const s = await env.MEDI_KV.get("KANBETSU_DEFAULT_json", { cacheTtl: 300 });
+    if (s) {
+      const d = JSON.parse(s);
+      const base = kanbetsuBuiltinDefault();
+      return {
+        version: d.version || 1,
+        yoho: Array.isArray(d.yoho) && d.yoho.length ? d.yoho : base.yoho,
+        units: Array.isArray(d.units) && d.units.length ? d.units : base.units,
+        doses: Array.isArray(d.doses) && d.doses.length ? d.doses : base.doses,
+        tmplText: typeof d.tmplText === "string" ? d.tmplText : base.tmplText,
+        tmplSign: typeof d.tmplSign === "string" ? d.tmplSign : base.tmplSign
+      };
+    }
+  } catch (e) { /* 壊れていたら内蔵デフォルトにフォールバック */ }
+  return kanbetsuBuiltinDefault();
+}
+
+// 施設の上書き設定を読む（無ければ空の器）
+async function loadKanbetsuOvr(hId, env) {
+  const empty = { yohoAdd: [], yohoHide: [], units: null, doses: null, tmplText: null, tmplSign: null, updatedAt: "" };
+  if (!hId) return empty;
+  try {
+    const s = await env.MEDI_KV.get(`${hId}_kanbetsu_json`);
+    if (!s) return empty;
+    const d = JSON.parse(s);
+    return {
+      yohoAdd: Array.isArray(d.yohoAdd) ? d.yohoAdd : [],
+      yohoHide: Array.isArray(d.yohoHide) ? d.yohoHide : [],
+      units: Array.isArray(d.units) && d.units.length ? d.units : null,
+      doses: Array.isArray(d.doses) && d.doses.length ? d.doses : null,
+      tmplText: typeof d.tmplText === "string" ? d.tmplText : null,
+      tmplSign: typeof d.tmplSign === "string" ? d.tmplSign : null,
+      updatedAt: d.updatedAt || ""
+    };
+  } catch (e) { return empty; }
+}
+
+// デフォルト＋施設追加をマージして、実際に画面で使う設定を作る
+function mergeKanbetsuConfig(def, ovr) {
+  const hide = new Set((ovr.yohoHide || []).map(Number));
+  const list = [];
+  for (const y of (def.yoho || [])) {
+    if (hide.has(Number(y.code))) continue;
+    list.push({ code: Number(y.code), cat: y.cat, name: y.name, abbr: y.abbr || y.name, own: false });
+  }
+  for (const y of (ovr.yohoAdd || [])) {
+    list.push({ code: Number(y.code), cat: y.cat, name: y.name, abbr: y.abbr || y.name, own: true });
+  }
+  // コード昇順＝区分順（採番ルールでそうなるようにしてある）
+  list.sort((a, b) => a.code - b.code);
+  return {
+    yoho: list,
+    units: ovr.units || def.units,
+    doses: ovr.doses || def.doses,
+    tmplText: (ovr.tmplText !== null && ovr.tmplText !== undefined) ? ovr.tmplText : def.tmplText,
+    tmplSign: (ovr.tmplSign !== null && ovr.tmplSign !== undefined) ? ovr.tmplSign : def.tmplSign,
+    blocks: YOHO_CAT_BLOCKS
+  };
+}
+
+// 施設の追加刻印を読む
+async function loadKokuinOvr(hId, env) {
+  if (!hId) return { items: [] };
+  try {
+    const s = await env.MEDI_KV.get(`${hId}_kokuin_json`);
+    if (!s) return { items: [] };
+    const d = JSON.parse(s);
+    return { items: Array.isArray(d.items) ? d.items : [], updatedAt: d.updatedAt || "" };
+  } catch (e) { return { items: [] }; }
+}
+// 🦀メディカニ鑑別: 用法マスタ／単位／定型文のデフォルト定義 (ここまで)
+// ============================================================================
+
 function kyuyakuAdminPage(hId, isSuper) {
   return `<!DOCTYPE html><html lang="ja"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1371,6 +1545,7 @@ function jisanPage(hId, hospitalName) {
             + (i.spec ? '<div style="font-size:12px; color:#888; margin-top:8px;">📦 ' + escHtml(i.spec) + ' ' + (i.type ? '/ ' + escHtml(i.type) : '') + '</div>' : '')
             + '<div class="code-row">'
               + '<span class="code-chip">刻印: ' + escHtml(i.code) + '</span>'
+              + (i.own ? '<span class="code-chip" style="border-style:solid; background:#e8f5e9; color:#2e7d32; border-color:#c8e6c9;">🏥 施設登録</span>' : '')
               + '<button class="btn-img" data-name="' + escHtml(nameForImg) + '">🖼️ 画像検索</button>'
             + '</div>'
             + (i.key
@@ -1584,7 +1759,7 @@ function kanbetsuPage(hId, hospitalName) {
 <link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png">
 <link rel="apple-touch-icon" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png">
 <meta name="apple-mobile-web-app-title" content="メディカニ鑑別">
-<title>🦀メディカニ鑑別（開発版）</title>
+<title>メディカニ鑑別（開発版）</title>
 <style>
   :root { --pink:#d63384; --bg:#fffaf5; }
   * { box-sizing:border-box; }
@@ -1737,6 +1912,31 @@ function kanbetsuPage(hId, hospitalName) {
   .rv-footer .t1 { font-size:12px; font-weight:bold; color:#d63384; }
   .rv-footer .fac { font-size:11px; font-weight:bold; color:#a05070; margin-left:8px; }
   .rv-footer .t2 { font-size:9px; color:#aa8899; margin-top:2px; }
+  /* ===== 🌟追加: 用法選択モーダル ===== */
+  #yohoOverlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; z-index:1400; justify-content:center; align-items:center; }
+  .yoho-modal { background:#fff; border-radius:16px; padding:14px; width:92%; max-width:460px; max-height:88vh; overflow-y:auto; }
+  .yoho-ttl { font-weight:bold; font-size:14px; color:#555; margin-bottom:8px; }
+  .yoho-dose { display:flex; gap:6px; align-items:center; background:#fff6fa; border:1.5px solid #ffd1dc; border-radius:10px; padding:8px 10px; margin-bottom:8px; }
+  .yoho-dose span { font-size:13px; color:#a05070; font-weight:bold; white-space:nowrap; }
+  .yoho-dose select { flex:1; min-width:0; padding:8px; font-size:15px; border:1.5px solid #ffd1dc; border-radius:8px; background:#fff; }
+  .yoho-find { width:100%; padding:9px 10px; font-size:14px; border:1.5px solid #ddd; border-radius:9px; margin-bottom:8px; }
+  .yoho-list { max-height:34vh; overflow-y:auto; border:1px solid #f0e0e8; border-radius:10px; padding:6px; background:#fffdfe; }
+  .yoho-cat { font-size:11px; font-weight:bold; color:#a05070; background:#ffeef5; border-radius:5px; padding:2px 8px; display:inline-block; margin:6px 0 4px; }
+  .yoho-btn { display:inline-block; background:#fff; border:1.5px solid #ffd1dc; color:#333; border-radius:16px; padding:7px 12px; margin:0 5px 5px 0; font-size:12.5px; cursor:pointer; }
+  .yoho-btn:active { background:#ffeef5; }
+  .yoho-btn.on { background:#d63384; border-color:#d63384; color:#fff; font-weight:bold; }
+  .yoho-btn .ab { font-size:10px; color:#aaa; margin-left:5px; }
+  .yoho-btn.on .ab { color:#ffd9e8; }
+  .yoho-own { font-size:9px; background:#e8f5e9; color:#2e7d32; border-radius:4px; padding:1px 4px; margin-left:4px; }
+  .yoho-free { width:100%; padding:9px 10px; font-size:15px; border:1.5px solid #ddd; border-radius:9px; margin-top:8px; }
+  .yoho-prev { background:#f7f7f7; border-radius:9px; padding:8px 10px; margin-top:8px; font-size:13px; color:#333; word-break:break-all; }
+  .yoho-prev .pl { font-size:10px; color:#999; display:block; }
+  .yoho-prev .pa { font-size:11px; color:#888; margin-top:3px; display:block; }
+  .yoho-btns { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:10px; }
+  .yoho-btns button { padding:11px 4px; border:none; border-radius:10px; font-weight:bold; font-size:13px; cursor:pointer; }
+  /* ===== 🌟追加: 帳票の定型テキスト／署名 ===== */
+  .rv-tmpl { background:#fff; border:1.5px solid #ffd1dc; border-radius:10px; padding:6px 10px; margin-bottom:4px; font-size:12px; color:#222; line-height:1.6; white-space:pre-wrap; }
+  .rv-sign { text-align:right; font-size:12px; color:#222; line-height:1.9; padding:4px 10px 0; margin-bottom:4px; white-space:pre-wrap; }
   @media print {
     body > *:not(#reportView) { display:none !important; }
     body { background:#fff !important; height:auto !important; }
@@ -1749,19 +1949,25 @@ function kanbetsuPage(hId, hospitalName) {
     .rv-card.switch { border-left:5px solid #fd7e14; }
     .rv-card.undecided { border-left:5px solid #adb5bd; }
     .rv-card.unmatched { border-left:5px solid #ffc107; }
+    /* 🌟変更: ※本結果は… と施設フッターを【全ページの下端】に固定する */
+    @page { margin: 10mm 8mm 26mm; }
+    .rv-inner { padding-bottom:0 !important; }
+    .rv-pfoot { position:fixed; bottom:0; left:0; right:0; background:#fff; padding-top:3px; }
+    .rv-tmpl { border:1px solid #eee; page-break-inside:avoid; }
+    .rv-sign { page-break-inside:avoid; }
     * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
   }
 </style></head>
 <body>
   <div class="header">
-    <h1>📋 メディカニ鑑別 <span style="font-size:11px; color:#a58; font-weight:normal;">開発版</span></h1>
+    <h1>🦀 メディカニ鑑別 <span style="font-size:11px; color:#a58; font-weight:normal;">開発版</span></h1>
     <div class="sub">お薬手帳のOCRと刻印検索で持参薬を鑑別するツールですカニ🦀</div>
     ${facilityBadge}
   </div>
   <div class="container">
     <div class="search-box">
       <div class="search-row">
-        <input type="text" id="kokuin" placeholder="刻印を入力（例：HP211、TA 111）" autocomplete="off" inputmode="latin">
+        <input type="text" id="kokuin" placeholder="刻印・薬名を入力（例：HP211、タケキャブ）" autocomplete="off" inputmode="latin">
       </div>
       <div class="mode-row">
         <button class="mode-btn on" id="btnModeKokuin" onclick="doSearch('kokuin')">🔍 刻印</button>
@@ -1842,6 +2048,25 @@ function kanbetsuPage(hId, hospitalName) {
     <div id="kpStatus" style="text-align:center; font-size:12px; color:#888; margin-top:10px;"></div>
     <div id="kpResults"></div>
     <button style="width:100%; margin-top:12px; padding:11px; background:#eee; color:#666; border:none; border-radius:10px; font-weight:bold; cursor:pointer;" onclick="closeKp()">閉じる</button>
+  </div></div>
+
+  <!-- 🌟追加: 用法選択モーダル（用量プルダウン＋単位プルダウン＋用法マスタ＋自由入力） -->
+  <div id="yohoOverlay"><div class="yoho-modal" onclick="event.stopPropagation()">
+    <div class="yoho-ttl" id="yohoTitle">📝 用法を入力</div>
+    <div class="yoho-dose">
+      <span>1回</span>
+      <select id="yohoDose"></select>
+      <select id="yohoUnit"></select>
+    </div>
+    <input type="text" class="yoho-find" id="yohoFind" placeholder="用法をしぼり込み（例：毎食後、就寝前）" autocomplete="off">
+    <div class="yoho-list" id="yohoList"></div>
+    <input type="text" class="yoho-free" id="yohoFree" placeholder="自由入力（用法を選ぶとここに入ります。直接書き換えもOK）">
+    <div class="yoho-prev" id="yohoPrev"></div>
+    <div class="yoho-btns">
+      <button style="background:#eee; color:#666;" onclick="closeYoho()">キャンセル</button>
+      <button style="background:#fff0f5; color:#d63384; border:1.5px solid #ffd1dc;" onclick="clearYoho()">クリア</button>
+      <button style="background:#d63384; color:#fff;" onclick="saveYoho()">決定</button>
+    </div>
   </div></div>
 
   <div id="reportView"><div class="rv-inner">
@@ -1988,6 +2213,7 @@ function kanbetsuPage(hId, hospitalName) {
       const nameForImg = String(i.name || '');
       const chip = (mode === 'kokuin')
         ? '<span class="code-chip">刻印: ' + escHtml(i.code || '') + '</span>'
+            + (i.own ? '<span class="code-chip" style="border-style:solid; background:#e8f5e9; color:#2e7d32; border-color:#c8e6c9;">🏥 施設登録</span>' : '')
         : (i.component
             ? '<span class="code-chip" style="border-style:solid; background:#f3e5f5; color:#7b1fa2; border-color:#e1bee7;">🧬 ' + escHtml(i.component) + '</span>'
             : '<span></span>');
@@ -2677,22 +2903,199 @@ function kanbetsuPage(hId, hospitalName) {
       if (!dc || decideTargetId === null) return;
       const it = kanbetsuList.find(function(x){ return x.id === decideTargetId; });
       if (!it) return;
+      // 🌟変更: 持参薬の用法（用量・単位も含む）をコピーして引き継ぐ
+      const carry = { usage: it.usage || '', usageA: it.usageA || '', dose: it.dose || '', unit: it.unit || '', uname: it.uname || '' };
       if (dc.getAttribute('data-dc') === 'keep') {
-        it.d = { type: 'keep', key: it.m.key, name: it.m.name, spec: it.m.spec || '', price: it.m.price || '', isBrand: !!it.m.isBrand, isAdopted: !!it.m.isAdopted, yj: it.m.yj || '', usage: it.usage || '' };
+        it.d = { type: 'keep', key: it.m.key, name: it.m.name, spec: it.m.spec || '', price: it.m.price || '', isBrand: !!it.m.isBrand, isAdopted: !!it.m.isAdopted, yj: it.m.yj || '', ...carry };
       } else {
         const a = (window._decideAlts || [])[Number(dc.getAttribute('data-ai'))];
         if (!a) return;
-        it.d = { type: 'switch', key: a.key, name: a.name, spec: a.spec || '', price: a.price || '', isBrand: !!a.isBrand, isAdopted: !!a.isAdopted, yj: a.yj || '', usage: it.usage || '' };
+        it.d = { type: 'switch', key: a.key, name: a.name, spec: a.spec || '', price: a.price || '', isBrand: !!a.isBrand, isAdopted: !!a.isAdopted, yj: a.yj || '', ...carry };
       }
+      const decidedId = it.id;
       decideTargetId = null;
       closeModal();
       renderJList();
+      // 🌟追加: 持参薬の用法をコピーした状態で、そのまま用法窓を開く
+      setTimeout(function(){ openYoho(decidedId, 'dusage'); }, 120);
     });
 
     // ===== 🌟フェーズ3: 持参薬鑑別報告書 =====
     let reportMemo = '';
     let reportBiko = '';
     let reportDate = '';
+    let reportTmpl = null;   // 🌟追加: 定型テキスト（nullのうちは設定値で初期化される）
+    let reportSign = null;   // 🌟追加: 定型署名
+
+    // ===== 🌟追加: 用法選択機能（用法マスタ＋用量＋単位、自由入力も可） =====
+    // 設定は /api/kanbetsu/config から取得（共通デフォルト＋施設の追加をマージ済み）
+    var YOHO_CFG = { yoho: [], units: ['錠'], doses: ['1'], tmplText: '', tmplSign: '' };
+    var yohoTarget = null;   // { id, field } field: 'usage' | 'dusage'
+    var yohoSel = null;      // 選択中の用法エントリ
+
+    async function loadKanbetsuCfg() {
+      try {
+        const r = await fetch('/api/kanbetsu/config?h=' + encodeURIComponent(HID));
+        const d = await r.json();
+        if (d && Array.isArray(d.yoho)) {
+          YOHO_CFG = d;
+          reportTmpl = (reportTmpl === null) ? (d.tmplText || '') : reportTmpl;
+          reportSign = (reportSign === null) ? (d.tmplSign || '') : reportSign;
+        }
+      } catch (e) { /* 取得できなくても自由入力で使えるので黙って続行 */ }
+    }
+
+    // 表示用（帳票・画面）: 「1回1錠　1日3回毎食後」
+    function fmtYohoDisp(dose, unit, name) {
+      if (!name) return '';
+      if (!dose || !unit) return name;
+      return '1回' + dose + unit + '　' + name;
+    }
+    // コピー用（電カル貼り付け）: 「1錠 3×毎食後」
+    function fmtYohoAbbr(dose, unit, abbr) {
+      if (!abbr) return '';
+      if (!dose || !unit) return abbr;
+      return dose + unit + ' ' + abbr;
+    }
+
+    // 剤形にあわせて区分の並び順を変える（外用薬なら外用系を先頭に）
+    function yohoCatOrder(it) {
+      const k = (it && it.m && it.m.key) ? it.m.key : '';
+      if (k.indexOf('[外]') !== -1) return ['外用', '外用(眼)', '外用(鼻)', '外用(他)', '内服', '頓服'];
+      return ['内服', '頓服', '外用', '外用(眼)', '外用(鼻)', '外用(他)'];
+    }
+
+    function openYoho(id, field) {
+      const it = kanbetsuList.find(function(x){ return x.id === id; });
+      if (!it) return;
+      if (field === 'dusage' && !it.d) return;
+      yohoTarget = { id: id, field: field };
+      yohoSel = null;
+      const cur = (field === 'dusage') ? (it.d.usage || '') : (it.usage || '');
+      const curD = (field === 'dusage') ? (it.d.dose || '') : (it.dose || '');
+      const curU = (field === 'dusage') ? (it.d.unit || '') : (it.unit || '');
+      const curN = (field === 'dusage') ? (it.d.uname || '') : (it.uname || '');
+
+      let ttl = '📝 持参薬の用法を入力';
+      if (field === 'dusage') ttl = '📝 ' + (it.d.type === 'keep' ? '継続後' : '切替後') + 'の用法を入力';
+      document.getElementById('yohoTitle').textContent = ttl;
+
+      // 用量・単位のプルダウンを組み立て
+      const dsel = document.getElementById('yohoDose');
+      const usel = document.getElementById('yohoUnit');
+      dsel.innerHTML = (YOHO_CFG.doses || ['1']).map(function(d){ return '<option value="' + escHtml(d) + '">' + escHtml(d) + '</option>'; }).join('');
+      usel.innerHTML = (YOHO_CFG.units || ['錠']).map(function(u){ return '<option value="' + escHtml(u) + '">' + escHtml(u) + '</option>'; }).join('');
+      // デフォルトは「1」「錠」。前回値があればそれを復元
+      dsel.value = curD || ((YOHO_CFG.doses || []).indexOf('1') !== -1 ? '1' : (YOHO_CFG.doses || ['1'])[0]);
+      usel.value = curU || ((YOHO_CFG.units || []).indexOf('錠') !== -1 ? '錠' : (YOHO_CFG.units || ['錠'])[0]);
+      if (!dsel.value) dsel.selectedIndex = 0;
+      if (!usel.value) usel.selectedIndex = 0;
+
+      // 自由入力欄には「用法名だけ」を入れる（用量・単位はプルダウン側で持つ）
+      document.getElementById('yohoFree').value = curN || (curD ? '' : cur);
+      document.getElementById('yohoFind').value = '';
+      renderYohoList('');
+      updateYohoPrev();
+      document.getElementById('yohoOverlay').style.display = 'flex';
+    }
+    function closeYoho() {
+      document.getElementById('yohoOverlay').style.display = 'none';
+      yohoTarget = null; yohoSel = null;
+    }
+    function clearYoho() {
+      yohoSel = null;
+      document.getElementById('yohoFree').value = '';
+      renderYohoList(document.getElementById('yohoFind').value);
+      updateYohoPrev();
+    }
+
+    function renderYohoList(filter) {
+      const it = yohoTarget ? kanbetsuList.find(function(x){ return x.id === yohoTarget.id; }) : null;
+      const order = yohoCatOrder(it);
+      const f = String(filter || '').trim();
+      const all = (YOHO_CFG.yoho || []).filter(function(y){
+        if (!f) return true;
+        return (y.name.indexOf(f) !== -1) || (String(y.abbr || '').indexOf(f) !== -1);
+      });
+      let html = '';
+      for (const cat of order) {
+        const items = all.filter(function(y){ return y.cat === cat; });
+        if (!items.length) continue;
+        html += '<div class="yoho-cat">' + escHtml(cat) + '</div><div>';
+        for (const y of items) {
+          const on = (yohoSel && yohoSel.code === y.code) ? ' on' : '';
+          html += '<span class="yoho-btn' + on + '" data-yoho="' + y.code + '">' + escHtml(y.name)
+            + '<span class="ab">' + escHtml(y.abbr || '') + '</span>'
+            + (y.own ? '<span class="yoho-own">施設</span>' : '')
+            + '</span>';
+        }
+        html += '</div>';
+      }
+      // マージ結果に無い区分（施設が独自区分を作った場合）も拾う
+      const rest = all.filter(function(y){ return order.indexOf(y.cat) === -1; });
+      if (rest.length) {
+        html += '<div class="yoho-cat">その他</div><div>';
+        for (const y of rest) {
+          const on = (yohoSel && yohoSel.code === y.code) ? ' on' : '';
+          html += '<span class="yoho-btn' + on + '" data-yoho="' + y.code + '">' + escHtml(y.name) + '</span>';
+        }
+        html += '</div>';
+      }
+      if (!html) html = '<div style="font-size:12px; color:#999; text-align:center; padding:14px;">該当する用法がありません。下の自由入力に直接書けますカニ🦀</div>';
+      document.getElementById('yohoList').innerHTML = html;
+    }
+
+    function updateYohoPrev() {
+      const dose = document.getElementById('yohoDose').value;
+      const unit = document.getElementById('yohoUnit').value;
+      const free = document.getElementById('yohoFree').value.trim();
+      const name = free || (yohoSel ? yohoSel.name : '');
+      // 自由入力が選択中の用法名から書き換えられていたら略称も自由入力を使う
+      const abbr = (yohoSel && free === yohoSel.name) ? (yohoSel.abbr || yohoSel.name) : name;
+      const disp = fmtYohoDisp(dose, unit, name);
+      const ab = fmtYohoAbbr(dose, unit, abbr);
+      document.getElementById('yohoPrev').innerHTML = name
+        ? '<span class="pl">帳票・画面の表示</span>' + escHtml(disp) + '<span class="pa">📋コピー時：' + escHtml(ab) + '</span>'
+        : '<span class="pl">帳票・画面の表示</span><span style="color:#bbb;">用法を選ぶか、自由入力してくださいカニ🦀</span>';
+    }
+
+    document.getElementById('yohoList').addEventListener('click', function(e){
+      const b = e.target.closest('[data-yoho]');
+      if (!b) return;
+      const code = Number(b.getAttribute('data-yoho'));
+      const y = (YOHO_CFG.yoho || []).find(function(x){ return x.code === code; });
+      if (!y) return;
+      yohoSel = (yohoSel && yohoSel.code === code) ? null : y;
+      document.getElementById('yohoFree').value = yohoSel ? yohoSel.name : '';
+      renderYohoList(document.getElementById('yohoFind').value);
+      updateYohoPrev();
+    });
+    document.getElementById('yohoFind').addEventListener('input', function(){ renderYohoList(this.value); });
+    document.getElementById('yohoFree').addEventListener('input', updateYohoPrev);
+    document.getElementById('yohoDose').addEventListener('change', updateYohoPrev);
+    document.getElementById('yohoUnit').addEventListener('change', updateYohoPrev);
+    document.getElementById('yohoOverlay').addEventListener('click', closeYoho);
+
+    function saveYoho() {
+      if (!yohoTarget) return;
+      const it = kanbetsuList.find(function(x){ return x.id === yohoTarget.id; });
+      if (!it) { closeYoho(); return; }
+      const dose = document.getElementById('yohoDose').value;
+      const unit = document.getElementById('yohoUnit').value;
+      const free = document.getElementById('yohoFree').value.trim();
+      const name = free || (yohoSel ? yohoSel.name : '');
+      const abbr = (yohoSel && free === yohoSel.name) ? (yohoSel.abbr || yohoSel.name) : name;
+      const disp = name ? fmtYohoDisp(dose, unit, name) : '';
+      const ab = name ? fmtYohoAbbr(dose, unit, abbr) : '';
+      if (yohoTarget.field === 'dusage') {
+        if (it.d) { it.d.usage = disp; it.d.usageA = ab; it.d.dose = name ? dose : ''; it.d.unit = name ? unit : ''; it.d.uname = name; }
+      } else {
+        it.usage = disp; it.usageA = ab; it.dose = name ? dose : ''; it.unit = name ? unit : ''; it.uname = name;
+      }
+      closeYoho();
+      renderJList();
+    }
+
 
     function fmtNow() {
       const d = new Date();
@@ -2736,9 +3139,16 @@ function kanbetsuPage(hId, hospitalName) {
         html += '</div>';
       }
       html += '<div class="rv-metabox"><div class="rv-editrow" data-redit="rbiko">📝 <b>備考：</b>' + (reportBiko ? escHtml(reportBiko).split(BR).join('<br>') : '<span style="color:#bbb;">未入力</span>') + ' <span class="rv-edithint">（タップで編集）</span></div></div>';
+      // 🌟追加: 定型テキスト（備考の下・注意書きの上）
+      html += '<div class="rv-tmpl rv-editrow" data-redit="rtmpl" style="border-style:solid;">' + (reportTmpl ? escHtml(reportTmpl).split(BR).join('<br>') : '<span style="color:#bbb;">定型テキスト未設定</span>') + ' <span class="rv-edithint">（タップで編集）</span></div>';
+      // 🌟追加: 定型署名（右寄せ）
+      html += '<div class="rv-sign rv-editrow" data-redit="rsign" style="border:none; background:none;">' + (reportSign ? escHtml(reportSign).split(BR).join('<br>') : '<span style="color:#bbb;">定型署名未設定</span>') + '</div>';
+      // 🌟変更: 注意書きと施設フッターは1つの箱にまとめ、印刷時は全ページの下端に固定する
+      html += '<div class="rv-pfoot">';
       html += '<div class="rv-note">※本結果はメディカニ鑑別（β）による補助資料です。内容の最終確認は薬剤師が行ってください。</div>';
       // フッター: タイトルの右側に施設名
       html += '<div class="rv-footer"><span class="t1">🦀 メディカニ 医薬品検索</span>' + (HNAME ? '<span class="fac">🏥 ' + escHtml(HNAME) + '</span>' : '') + '</div>';
+      html += '</div>';
       document.getElementById('reportBody').innerHTML = html;
     }
 
@@ -2750,8 +3160,11 @@ function kanbetsuPage(hId, hospitalName) {
     });
     function openReportEdit(field) {
       editTarget = { id: null, field: field };
-      document.getElementById('editModalTitle').textContent = field === 'rmemo' ? '✏️ ID等メモを編集' : '✏️ 備考を編集';
-      document.getElementById('editModalText').value = field === 'rmemo' ? reportMemo : reportBiko;
+      // 🌟追加: 定型テキスト・定型署名もその場で編集できる（保存先は管理画面ではなくこの帳票だけ）
+      const titles = { rmemo: '✏️ ID等メモを編集', rbiko: '✏️ 備考を編集', rtmpl: '✏️ 定型テキストを編集（この帳票のみ）', rsign: '✏️ 定型署名を編集（この帳票のみ）' };
+      const vals = { rmemo: reportMemo, rbiko: reportBiko, rtmpl: (reportTmpl || ''), rsign: (reportSign || '') };
+      document.getElementById('editModalTitle').textContent = titles[field] || '✏️ 編集';
+      document.getElementById('editModalText').value = vals[field] || '';
       document.getElementById('editModalOverlay').style.display = 'flex';
       setTimeout(function(){ document.getElementById('editModalText').focus(); }, 50);
     }
@@ -2765,14 +3178,17 @@ function kanbetsuPage(hId, hospitalName) {
       t += 'ID等メモ：' + (reportMemo || '') + NL + NL;
       for (const it of kanbetsuList) {
         const srcName = (it.m ? it.m.name : it.name + '（未照合）');
-        t += '■ 持参薬：' + srcName + '　用法：' + (it.usage || '') + NL;
+        // 🌟変更: コピーは略称版（1錠 3×毎食後）を優先。無ければ表示用をそのまま使う。
+        t += '■ 持参薬：' + srcName + '　用法：' + (it.usageA || it.usage || '') + NL;
         if (it.d) {
-          t += '　 ' + (it.d.type === 'keep' ? '継続' : '切替') + ' → ' + it.d.name + '　用法：' + (it.d.usage || '') + NL;
+          t += '　 ' + (it.d.type === 'keep' ? '継続' : '切替') + ' → ' + it.d.name + '　用法：' + (it.d.usageA || it.d.usage || '') + NL;
         } else if (it.m) {
           t += '　 （継続／切替 未決定）' + NL;
         }
       }
       t += NL + '備考：' + (reportBiko || '') + NL;
+      if (reportTmpl) t += NL + reportTmpl + NL;                    // 🌟追加: 定型テキスト
+      if (reportSign) t += NL + reportSign + NL;                    // 🌟追加: 定型署名
       t += NL + '※本結果はメディカニ鑑別（β）による補助資料です。内容の最終確認は薬剤師が行ってください。' + NL;
       return t;
     }
@@ -2809,13 +3225,13 @@ function kanbetsuPage(hId, hospitalName) {
         return;
       }
       const eu = e.target.closest('[data-editusage]');
-      if (eu) { openEditModal(Number(eu.getAttribute('data-editusage')), 'usage'); return; }
+      if (eu) { openYoho(Number(eu.getAttribute('data-editusage')), 'usage'); return; }   // 🌟変更: 用法選択モーダルへ
       const en = e.target.closest('[data-editname]');
       if (en) { openPicker(Number(en.getAttribute('data-editname'))); return; }
       const rp = e.target.closest('[data-repick]');
       if (rp) { openPicker(Number(rp.getAttribute('data-repick'))); return; }
       const ed = e.target.closest('[data-editdusage]');
-      if (ed) { openEditModal(Number(ed.getAttribute('data-editdusage')), 'dusage'); return; }
+      if (ed) { openYoho(Number(ed.getAttribute('data-editdusage')), 'dusage'); return; }  // 🌟変更: 用法選択モーダルへ
       const rd = e.target.closest('[data-redecide]');
       if (rd) { openDecide(Number(rd.getAttribute('data-redecide'))); return; }
       const dc = e.target.closest('.jitem[data-decide]');
@@ -2843,8 +3259,11 @@ function kanbetsuPage(hId, hospitalName) {
       if (!editTarget) return;
       const val = document.getElementById('editModalText').value.trim();
       // 🌟報告書のID等メモ・備考（リストの薬とは無関係のフィールド）
-      if (editTarget.field === 'rmemo' || editTarget.field === 'rbiko') {
-        if (editTarget.field === 'rmemo') reportMemo = val; else reportBiko = val;
+      if (editTarget.field === 'rmemo' || editTarget.field === 'rbiko' || editTarget.field === 'rtmpl' || editTarget.field === 'rsign') {
+        if (editTarget.field === 'rmemo') reportMemo = val;
+        else if (editTarget.field === 'rbiko') reportBiko = val;
+        else if (editTarget.field === 'rtmpl') reportTmpl = val;   // 🌟追加
+        else reportSign = val;                                      // 🌟追加
         closeEditModal();
         renderReport();
         return;
@@ -2969,11 +3388,423 @@ function kanbetsuPage(hId, hospitalName) {
       renderJList();
       document.getElementById('ocrStatus').textContent = '✅ 「' + chosen.name + '」に紐付けましたカニ🦀';
     });
+
+    // 🌟追加: 用法マスタ・単位・定型文を読み込む（管理画面 /kanbetsu-admin で設定した内容）
+    loadKanbetsuCfg();
   </script>
 </body></html>`;
 }
 
 // === 🦀持参薬鑑別(開発版): ページ生成関数 (ここまで) ===
+
+// === 🦀メディカニ鑑別: 管理画面 生成関数 (ここから) ===
+// /{hId}/kanbetsu-admin。用法マスタ・単位・追加刻印・定型テキスト/署名を編集する。
+// 保存は施設管理パスワード必須（kyu-admin と同じ方式）。既存の /admin には一切手を入れていない。
+function kanbetsuAdminPage(hId, isSuper) {
+  return `<!DOCTYPE html><html lang="ja"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
+<link rel="apple-touch-icon" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png">
+<meta name="apple-mobile-web-app-title" content="鑑別マスタ管理">
+<title>メディカニ鑑別 マスタ管理</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; background:#fffaf5; color:#333; padding-bottom:130px; }
+  .header { background:linear-gradient(135deg,#d63384,#c02a72); color:#fff; padding:14px 16px; position:sticky; top:0; z-index:50; box-shadow:0 2px 8px rgba(0,0,0,.15); }
+  .header h1 { font-size:17px; }
+  .header .sub { font-size:11px; opacity:.9; margin-top:2px; }
+  .wrap { max-width:860px; margin:0 auto; padding:12px; }
+  .banner { background:#fff3cd; border:1px solid #ffe69c; color:#7a5c00; border-radius:10px; padding:10px 12px; font-size:12px; line-height:1.6; margin-bottom:12px; }
+  .card { background:#fff; border-radius:12px; box-shadow:0 1px 4px rgba(0,0,0,.08); padding:12px; margin-bottom:12px; }
+  .card h2 { font-size:14px; color:#d63384; margin-bottom:8px; }
+  .card .desc { font-size:11px; color:#999; line-height:1.6; margin-bottom:10px; }
+  label { display:block; font-size:12px; color:#666; font-weight:bold; margin-bottom:4px; }
+  input[type=text], textarea, select { width:100%; padding:10px; font-size:15px; border:1.5px solid #ddd; border-radius:9px; outline:none; font-family:inherit; }
+  input[type=text]:focus, textarea:focus, select:focus { border-color:#d63384; }
+  textarea { min-height:80px; line-height:1.6; resize:vertical; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  .row .fld { flex:1; min-width:120px; }
+  .btn { border:none; border-radius:9px; padding:10px 14px; font-size:13px; font-weight:bold; cursor:pointer; }
+  .btn.pink { background:#d63384; color:#fff; }
+  .btn.gray { background:#eee; color:#666; }
+  .btn.green { background:#28a745; color:#fff; }
+  .btn.small { padding:6px 10px; font-size:11px; }
+  .btn.red { background:#fdecec; color:#c62828; border:1px solid #f5b5b5; }
+  .ycat { font-size:12px; font-weight:bold; color:#a05070; background:#ffeef5; border-radius:6px; padding:4px 10px; margin:12px 0 6px; display:flex; justify-content:space-between; align-items:center; }
+  .ycat .cnt { font-weight:normal; color:#c090a8; font-size:11px; }
+  .yrow { display:flex; align-items:center; gap:8px; padding:7px 4px; border-bottom:1px solid #f4f4f4; font-size:13px; }
+  .yrow.hid { opacity:.4; }
+  .yrow .cd { font-size:10px; color:#aaa; width:42px; flex-shrink:0; font-variant-numeric:tabular-nums; }
+  .yrow .nm { flex:1; min-width:0; }
+  .yrow .nm .ab { font-size:10px; color:#aaa; margin-left:6px; }
+  .yrow .own { font-size:9px; background:#e8f5e9; color:#2e7d32; border-radius:4px; padding:1px 5px; margin-left:5px; }
+  .yrow .acts { flex-shrink:0; display:flex; gap:5px; }
+  .chip { display:inline-block; background:#fff0f5; border:1.5px solid #ffd1dc; color:#d63384; border-radius:16px; padding:5px 10px; margin:0 5px 5px 0; font-size:12px; }
+  .chip b { cursor:pointer; margin-left:6px; color:#c62828; }
+  .kres { border:1px solid #f0e0e8; border-radius:9px; max-height:230px; overflow-y:auto; margin-top:8px; }
+  .kitem { padding:9px 10px; border-bottom:1px solid #f6f6f6; cursor:pointer; font-size:13px; }
+  .kitem:active { background:#fff5f9; }
+  .kitem .sp { font-size:11px; color:#888; display:block; margin-top:2px; }
+  .kbox { border:1.5px solid #ffd1dc; border-radius:10px; padding:10px; margin-top:8px; background:#fffdfe; }
+  .savebar { position:fixed; bottom:0; left:0; right:0; background:#fff; border-top:1.5px solid #ffd1dc; padding:10px 12px; box-shadow:0 -2px 10px rgba(0,0,0,.08); z-index:60; }
+  .savebar .inner { max-width:860px; margin:0 auto; display:flex; gap:8px; align-items:center; }
+  .savebar input { flex:1; min-width:0; }
+  .msg { font-size:12px; text-align:center; padding:6px; color:#666; }
+</style></head><body>
+  <div class="header">
+    <h1>🦀 メディカニ鑑別 マスタ管理</h1>
+    <div class="sub">用法マスタ・追加刻印・帳票の定型文を設定できますカニ🦀</div>
+  </div>
+  <div class="wrap">
+    <div class="banner">
+      ここでの変更は <b>この施設のメディカニ鑑別</b>にだけ反映されます。保存には施設の<b>管理パスワード</b>が必要カニ🦀<br>
+      ※採用薬の追加・削除は従来どおり <b>/${hId}/admin</b> で行ってください。
+    </div>
+
+    <!-- ① 用法マスタ -->
+    <div class="card">
+      <h2>📝 用法マスタ</h2>
+      <div class="desc">
+        鑑別画面の「用法」ボタンに出てくる選択肢です。デフォルトは非表示にでき、施設独自の用法を追加できます。<br>
+        コードは区分ごとに帯が決まっていて（内服=100番台／追加200番台、頓服=300／400…）、番号順に並びます。
+      </div>
+      <div id="yohoArea"></div>
+      <div style="border-top:1px dashed #e8d0dc; margin-top:14px; padding-top:12px;">
+        <label>➕ 用法を追加</label>
+        <div class="row">
+          <div class="fld" style="max-width:150px;"><select id="addCat"></select></div>
+          <div class="fld"><input type="text" id="addName" placeholder="用法名（例：1日2回朝・夕）"></div>
+          <div class="fld"><input type="text" id="addAbbr" placeholder="略称（例：2×朝夕）"></div>
+          <button class="btn green" onclick="addYoho()">追加</button>
+        </div>
+        <div style="font-size:11px; color:#999; margin-top:6px;">略称は📋コピー時の短い表記に使われます（空欄なら用法名をそのまま使用）。</div>
+      </div>
+    </div>
+
+    <!-- ② 用量・単位 -->
+    <div class="card">
+      <h2>🔢 用量・単位のプルダウン</h2>
+      <div class="desc">用法編集窓の「1回 ◯ ◯◯」のプルダウンの中身です。カンマ区切りで書いてください。</div>
+      <label>単位（先頭がデフォルト選択…ではなく「錠」があれば錠が初期選択されます）</label>
+      <input type="text" id="unitsIn" placeholder="錠, カプセル, 包, g, mL">
+      <label style="margin-top:10px;">用量</label>
+      <input type="text" id="dosesIn" placeholder="0.5, 1, 1.5, 2, 3">
+    </div>
+
+    <!-- ③ 追加刻印 -->
+    <div class="card">
+      <h2>🔎 追加刻印（採用薬）</h2>
+      <div class="desc">
+        PMDAの識別コードに載っていない刻印を、採用薬に自分で足せます。ここで登録した刻印は<b>刻印検索でヒットするようになります</b>。<br>
+        ※PMDA由来の索引とは別に保存されるので、マスタ更新で消えることはありません。
+      </div>
+      <input type="text" id="drugQ" placeholder="採用薬を名前でしぼり込み（例：アムロジピン）" oninput="renderDrugs()">
+      <div class="kres" id="drugRes"></div>
+      <div id="kokuinEdit"></div>
+      <div style="border-top:1px dashed #e8d0dc; margin-top:14px; padding-top:12px;">
+        <label>登録済みの追加刻印</label>
+        <div id="kokuinList"></div>
+      </div>
+    </div>
+
+    <!-- ④ 定型テキスト -->
+    <div class="card">
+      <h2>💬 帳票の定型テキスト</h2>
+      <div class="desc">鑑別結果の「備考」の下に印刷される定型文です。現場で毎回書く決まり文句をここに入れておけます。</div>
+      <textarea id="tmplTextIn" placeholder="例：上記持参薬について鑑別を行いました。継続・切替の可否および用法用量のご指示をお願いいたします。"></textarea>
+      <button class="btn gray small" style="margin-top:8px;" onclick="resetTmpl('text')">デフォルトに戻す</button>
+    </div>
+
+    <!-- ⑤ 定型署名 -->
+    <div class="card">
+      <h2>✍️ 帳票の定型署名</h2>
+      <div class="desc">定型テキストのさらに下、印刷時に<b>右寄せ</b>で出ます。改行するとそのまま複数行になります。</div>
+      <textarea id="tmplSignIn" placeholder="例：鑑別実施　薬剤師：＿＿＿＿＿＿＿＿"></textarea>
+      <button class="btn gray small" style="margin-top:8px;" onclick="resetTmpl('sign')">デフォルトに戻す</button>
+    </div>
+
+    <div class="msg" id="msg"></div>
+    <div style="text-align:center; font-size:11px; color:#bbb; padding:10px 0 20px;">
+      🦀 メディカニ鑑別 マスタ管理<br>© 2026 🐔トリの巣ワークス メディカニ運営事務局
+    </div>
+  </div>
+
+  <div class="savebar">
+    <div class="inner">
+      <input type="password" id="adminPwd" placeholder="施設の管理パスワード">
+      <button class="btn pink" onclick="saveAll('facility')">💾 保存</button>
+      ${isSuper ? '<button class="btn gray" onclick="saveAll(&quot;default&quot;)">共通デフォルトに保存</button>' : ''}
+    </div>
+  </div>
+
+<script>
+const HID = "${hId}";
+const IS_SUPER = ${isSuper ? "true" : "false"};
+let DEF = null;          // 共通デフォルト
+let OVR = null;          // 施設の上書き
+let BLOCKS = [];         // 区分ごとの採番帯
+let KOKUIN = { items: [] };
+let ADOPTED = [];        // 採用薬一覧
+let pickedDrug = null;   // 追加刻印の編集対象
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function setMsg(t, ok){ const m=document.getElementById('msg'); m.textContent=t; m.style.color = ok ? '#28a745' : '#666'; }
+
+async function load(){
+  setMsg('読み込み中...🦀');
+  try {
+    const r = await fetch('/api/kanbetsu/admin-config?h=' + encodeURIComponent(HID));
+    const d = await r.json();
+    if (d.error){ setMsg('⚠️ ' + d.error); return; }
+    DEF = d.def; OVR = d.ovr; BLOCKS = d.blocks || []; KOKUIN = d.kokuin || { items: [] };
+    document.getElementById('unitsIn').value = (OVR.units || DEF.units || []).join(', ');
+    document.getElementById('dosesIn').value = (OVR.doses || DEF.doses || []).join(', ');
+    document.getElementById('tmplTextIn').value = (OVR.tmplText !== null && OVR.tmplText !== undefined) ? OVR.tmplText : (DEF.tmplText || '');
+    document.getElementById('tmplSignIn').value = (OVR.tmplSign !== null && OVR.tmplSign !== undefined) ? OVR.tmplSign : (DEF.tmplSign || '');
+    document.getElementById('addCat').innerHTML = BLOCKS.map(function(b){ return '<option value="' + esc(b.cat) + '">' + esc(b.cat) + '</option>'; }).join('');
+    renderYoho();
+    renderKokuinList();
+    setMsg('');
+  } catch(e){ setMsg('⚠️ 読み込みに失敗しましたカニ🦀💦'); }
+  try {
+    const r2 = await fetch('/api/adopted-list?h=' + encodeURIComponent(HID));
+    ADOPTED = await r2.json();
+    renderDrugs();
+  } catch(e){ ADOPTED = []; }
+}
+
+/* ===== 用法マスタ ===== */
+function hideSet(){ return new Set((OVR.yohoHide || []).map(Number)); }
+
+function renderYoho(){
+  const hs = hideSet();
+  let html = '';
+  for (const b of BLOCKS){
+    const defs = (DEF.yoho || []).filter(function(y){ return y.cat === b.cat; }).sort(function(a,c){ return a.code - c.code; });
+    const adds = (OVR.yohoAdd || []).filter(function(y){ return y.cat === b.cat; }).sort(function(a,c){ return a.code - c.code; });
+    if (!defs.length && !adds.length) continue;
+    const live = defs.filter(function(y){ return !hs.has(Number(y.code)); }).length + adds.length;
+    html += '<div class="ycat"><span>' + esc(b.cat) + '</span><span class="cnt">デフォルト ' + b.def + '番台 / 追加 ' + b.add + '番台　（有効 ' + live + '件）</span></div>';
+    for (const y of defs){
+      const hid = hs.has(Number(y.code));
+      html += '<div class="yrow' + (hid ? ' hid' : '') + '">'
+        + '<span class="cd">' + y.code + '</span>'
+        + '<span class="nm">' + esc(y.name) + '<span class="ab">' + esc(y.abbr||'') + '</span></span>'
+        + '<span class="acts"><button class="btn small ' + (hid ? 'green' : 'gray') + '" onclick="toggleHide(' + y.code + ')">' + (hid ? '表示に戻す' : '非表示') + '</button></span>'
+        + '</div>';
+    }
+    for (const y of adds){
+      html += '<div class="yrow">'
+        + '<span class="cd">' + y.code + '</span>'
+        + '<span class="nm">' + esc(y.name) + '<span class="ab">' + esc(y.abbr||'') + '</span><span class="own">施設</span></span>'
+        + '<span class="acts">'
+        +   '<button class="btn small gray" onclick="editYoho(' + y.code + ')">編集</button>'
+        +   '<button class="btn small red" onclick="delYoho(' + y.code + ')">削除</button>'
+        + '</span></div>';
+    }
+  }
+  document.getElementById('yohoArea').innerHTML = html || '<div style="font-size:12px; color:#999; padding:10px;">用法マスタが空です。</div>';
+}
+
+function toggleHide(code){
+  const hs = hideSet();
+  if (hs.has(Number(code))) hs.delete(Number(code)); else hs.add(Number(code));
+  OVR.yohoHide = Array.from(hs);
+  renderYoho();
+  setMsg('変更しました（まだ保存されていません。下の保存ボタンを押してください）');
+}
+
+function nextCode(cat){
+  const b = BLOCKS.find(function(x){ return x.cat === cat; });
+  if (!b) return 9001;
+  const used = (OVR.yohoAdd || []).filter(function(y){ return y.cat === cat; }).map(function(y){ return Number(y.code); });
+  let c = b.add + 1;
+  while (used.indexOf(c) !== -1) c++;
+  return c;
+}
+
+function addYoho(){
+  const cat = document.getElementById('addCat').value;
+  const name = document.getElementById('addName').value.trim();
+  const abbr = document.getElementById('addAbbr').value.trim();
+  if (!name){ alert('用法名を入力してくださいカニ🦀'); return; }
+  OVR.yohoAdd = OVR.yohoAdd || [];
+  OVR.yohoAdd.push({ code: nextCode(cat), cat: cat, name: name, abbr: abbr || name });
+  document.getElementById('addName').value = '';
+  document.getElementById('addAbbr').value = '';
+  renderYoho();
+  setMsg('追加しました（まだ保存されていません）');
+}
+
+function editYoho(code){
+  const y = (OVR.yohoAdd || []).find(function(x){ return Number(x.code) === Number(code); });
+  if (!y) return;
+  const n = prompt('用法名', y.name);
+  if (n === null) return;
+  const a = prompt('略称（📋コピー用の短い表記）', y.abbr || '');
+  if (a === null) return;
+  y.name = n.trim() || y.name;
+  y.abbr = a.trim() || y.name;
+  renderYoho();
+  setMsg('変更しました（まだ保存されていません）');
+}
+
+function delYoho(code){
+  if (!confirm('この用法を削除しますか？')) return;
+  OVR.yohoAdd = (OVR.yohoAdd || []).filter(function(x){ return Number(x.code) !== Number(code); });
+  renderYoho();
+  setMsg('削除しました（まだ保存されていません）');
+}
+
+/* ===== 定型文 ===== */
+function resetTmpl(which){
+  if (which === 'text') document.getElementById('tmplTextIn').value = DEF.tmplText || '';
+  else document.getElementById('tmplSignIn').value = DEF.tmplSign || '';
+  setMsg('デフォルトに戻しました（まだ保存されていません）');
+}
+
+/* ===== 追加刻印 ===== */
+function renderDrugs(){
+  const q = document.getElementById('drugQ').value.trim();
+  const box = document.getElementById('drugRes');
+  if (!ADOPTED.length){ box.innerHTML = '<div style="padding:12px; font-size:12px; color:#999;">採用薬が読み込めませんでした。/' + esc(HID) + '/admin で採用薬を登録してくださいカニ🦀</div>'; return; }
+  if (!q){ box.innerHTML = '<div style="padding:12px; font-size:12px; color:#999;">薬名を入力すると採用薬がしぼり込まれます（' + ADOPTED.length + '件登録済み）</div>'; return; }
+  const hit = ADOPTED.filter(function(d){ return String(d.name||'').indexOf(q) !== -1 || String(d.component||'').indexOf(q) !== -1; }).slice(0, 40);
+  if (!hit.length){ box.innerHTML = '<div style="padding:12px; font-size:12px; color:#999;">該当なしカニ🦀</div>'; return; }
+  box.innerHTML = hit.map(function(d, i){
+    return '<div class="kitem" onclick="pickDrug(\\'' + esc(d.yj) + '\\')">' + esc(d.name)
+      + '<span class="sp">' + esc(d.cat||'') + ' ' + esc(d.spec||'') + ' ／ ' + esc(d.component||'') + '</span></div>';
+  }).join('');
+}
+
+function pickDrug(yj){
+  const d = ADOPTED.find(function(x){ return String(x.yj) === String(yj); });
+  if (!d) return;
+  pickedDrug = d;
+  renderKokuinEdit();
+}
+
+function itemFor(yj){
+  KOKUIN.items = KOKUIN.items || [];
+  let it = KOKUIN.items.find(function(x){ return String(x.yj) === String(yj); });
+  if (!it){ it = { yj: String(yj), name: pickedDrug ? pickedDrug.name : '', codes: [] }; KOKUIN.items.push(it); }
+  return it;
+}
+
+function renderKokuinEdit(){
+  const box = document.getElementById('kokuinEdit');
+  if (!pickedDrug){ box.innerHTML = ''; return; }
+  const it = (KOKUIN.items || []).find(function(x){ return String(x.yj) === String(pickedDrug.yj); });
+  const codes = it ? (it.codes || []) : [];
+  box.innerHTML = '<div class="kbox">'
+    + '<div style="font-weight:bold; font-size:13px; margin-bottom:6px;">💊 ' + esc(pickedDrug.name) + '</div>'
+    + '<div style="font-size:11px; color:#999; margin-bottom:8px;">YJ: ' + esc(pickedDrug.yj) + '</div>'
+    + '<div>' + (codes.length ? codes.map(function(c, i){ return '<span class="chip">' + esc(c) + '<b onclick="delCode(' + i + ')">×</b></span>'; }).join('') : '<span style="font-size:12px; color:#bbb;">まだ刻印がありません</span>') + '</div>'
+    + '<div class="row" style="margin-top:8px;">'
+    +   '<div class="fld"><input type="text" id="codeIn" placeholder="刻印（例：TW 25、表:あ 裏:123）"></div>'
+    +   '<button class="btn green" onclick="addCode()">刻印を追加</button>'
+    + '</div>'
+    + '<div style="font-size:11px; color:#999; margin-top:6px;">表・裏それぞれ別に登録するのがおすすめ。大文字小文字・全角半角・スペースは検索時に自動で無視されます。</div>'
+    + '<button class="btn gray small" style="margin-top:10px;" onclick="pickedDrug=null; renderKokuinEdit();">閉じる</button>'
+    + '</div>';
+}
+
+function addCode(){
+  if (!pickedDrug) return;
+  const v = document.getElementById('codeIn').value.trim();
+  if (!v){ alert('刻印を入力してくださいカニ🦀'); return; }
+  const it = itemFor(pickedDrug.yj);
+  it.name = pickedDrug.name;
+  it.codes = it.codes || [];
+  if (it.codes.indexOf(v) === -1) it.codes.push(v);
+  renderKokuinEdit();
+  renderKokuinList();
+  setMsg('刻印を追加しました（まだ保存されていません）');
+}
+
+function delCode(i){
+  if (!pickedDrug) return;
+  const it = (KOKUIN.items || []).find(function(x){ return String(x.yj) === String(pickedDrug.yj); });
+  if (!it) return;
+  it.codes.splice(i, 1);
+  if (!it.codes.length) KOKUIN.items = KOKUIN.items.filter(function(x){ return x !== it; });
+  renderKokuinEdit();
+  renderKokuinList();
+  setMsg('刻印を削除しました（まだ保存されていません）');
+}
+
+function renderKokuinList(){
+  const box = document.getElementById('kokuinList');
+  const items = (KOKUIN.items || []).filter(function(x){ return (x.codes || []).length; });
+  if (!items.length){ box.innerHTML = '<div style="font-size:12px; color:#bbb; padding:6px 0;">まだ登録がありません</div>'; return; }
+  box.innerHTML = items.map(function(it){
+    return '<div class="yrow"><span class="nm"><b style="font-size:12.5px;">' + esc(it.name) + '</b><br>'
+      + it.codes.map(function(c){ return '<span class="chip" style="margin-top:4px;">' + esc(c) + '</span>'; }).join('')
+      + '</span><span class="acts"><button class="btn small red" onclick="delKokuin(\\'' + esc(it.yj) + '\\')">全削除</button></span></div>';
+  }).join('');
+}
+
+function delKokuin(yj){
+  if (!confirm('この薬の追加刻印をすべて削除しますか？')) return;
+  KOKUIN.items = (KOKUIN.items || []).filter(function(x){ return String(x.yj) !== String(yj); });
+  if (pickedDrug && String(pickedDrug.yj) === String(yj)) renderKokuinEdit();
+  renderKokuinList();
+  setMsg('削除しました（まだ保存されていません）');
+}
+
+/* ===== 保存 ===== */
+function splitList(s){ return String(s||'').split(/[,\\u3001\\uFF0C]/).map(function(x){ return x.trim(); }).filter(function(x){ return x; }); }
+
+async function saveAll(scope){
+  const pwd = document.getElementById('adminPwd').value;
+  if (!pwd){ alert('施設の管理パスワードを入力してくださいカニ🦀'); return; }
+  if (scope === 'default' && !confirm('【共通デフォルト】を上書きします。全施設の既定値に影響しますが、よろしいですか？')) return;
+
+  const units = splitList(document.getElementById('unitsIn').value);
+  const doses = splitList(document.getElementById('dosesIn').value);
+  const tmplText = document.getElementById('tmplTextIn').value;
+  const tmplSign = document.getElementById('tmplSignIn').value;
+
+  let config;
+  if (scope === 'default') {
+    // デフォルト保存＝いま画面に見えているマージ結果を新しいデフォルトにする
+    const hs = hideSet();
+    const yoho = (DEF.yoho || []).filter(function(y){ return !hs.has(Number(y.code)); })
+      .concat(OVR.yohoAdd || [])
+      .map(function(y){ return { code: Number(y.code), cat: y.cat, name: y.name, abbr: y.abbr || y.name }; })
+      .sort(function(a,b){ return a.code - b.code; });
+    config = { version: 1, yoho: yoho, units: units, doses: doses, tmplText: tmplText, tmplSign: tmplSign };
+  } else {
+    config = {
+      yohoAdd: OVR.yohoAdd || [],
+      yohoHide: OVR.yohoHide || [],
+      units: units,
+      doses: doses,
+      tmplText: tmplText,
+      tmplSign: tmplSign
+    };
+  }
+
+  setMsg('保存中...🦀');
+  try {
+    const res = await fetch('/api/kanbetsu/save?h=' + encodeURIComponent(HID), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pwd: pwd, scope: scope, config: config, kokuin: KOKUIN })
+    });
+    const j = await res.json();
+    if (j.success){ setMsg('✅ 保存しましたカニ！🦀', true); if (scope === 'default') load(); }
+    else if (j.error === 'auth') setMsg('⚠️ パスワードが違いますカニ🦀💦');
+    else if (j.error === 'forbidden') setMsg('⚠️ 共通デフォルトの保存はスーパー管理施設のみですカニ🦀');
+    else setMsg('⚠️ 保存に失敗しましたカニ🦀💦 ' + (j.error || ''));
+  } catch(e){ setMsg('⚠️ 通信エラーが発生しましたカニ🦀💦'); }
+}
+
+load();
+</script></body></html>`;
+}
+// === 🦀メディカニ鑑別: 管理画面 生成関数 (ここまで) ===
+
+
 
 
 
@@ -3139,6 +3970,24 @@ export default {
       }
       // === 🦀メディカニ鑑別: ページルート (ここまで) ===
 
+      // === 🦀メディカニ鑑別: マスタ管理画面ルート /{hId}/kanbetsu-admin (ここから) ===
+      // 用法マスタ・追加刻印・定型文の設定画面。ゲートは /kanbetsu と同じ（持参薬オプション）。
+      if (hospitalId && pathParts[1] === "kanbetsu-admin") {
+        const isSuperKA = hospitalId === (env.SUPER_ADMIN_HID || "HPTEST1");
+        if (!isSuperKA) {
+          const kaFlag = await env.MEDI_KV.get(`${hospitalId}_jisan`) || "";
+          if (kaFlag !== "1") {
+            return new Response("持参薬オプションが有効ではありませんカニ🦀", {
+              status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" }
+            });
+          }
+        }
+        return new Response(kanbetsuAdminPage(hospitalId, isSuperKA), {
+          headers: { "Content-Type": "text/html; charset=utf-8" }
+        });
+      }
+      // === 🦀メディカニ鑑別: マスタ管理画面ルート (ここまで) ===
+
       // === 🦀持参薬鑑別(開発版): ページルート /{hId}/kanbetsu (ここから) ===
       // jisanと同じゲート（Z列オプション or スーパー管理施設）。OCR付きの開発版画面。
       if (hospitalId && pathParts[1] === "kanbetsu") {
@@ -3265,6 +4114,47 @@ export default {
         } catch(e) { return new Response("[]", { status: 500 }); }
       }
 
+      // === 🦀メディカニ鑑別: 用法マスタ等の設定API (ここから) ===
+      // 鑑別ページ用。共通デフォルト＋施設の追加をマージ済みの設定を返す。
+      if (url.pathname.includes("/api/kanbetsu/config")) {
+        try {
+          const hId = url.searchParams.get("h") || "";
+          const isSuperC = hId === (env.SUPER_ADMIN_HID || "HPTEST1");
+          if (!isSuperC) {
+            const flag = (hId ? await env.MEDI_KV.get(`${hId}_jisan`) : "") || "";
+            if (flag !== "1") {
+              return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+            }
+          }
+          const def = await loadKanbetsuDefault(env);
+          const ovr = await loadKanbetsuOvr(hId, env);
+          return new Response(JSON.stringify(mergeKanbetsuConfig(def, ovr)), { headers: { "Content-Type": "application/json" } });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+      }
+
+      // 管理画面用。デフォルトと施設分を「分けたまま」返す（どれが既定でどれが追加か見せるため）。
+      if (url.pathname.includes("/api/kanbetsu/admin-config")) {
+        try {
+          const hId = url.searchParams.get("h") || "";
+          const isSuperA = hId === (env.SUPER_ADMIN_HID || "HPTEST1");
+          if (!isSuperA) {
+            const flag = (hId ? await env.MEDI_KV.get(`${hId}_jisan`) : "") || "";
+            if (flag !== "1") {
+              return new Response(JSON.stringify({ error: "持参薬オプションが有効ではありません" }), { status: 403, headers: { "Content-Type": "application/json" } });
+            }
+          }
+          const def = await loadKanbetsuDefault(env);
+          const ovr = await loadKanbetsuOvr(hId, env);
+          const kokuin = await loadKokuinOvr(hId, env);
+          return new Response(JSON.stringify({ def: def, ovr: ovr, kokuin: kokuin, blocks: YOHO_CAT_BLOCKS, isSuper: isSuperA }), { headers: { "Content-Type": "application/json" } });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+      }
+      // === 🦀メディカニ鑑別: 用法マスタ等の設定API (ここまで) ===
+
 
       // === 🦀休薬チェッカー: API (ここから) ===
       // === 🦀新規追加: 休薬オプション加入判定（{hId}_plan の末尾 "_KY" ／ スーパー管理は常に可） ===
@@ -3304,6 +4194,25 @@ export default {
           const idx = JSON.parse(idxStr);
           // 刻印の部分一致でヒットしたYJコードを集める（YJ→刻印表示/PMDA名のマップ）
           const yjHit = new Map();
+          // ===== 🌟追加: 施設が登録した追加刻印を先にマージする (ここから) =====
+          // PMDA由来の索引(_IDCODE_INDEX)は idx2kv.py で丸ごと再生成されるため、
+          // 施設の追加分は {hId}_kokuin_json に別置きして検索時に合流させる。
+          // 先に入れることで、上限50件に達しても施設登録分が必ず残る。
+          try {
+            const ownKo = await loadKokuinOvr(hId, env);
+            for (const it of (ownKo.items || [])) {
+              const oyj = String(it.yj || "");
+              if (!oyj || yjHit.has(oyj)) continue;
+              for (const c of (it.codes || [])) {
+                const cn = String(c).normalize("NFKC").toUpperCase().replace(/\s+/g, "");
+                if (cn && cn.includes(qn)) {
+                  yjHit.set(oyj, { code: String(c), pmdaName: it.name || "", own: true });
+                  break;
+                }
+              }
+            }
+          } catch (e) { /* 追加刻印が壊れていても通常検索は続行 */ }
+          // ===== 🌟追加: 施設が登録した追加刻印を先にマージする (ここまで) =====
           for (const e of idx) {
             // e = [正規化刻印, 表示用刻印, 薬品名, YJコード]
             if (e[0].includes(qn) && !yjHit.has(e[3])) {
@@ -3355,7 +4264,7 @@ export default {
             const isBrand = parts.some(p => String(p).includes("先発"));
             const cleanType = extracted.type.replace(/先発品?/g, "");
             const hit = yjHit.get(keyYj(key)) || {};
-            return { key, name: extracted.name, spec: extracted.spec, type: cleanType, yj: yj, isAdopted: isAdopted, isBrand: isBrand, price: extracted.price, code: hit.code || "" };
+            return { key, name: extracted.name, spec: extracted.spec, type: cleanType, yj: yj, isAdopted: isAdopted, isBrand: isBrand, price: extracted.price, code: hit.code || "", own: !!hit.own };
           }));
 
           let finalResults = results.filter(r => r !== null);
@@ -3364,7 +4273,7 @@ export default {
           const foundYJs = new Set(finalResults.map(r => r.yj));
           for (const [yj, info] of yjHit) {
             if (!foundYJs.has(yj)) {
-              finalResults.push({ key: "", name: info.pmdaName, spec: "", type: "", yj: yj, isAdopted: false, isBrand: false, price: "", code: info.code });
+              finalResults.push({ key: "", name: info.pmdaName, spec: "", type: "", yj: yj, isAdopted: false, isBrand: false, price: "", code: info.code, own: !!info.own });
             }
           }
 
@@ -3875,6 +4784,80 @@ export default {
       }
     }
     // ===== 🌟修正追加: 休薬チェッカーのPOST API (ここまで) =====
+
+    // ===== 🦀メディカニ鑑別: マスタ保存API POST /api/kanbetsu/save (ここから) =====
+    // ⚠️ POSTなので必ず if (request.method === "GET") ブロックの【外側】に置くこと。
+    //    （内側に置くと永久に到達せず 404 になり、フロントで「通信エラー」になる）
+    // ⚠️ パスをあえて /api/admin/ 配下にしていない：/api/admin/ は管理画面のログインCookie必須で、
+    //    /kanbetsu-admin を単独で開いたときに「認証エラー」になってしまうため。
+    //    その代わり、この中で施設の管理パスワード（{hId}_pwd）を必ず照合している。
+    // body: { pwd, scope:"facility"|"default", config:{...}, kokuin:{items:[...]} }
+    if (request.method === "POST" && url.pathname.includes("/api/kanbetsu/save")) {
+      try {
+        const hId = url.searchParams.get("h") || "";
+        const isSuperK = hId === (env.SUPER_ADMIN_HID || "HPTEST1");
+        if (!isSuperK) {
+          const flag = (hId ? await env.MEDI_KV.get(`${hId}_jisan`) : "") || "";
+          if (flag !== "1") {
+            return new Response(JSON.stringify({ success: false, error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+          }
+        }
+        const body = await request.json();
+        // 施設管理パスワードで認証（既存の {hId}_pwd を流用）
+        const pwd = await env.MEDI_KV.get(`${hId}_pwd`);
+        if (!hId || !pwd || body.pwd !== pwd) {
+          return new Response(JSON.stringify({ success: false, error: "auth" }), { status: 403, headers: { "Content-Type": "application/json" } });
+        }
+        const stamp = new Date().toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" });
+
+        if (body.config) {
+          const cfg = body.config;
+          if (body.scope === "default") {
+            if (!isSuperK) {
+              return new Response(JSON.stringify({ success: false, error: "forbidden" }), { status: 403, headers: { "Content-Type": "application/json" } });
+            }
+            await env.MEDI_KV.put("KANBETSU_DEFAULT_json", JSON.stringify({
+              version: 1,
+              yoho: Array.isArray(cfg.yoho) ? cfg.yoho : [],
+              units: Array.isArray(cfg.units) ? cfg.units : [],
+              doses: Array.isArray(cfg.doses) ? cfg.doses : [],
+              tmplText: typeof cfg.tmplText === "string" ? cfg.tmplText : "",
+              tmplSign: typeof cfg.tmplSign === "string" ? cfg.tmplSign : "",
+              updatedAt: stamp
+            }));
+          } else {
+            await env.MEDI_KV.put(`${hId}_kanbetsu_json`, JSON.stringify({
+              yohoAdd: Array.isArray(cfg.yohoAdd) ? cfg.yohoAdd : [],
+              yohoHide: Array.isArray(cfg.yohoHide) ? cfg.yohoHide.map(Number) : [],
+              units: Array.isArray(cfg.units) ? cfg.units : [],
+              doses: Array.isArray(cfg.doses) ? cfg.doses : [],
+              tmplText: typeof cfg.tmplText === "string" ? cfg.tmplText : "",
+              tmplSign: typeof cfg.tmplSign === "string" ? cfg.tmplSign : "",
+              updatedAt: stamp
+            }));
+          }
+        }
+
+        // 追加刻印は常に施設ごと（共通デフォルトには置かない）
+        if (body.kokuin) {
+          const items = Array.isArray(body.kokuin.items) ? body.kokuin.items : [];
+          const clean = items
+            .map(it => ({
+              yj: String(it.yj || "").replace(/[^a-zA-Z0-9]/g, ""),
+              name: String(it.name || "").slice(0, 120),
+              codes: Array.isArray(it.codes) ? it.codes.map(c => String(c).slice(0, 40)).filter(c => c.trim()) : []
+            }))
+            .filter(it => it.yj && it.codes.length)
+            .slice(0, 500);
+          await env.MEDI_KV.put(`${hId}_kokuin_json`, JSON.stringify({ items: clean, updatedAt: stamp }));
+        }
+
+        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) {
+        return new Response(JSON.stringify({ success: false, error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+    }
+    // ===== 🦀メディカニ鑑別: マスタ保存API POST /api/kanbetsu/save (ここまで) =====
 // 👆【目印】ここまでが前回追加した /api/kyuyaku/lookup と /api/admin/kyuyaku
 
     // === 🌟新規追加: 休薬チェッカー専用OCR API POST /api/kyuyaku/ocr (ここから) ===
