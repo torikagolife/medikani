@@ -1,4 +1,4 @@
-// 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用), ASK_FORM_URL(問合せフォームURL), G_FORM_ID(フォームの施設ID項目), STRIPE_PORTAL_URL(StripeカスタマーポータルのURL)
+// 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), HELP_KYUYAKU_TEXT(休薬チェッカーのヘルプ), HELP_KANBETSU_TEXT(鑑別のヘルプ), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用), ASK_FORM_URL(問合せフォームURL), G_FORM_ID(フォームの施設ID項目), STRIPE_PORTAL_URL(StripeカスタマーポータルのURL)
 
 function hiraToKata(str) { return str.replace(/[\u3041-\u3096]/g, m => String.fromCharCode(m.charCodeAt(0) + 0x60)); }
 function getBestYJ(key, parts) {
@@ -58,7 +58,7 @@ function extractDrugData(parts, yj) {
   return { name, spec: spec.trim(), price, type: type.trim() };
 }
 // ====================================================================
-// 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用), ASK_FORM_URL(問合せフォームURL), G_FORM_ID(フォームの施設ID項目), STRIPE_PORTAL_URL(StripeカスタマーポータルのURL)
+// 環境変数: OPENAI_API_KEY, MEDI_KV(バインディング), HELP_TEXT(ヘルプタブ用文章), HELP_KYUYAKU_TEXT(休薬チェッカーのヘルプ), HELP_KANBETSU_TEXT(鑑別のヘルプ), KANI_TIPS(トップのつぶやき用), RESEND_API_KEY(オプション:メール送信API), GAS_URL(スプレッドシート連携用), ASK_FORM_URL(問合せフォームURL), G_FORM_ID(フォームの施設ID項目), STRIPE_PORTAL_URL(StripeカスタマーポータルのURL)
 // ===== 🌟新規追加: 採用薬の1本化JSONを再構築する強力な関数 =====
 // ===== 🌟追加: KVキー一覧のメモリキャッシュ（全件listの連打を防ぐ） =====
 // KVの list() は get() と違い cacheTtl が効かないため、アイソレート内の
@@ -406,6 +406,131 @@ async function loadKokuinOvr(hId, env) {
   } catch (e) { return { items: [] }; }
 }
 // 🦀メディカニ鑑別: 用法マスタ／単位／定型文のデフォルト定義 (ここまで)
+// ============================================================================
+
+// ============================================================================
+// 🦀ヘルプ本文の読み込み (ここから)
+// ----------------------------------------------------------------------------
+// 本文はコードに持たず、環境変数（またはKV）に外出ししている。
+//   休薬チェッカー : 環境変数 HELP_KYUYAKU_TEXT ／ KVキー HELP_KYUYAKU_html
+//   メディカニ鑑別 : 環境変数 HELP_KANBETSU_TEXT ／ KVキー HELP_KANBETSU_html
+// ⚠️ Cloudflareの環境変数は【1つあたり5KBまで】。日本語は1文字3バイトなので
+//    画像を足していくと意外と早く上限に当たる。溢れたら同名のKVキーに入れれば
+//    そちらが使われる（KVは1値25MBまでなので実質無制限）。
+// ⚠️ 見出しや吹き出しのCSS（.hb .hc .ht .tg .ib .hbtn .hr .hstep .hnum）は
+//    MK_MENU_CSS 側に入れてあるので、本文に <style> を書く必要はない。
+// ============================================================================
+async function loadHelpHtml(envText, kvKey, env) {
+  if (envText && String(envText).trim()) return envText;
+  try {
+    const v = await env.MEDI_KV.get(kvKey, { cacheTtl: 300 });
+    if (v && v.trim()) return v;
+  } catch (e) { /* KVが無くても画面は出す */ }
+  return '<div style="text-align:center; padding:24px; color:#888; font-size:13px;">'
+    + 'ヘルプがまだ設定されていませんカニ🦀<br><span style="font-size:11px;">'
+    + '環境変数 ' + kvKey.replace('_html', '_TEXT') + ' か、KVキー ' + kvKey + ' に本文を入れてください。'
+    + '</span></div>';
+}
+// 🦀ヘルプ本文の読み込み (ここまで)
+// ============================================================================
+
+
+// ============================================================================
+// 🦀ハンバーガーメニュー（休薬チェッカー／メディカニ鑑別 共通パーツ）(ここから)
+// ----------------------------------------------------------------------------
+// メディカニ本体のサイドメニューと同じ見た目・同じ開閉アニメーションにしてある。
+// ヘルプは同じページ内のモーダルで開く（別ページに飛ばないので作業が中断しない）。
+// ============================================================================
+const MK_MENU_CSS = `
+  /* ===== 🦀共通: ハンバーガーメニュー ===== */
+  .mk-hb { position:absolute; top:12px; right:12px; background:none; border:none; font-size:26px; line-height:1; cursor:pointer; color:#d63384; padding:4px 6px; z-index:60; }
+  .mk-ovl { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.5); z-index:1500; display:none; opacity:0; transition:opacity .3s; }
+  .mk-menu { position:fixed; top:0; right:-260px; width:210px; height:100%; background:#fff; z-index:1501; box-shadow:-4px 0 15px rgba(0,0,0,.1); transition:right .3s ease; padding:20px; display:flex; flex-direction:column; gap:12px; overflow-y:auto; }
+  .mk-close { text-align:right; font-size:28px; cursor:pointer; color:#999; margin-bottom:2px; line-height:1; }
+  .mk-item { background:#f4f7f6; border:none; padding:14px; border-radius:10px; font-size:14px; font-weight:bold; cursor:pointer; text-align:left; color:#555; display:flex; align-items:center; gap:9px; text-decoration:none; box-shadow:0 2px 4px rgba(0,0,0,.05); }
+  .mk-item:active { background:#e2e6e5; }
+  /* ===== 🦀共通: ヘルプモーダル ===== */
+  .mk-hovl { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.5); z-index:1600; display:none; justify-content:center; align-items:flex-start; overflow-y:auto; padding:20px 10px; }
+  .mk-hbox { background:#fffaf5; border-radius:16px; padding:16px; width:100%; max-width:620px; margin:auto; }
+  .mk-hbox .mk-hclose { position:sticky; top:0; text-align:right; }
+  .mk-hbox .mk-hclose button { background:#fff; border:1.5px solid #ffd1dc; color:#d63384; border-radius:20px; padding:6px 14px; font-size:13px; font-weight:bold; cursor:pointer; }
+  .mk-hbody { font-size:14px; line-height:1.7; color:#444; margin-top:6px; }
+  .mk-hbody img { max-width:100%; }
+  /* ヘルプ本文用のクラス（本文側に <style> を書かなくて済むようここに集約）*/
+  .mk-hbody .hb { margin-bottom:15px; }
+  .mk-hbody .hc { text-align:center; }
+  .mk-hbody .ht { color:#d63384; }
+  .mk-hbody .tg { padding:2px 6px; border-radius:10px; font-size:12px; }
+  /* 判定バッジの色（本文側でインラインstyleを書かずに済むように）*/
+  .mk-hbody .tg.g { color:#155724; background:#d1ffd1; }
+  .mk-hbody .tg.o { color:#b35900; background:#ffe6cc; }
+  .mk-hbody .tg.b { color:#0d47a1; background:#e3f2fd; }
+  .mk-hbody .tg.n { color:#2e7d32; background:#e8f5e9; }
+  .mk-hbody .ib { max-width:100%; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,.1); }
+  .mk-hbody .hbtn { background:#e3f2fd; padding:10px 20px; border-radius:20px; border:1px solid #bbdefb; color:#0056b3; text-decoration:none; box-shadow:0 2px 4px rgba(0,0,0,.05); white-space:nowrap; }
+  .mk-hbody .hr { border:none; border-top:1px dashed #ccc; margin:15px 0; }
+  .mk-hbody .hstep { background:#fff; border:1px solid #ffe0ec; border-radius:10px; padding:10px 12px; margin-bottom:8px; }
+  .mk-hbody .hnum { display:inline-block; background:#ff9d00; color:#fff; font-weight:bold; border-radius:50%; width:22px; height:22px; line-height:22px; text-align:center; font-size:12px; margin-right:6px; }
+  .mk-hbody .hnote { background:#fff0f5; padding:12px; border-radius:10px; border:1px dashed #ffb6c1; }
+  .mk-hbody .hlink { display:inline-block; margin-top:12px; padding:12px 20px; background:#ff9d00; color:#fff; text-decoration:none; border-radius:20px; font-weight:bold; box-shadow:0 4px 10px rgba(255,157,0,.3); }
+  .mk-hbody .hfoot { display:flex; justify-content:center; gap:15px; margin-top:30px; font-size:13px; font-weight:bold; flex-wrap:wrap; }
+  /* 本文でよく使う文字サイズもクラス化（環境変数5KBを節約するため）*/
+  .mk-hbody h3 { color:#ff9d00; margin:5px 0; }
+  .mk-hbody .hicon { height:60px; }
+  .mk-hbody .hs { font-size:13px; color:#666; }
+  .mk-hbody .hm { font-size:13px; color:#555; }
+  .mk-hbody .hxs { font-size:12px; color:#888; }
+  @media print { .mk-hb, .mk-ovl, .mk-menu, .mk-hovl { display:none !important; } }
+`;
+
+// メニュー本体のHTML。items は {href, label, style} の配列。
+function mkMenuHtml(items) {
+  const rows = items.map(it => it.help
+    ? `<button class="mk-item" onclick="mkHelp(true); mkMenu(false);">${it.label}</button>`
+    : `<a href="${it.href}" class="mk-item"${it.blank ? ' target="_blank" rel="noopener"' : ''} style="${it.style || ''}">${it.label}</a>`
+  ).join("\n        ");
+  return `  <button class="mk-hb" onclick="mkMenu()" aria-label="メニュー">☰</button>
+  <div class="mk-ovl" id="mkOvl" onclick="mkMenu(false)"></div>
+  <div class="mk-menu" id="mkMenu">
+        <div class="mk-close" onclick="mkMenu(false)">×</div>
+        ${rows}
+  </div>`;
+}
+
+// ヘルプ本文の下に必ず付ける共通フッター
+// （問い合わせ・規約リンクは全ページ同じ内容なので、環境変数の容量を使わないようコード側で持つ）
+const MK_HELP_FOOTER = `<div class="hc" style="margin-top:15px"><b style="color:#444">良かったらぜひ使ってみて、<br>ご意見や感想を教えてもらえると嬉しいです！🦀💕</b><br><a href="/contact" target="_blank" class="hlink">📝 問い合わせ・感想フォームへ</a></div>
+<div class="hfoot"><a href="/terms" target="_blank" class="hbtn">📜 利用規約</a><a href="/privacy" target="_blank" class="hbtn">🔒 プライバシーポリシー</a><a href="/tokusho" target="_blank" class="hbtn">⚖️ 特定商取引法</a></div>
+<div style="height:20px"></div>`;
+
+// ヘルプモーダルのHTML（本文はサーバ側で流し込む）
+function mkHelpHtml(helpBody) {
+  return `  <div class="mk-hovl" id="mkHovl">
+    <div class="mk-hbox" onclick="event.stopPropagation()">
+      <div class="mk-hclose"><button onclick="mkHelp(false)">× 閉じる</button></div>
+      <div class="mk-hbody">${helpBody}${MK_HELP_FOOTER}</div>
+    </div>
+  </div>`;
+}
+
+// 開閉スクリプト（両ページ共通）
+const MK_MENU_JS = `
+    // ===== 🦀共通: メニュー／ヘルプの開閉 =====
+    function mkMenu(open) {
+      var m = document.getElementById('mkMenu'), o = document.getElementById('mkOvl');
+      var isOpen = m.style.right === '0px';
+      var want = (open === undefined) ? !isOpen : open;
+      if (want) { o.style.display = 'block'; setTimeout(function(){ o.style.opacity = '1'; m.style.right = '0px'; }, 10); }
+      else { m.style.right = '-260px'; o.style.opacity = '0'; setTimeout(function(){ o.style.display = 'none'; }, 300); }
+    }
+    function mkHelp(open) {
+      var h = document.getElementById('mkHovl');
+      if (open === false) { h.style.display = 'none'; document.body.style.overflow = ''; return; }
+      h.style.display = 'flex'; h.scrollTop = 0; document.body.style.overflow = 'hidden';
+    }
+    document.getElementById('mkHovl').addEventListener('click', function(){ mkHelp(false); });
+`;
+// 🦀ハンバーガーメニュー 共通パーツ (ここまで)
 // ============================================================================
 
 function kyuyakuAdminPage(hId, isSuper) {
@@ -874,11 +999,13 @@ loadMaster();
 // 患者の薬リストを作り（検索して確定／写真OCR→チップ→検索して確定）、休薬マスタと突合して帳票印刷する。
 // 候補検索は /api/kyuyaku/search、写真は /api/kyuyaku/ocr（お薬手帳・薬情の両対応）。
 // 刻印検索と同じ「読み取る→候補を出す→人が確定する」フローで統一。
-function kyuyakuCheckerPage(hId, isSuper) {
+function kyuyakuCheckerPage(hId, isSuper, helpHtml, hospitalName) {
   return `<!DOCTYPE html>
 <html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 🌟変更: ブラウザのタブは他ページと同じ🦀に統一（ホーム画面アイコンは icon_kyu.png のまま） -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
 <link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kyu.png">
 <link rel="apple-touch-icon" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kyu.png">
 <meta name="apple-mobile-web-app-title" content="休薬チェッカー">
@@ -887,8 +1014,9 @@ function kyuyakuCheckerPage(hId, isSuper) {
   :root { --pink:#e84c88; }
   * { box-sizing:border-box; }
   body { font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN",sans-serif; margin:0; background:#faf7f8; color:#333; }
-  .wrap { max-width:720px; margin:0 auto; padding:16px; }
-  h1 { font-size:19px; margin:6px 0 2px; }
+  .wrap { max-width:720px; margin:0 auto; padding:16px; position:relative; }
+  h1 { font-size:19px; margin:6px 0 2px; padding-right:44px; }
+${MK_MENU_CSS}
   .sub { font-size:12px; color:#888; margin-bottom:14px; }
   .card { background:#fff; border:1px solid #eee; border-radius:14px; padding:14px; margin-bottom:12px; }
   .set-row { display:flex; gap:10px; flex-wrap:wrap; }
@@ -942,28 +1070,67 @@ function kyuyakuCheckerPage(hId, isSuper) {
   .rdel { background:#f2f2f2; border:none; border-radius:50%; width:26px; height:26px; font-size:15px; color:#888; cursor:pointer; flex-shrink:0; }
   .notice { font-size:11px; color:#a06; background:#fff3f7; border:1px solid #ffd9e6; border-radius:10px; padding:10px; margin-top:6px; }
   .footer { text-align:center; font-size:11px; color:#bbb; padding:20px 0; }
-  /* 帳票（印刷用）*/
+  /* ===== 帳票（印刷用）: 🌟変更 メディカニ鑑別の帳票とレイアウトを揃えた ===== */
   #report { display:none; }
   @media print {
     body { background:#fff; }
     .no-print { display:none !important; }
     .wrap { max-width:none; padding:0; }
+    /* ※注意書きと施設フッターは全ページの下端に固定する（鑑別と同じ）*/
+    @page { margin: 10mm 8mm 24mm; }
     #report { display:block; }
-    #report h2 { text-align:center; font-size:18px; margin:0 0 10px; }
-    #report table { width:100%; border-collapse:collapse; margin-bottom:10px; }
-    #report .meta td { border:1px solid #999; padding:5px 8px; font-size:12px; }
-    #report .meta td:nth-child(odd) { background:#f2f2f2; font-weight:bold; width:70px; white-space:nowrap; }
-    #report .rep th, #report .rep td { border:1px solid #999; padding:5px 7px; font-size:12px; text-align:left; }
-    #report .rep th { background:#f2f2f2; }
-    #report .j-stop { color:#c62828; font-weight:bold; }
-    #report .j-consult { color:#e65100; font-weight:bold; }
-    #report .disc { font-size:10px; color:#333; border:1px solid #ccc; padding:8px; margin-top:6px; }
-    #report .sign { display:flex; gap:30px; margin-top:16px; font-size:13px; }
+    /* ヘッダー: アイコン＋タイトルのピンク枠 */
+    #report .rp-head { background:#ffe4e1; border:2px solid #ffd1dc; border-radius:14px; text-align:center; padding:5px 10px; margin-bottom:5px; }
+    #report .rp-icon { width:28px; height:28px; vertical-align:middle; margin-right:7px; }
+    #report .rp-title { font-size:16px; font-weight:bold; color:#d63384; letter-spacing:1px; vertical-align:middle; }
+    /* 患者・術式などのメタ情報 */
+    #report .meta { width:100%; border-collapse:collapse; margin-bottom:5px; border:1.5px solid #ffd1dc; border-radius:10px; }
+    #report .meta td { border:1px solid #f0dae2; padding:5px 8px; font-size:12px; }
+    #report .meta td:nth-child(odd) { background:#fff5f8; font-weight:bold; width:74px; white-space:nowrap; color:#a05070; }
+    /* 明細テーブル */
+    #report .rep { width:100%; border-collapse:collapse; margin-bottom:5px; table-layout:fixed; }
+    #report .rep th, #report .rep td { border:1px solid #ccc; padding:6px 8px; font-size:12px; text-align:left; vertical-align:top; word-break:break-word; }
+    #report .rep th { background:#f5f2f3; font-size:11px; color:#666; }
+    #report .rep tr { page-break-inside:avoid; }
+    #report .rep thead { display:table-header-group; }
+    /* 🌟変更: 薬剤と成分を1セルにまとめ、成分は2行目に［］で表示 */
+    #report .rp-dname { font-weight:bold; font-size:12.5px; line-height:1.4; }
+    #report .rp-comp { font-size:11px; color:#666; margin-top:2px; }
+    /* 🌟変更: 休薬開始が2行に折り返さないよう、幅を約20%広げて改行を禁止 */
+    #report .rep col.w1 { width:42%; }
+    #report .rep col.w2 { width:19%; }
+    #report .rep col.w3 { width:17%; }
+    #report .rep col.w4 { width:22%; }
+    #report .rep td.stop { white-space:nowrap; text-align:center; vertical-align:middle; font-weight:bold; }
+    #report td.jd { text-align:center; vertical-align:middle; }
+    #report .rp-jd { display:inline-block; font-size:11px; font-weight:bold; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+    #report .rp-jd.j-continue { background:#d1ffd1; color:#155724; }
+    #report .rp-jd.j-stop { background:#ffe0e0; color:#c62828; }
+    #report .rp-jd.j-consult { background:#ffe6cc; color:#b35900; }
+    #report .rp-jd.j-none, #report .rp-jd.j-unknown { background:#eee; color:#777; font-weight:normal; }
+    #report tr.r-stop td { background:#fffafa; }
+    /* 定型テキスト・署名（鑑別の帳票と同じ並び）*/
+    #report .disc { font-size:11px; color:#333; border:1.5px solid #ffd1dc; border-radius:10px; padding:7px 10px; margin-top:4px; line-height:1.6; }
+    #report .sign { text-align:right; font-size:12px; line-height:1.9; padding:6px 10px 0; white-space:pre-wrap; }
+    #report .rp-pfoot { position:fixed; bottom:0; left:0; right:0; background:#fff; padding-top:3px; }
+    #report .rp-note { font-size:9px; color:#999; text-align:center; line-height:1.5; margin-top:4px; }
+    #report .rp-footer { text-align:center; margin-top:4px; padding:4px 10px; background:#fff0f5; border-radius:10px; }
+    #report .rp-footer .t1 { font-size:12px; font-weight:bold; color:#d63384; }
+    #report .rp-footer .fac { font-size:11px; font-weight:bold; color:#a05070; margin-left:8px; }
+    * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
   }
 </style>
 </head><body>
 <div class="wrap">
   <div class="no-print">
+${mkMenuHtml([
+  { help: true, label: "❓ ヘルプ" },
+  { href: "https://medikani.com/info", blank: true, label: "ℹ️ 公式サイトへ", style: "background:#e3f2fd; color:#0056b3; border:1px solid #bbdefb;" },
+  { href: `/${hId}/kyu-admin`, label: "⚙️ 管理画面", style: "background:#f4f4f4; color:#333; border:1px solid #ccc;" },
+  { href: `/${hId}`, label: "🦀 メディカニ", style: "background:#fff0f5; color:#d63384; border:1px solid #ffd1dc;" },
+  { href: `/${hId}/kyuyaku`, label: "↩️ 戻る" }
+])}
+${mkHelpHtml(helpHtml)}
     <h1>🦀 メディカニ休薬チェッカー</h1>
     <div class="sub">患者さんの薬を追加して、術式・検査ごとの休薬判定を確認・印刷できますカニ🦀</div>
 
@@ -1021,8 +1188,11 @@ function kyuyakuCheckerPage(hId, isSuper) {
 </div>
 
 <script>
+${MK_MENU_JS}
 const HID = "${hId}";
 const HOSP = "${hId}";
+// 🌟追加: 帳票フッターに出す施設名（未設定なら表示しない）
+const HNAME = "${String(hospitalName || '').replace(/"/g, '')}";
 const ACT = { continue:"継続可", stop:"休薬", consult:"処方元に照会" };
 let MASTER = { cats:[], comps:[] };
 let YJ7IDX = {};
@@ -1252,20 +1422,34 @@ function printReport(){
   const catLabel = cat ? cat.label : '';
   const op = document.getElementById('opDate').value;
   const pt = document.getElementById('ptName').value.trim();
+  // 🌟変更: 薬剤と成分を同じセルにまとめ（成分は2行目に［］で表示）、休薬開始は折り返さない
   const rows = LIST.map(function(it){
     const j = judge(it);
-    return '<tr><td>' + esc(it.name) + '</td><td>' + esc(j.comp||'') + '</td><td class="' + j.cls + '">' + esc(j.label) + '</td><td>' + esc(j.stopDate||'') + '</td><td>' + esc(j.comment||'') + '</td></tr>';
+    const comp = j.comp ? '<div class="rp-comp">［' + esc(j.comp) + '］</div>' : '';
+    return '<tr class="r-' + (j.cls === 'j-stop' ? 'stop' : 'other') + '">'
+      + '<td><div class="rp-dname">' + esc(it.name) + '</div>' + comp + '</td>'
+      + '<td class="jd"><span class="rp-jd ' + j.cls + '">' + esc(j.label) + '</span></td>'
+      + '<td class="stop">' + (j.stopDate ? esc(j.stopDate) : '<span style="color:#bbb; font-weight:normal;">—</span>') + '</td>'
+      + '<td>' + esc(j.comment||'') + '</td></tr>';
   }).join('');
   const t = new Date();
-  const td = t.getFullYear() + '/' + (t.getMonth()+1) + '/' + t.getDate();
+  const p2 = function(n){ return (n < 10 ? '0' : '') + n; };
+  const td = t.getFullYear() + '/' + p2(t.getMonth()+1) + '/' + p2(t.getDate());
   document.getElementById('report').innerHTML =
-    '<h2>🦀メディカニ休薬チェッカー 確認票</h2>'
-    + '<table class="meta"><tr><td>施設</td><td>' + esc(HOSP) + '</td><td>作成日</td><td>' + td + '</td></tr>'
-    + '<tr><td>患者</td><td>' + esc(pt||'　') + '</td><td>手術予定日</td><td>' + esc(op||'　') + '</td></tr>'
-    + '<tr><td>分類</td><td colspan="3">' + esc(catLabel||'　') + '</td></tr></table>'
-    + '<table class="rep"><thead><tr><th>薬剤</th><th>成分</th><th>判定</th><th>休薬開始</th><th>備考</th></tr></thead><tbody>' + rows + '</tbody></table>'
+    // 🌟変更: ホーム画面アイコンと同じ icon_kyu.png をタイトルの前に置く（鑑別と揃えた）
+    '<div class="rp-head"><img class="rp-icon" src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kyu.png" alt=""><span class="rp-title">メディカニ休薬チェッカー 確認票</span></div>'
+    + '<table class="meta"><tr><td>患者</td><td>' + esc(pt||'　') + '</td><td>作成日</td><td>' + td + '</td></tr>'
+    + '<tr><td>分類</td><td>' + esc(catLabel||'　') + '</td><td>手術予定日</td><td>' + esc(op||'　') + '</td></tr></table>'
+    + '<table class="rep"><colgroup><col class="w1"><col class="w2"><col class="w3"><col class="w4"></colgroup>'
+    + '<thead><tr><th>薬剤／［成分］</th><th style="text-align:center;">判定</th><th style="text-align:center;">休薬開始</th><th>備考</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table>'
     + '<div class="disc">※本票の判定は休薬マスタに基づく参考情報です。最終的な休薬の可否・時期は必ず処方医・薬剤師がご確認ください。「リスト対象外」は休薬マスタの対象外を示すもので、継続の可否を保証するものではありません。</div>'
-    + '<div class="sign"><div>確認者：＿＿＿＿＿＿＿＿＿＿</div></div>';
+    + '<div class="sign">確認　薬剤師：＿＿＿＿＿＿＿＿<br>確認　医　師：＿＿＿＿＿＿＿＿</div>'
+    // 施設名は鑑別と同じくフッターへ
+    + '<div class="rp-pfoot">'
+    +   '<div class="rp-note">※本結果はメディカニ休薬チェッカーによる補助資料です。内容の最終確認は薬剤師が行ってください。</div>'
+    +   '<div class="rp-footer"><span class="t1">🦀 メディカニ 医薬品検索</span>' + (HNAME ? '<span class="fac">🏥 ' + esc(HNAME) + '</span>' : '') + '</div>'
+    + '</div>';
   window.print();
 }
 
@@ -1748,7 +1932,7 @@ async function kanbetsuMatchNames(names, hId, env) {
 // === 🦀持参薬鑑別: KV照合ヘルパー (ここまで) ===
 
 // === 🦀持参薬鑑別(開発版): ページ生成関数 (ここから) ===
-function kanbetsuPage(hId, hospitalName) {
+function kanbetsuPage(hId, hospitalName, helpHtml) {
   const facilityBadge = hospitalName
     ? '<div style="display:inline-block; background:#fff; color:#d63384; font-size:12px; font-weight:bold; padding:4px 14px; border-radius:20px; border:1.5px solid #ffb6c1; margin-top:8px;">🏥 ' + hospitalName + '</div>'
     : '';
@@ -1889,29 +2073,38 @@ function kanbetsuPage(hId, hospitalName) {
   .rv-btns { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:5px; }
   .rv-btns button { padding:12px 4px; border:none; border-radius:12px; font-weight:bold; font-size:13px; cursor:pointer; }
   .rv-head { background:#ffe4e1; border:2px solid #ffd1dc; border-radius:14px; text-align:center; padding:4px 10px; margin-bottom:4px; }
-  .rv-kani { width:30px; height:30px; vertical-align:middle; margin-right:7px; }
+  .rv-kani { width:28px; height:28px; vertical-align:middle; margin-right:7px; }
   .rv-title { font-size:16px; font-weight:bold; color:#d63384; letter-spacing:1px; vertical-align:middle; }
   .rv-metabox { background:#fff; border:1.5px solid #ffd1dc; border-radius:10px; padding:4px 10px; margin-bottom:4px; font-size:12px; color:#333; line-height:1.5; }
   .rv-editrow { cursor:pointer; background:#fdf7fa; border:1.5px dashed #f3a9c9; border-radius:8px; padding:5px 10px; margin-top:3px; font-size:12px; }
   .rv-edithint { font-size:10px; color:#d63384; }
-  .rv-card { background:#fff; border-radius:10px; padding:5px 10px; margin-bottom:3px; border-left:5px solid #ccc; box-shadow:0 1px 3px rgba(0,0,0,0.04); font-size:12px; color:#222; }
-  .rv-card.keep { border-left-color:#28a745; }
-  .rv-card.switch { border-left-color:#fd7e14; }
-  .rv-card.undecided { border-left-color:#adb5bd; }
-  .rv-card.unmatched { border-left-color:#ffc107; background:#fffdf5; }
-  .rv-lbl { display:inline-block; font-size:10px; font-weight:bold; padding:2px 8px; border-radius:10px; margin-right:6px; vertical-align:middle; }
-  .rv-lbl.src { background:#e3f2fd; color:#0d47a1; }
-  .rv-lbl.keep { background:#d1ffd1; color:#155724; }
-  .rv-lbl.switch { background:#ffe6cc; color:#b35900; }
-  .rv-dname { font-weight:bold; font-size:13px; line-height:1.45; }
-  .rv-usage { font-size:11px; color:#555; margin-top:1px; margin-left:4px; }
-  .rv-dst { margin-top:3px; padding-top:3px; border-top:1px dashed #eee; }
-  .rv-undecided { font-size:11px; color:#999; margin-top:4px; }
+  /* ===== 🌟変更: 帳票を表レイアウトに（カード型から差し戻し） ===== */
+  .rv-tbl { width:100%; border-collapse:collapse; margin-bottom:4px; table-layout:fixed; }
+  .rv-tbl th, .rv-tbl td { border:1px solid #e0d0d8; padding:6px 8px; font-size:12px; text-align:left; vertical-align:top; word-break:break-word; }
+  .rv-tbl th { background:#f5f2f3; font-size:11px; color:#666; font-weight:bold; }
+  .rv-tbl col.c1 { width:43%; }
+  .rv-tbl col.c2 { width:14%; }
+  .rv-tbl col.c3 { width:43%; }
+  .rv-tbl tr.keep td { background:#f0faf3; }
+  .rv-tbl tr.unmatched td { background:#fffdf5; }
+  .rv-tbl td.jd { text-align:center; vertical-align:middle; white-space:nowrap; }
+  .rv-jd { display:inline-block; font-size:11px; font-weight:bold; padding:2px 8px; border-radius:10px; }
+  .rv-jd.keep { background:#d1ffd1; color:#155724; }
+  .rv-jd.switch { background:#ffe6cc; color:#b35900; }
+  .rv-jd.undecided { background:#eee; color:#777; font-weight:normal; }
+  .rv-dname { font-weight:bold; font-size:13px; line-height:1.4; }
+  .rv-usage { font-size:11px; color:#666; margin-top:2px; }
+  .rv-usage.none { color:#bbb; }
+  .rv-adopt { display:inline-block; font-size:10px; font-weight:bold; padding:1px 6px; border-radius:8px; background:#d1ffd1; color:#155724; margin-left:4px; white-space:nowrap; }
   .rv-note { font-size:9px; color:#999; margin-top:4px; line-height:1.5; text-align:center; }
   .rv-footer { text-align:center; margin-top:4px; padding:4px 10px; background:#fff0f5; border-radius:10px; }
   .rv-footer .t1 { font-size:12px; font-weight:bold; color:#d63384; }
   .rv-footer .fac { font-size:11px; font-weight:bold; color:#a05070; margin-left:8px; }
   .rv-footer .t2 { font-size:9px; color:#aa8899; margin-top:2px; }
+${MK_MENU_CSS}
+  /* 🌟追加: メニューボタンとタイトルが重ならないよう余白を確保 */
+  .header { position:relative; }
+  .header h1 { padding:0 40px; }
   /* ===== 🌟追加: 用法選択モーダル ===== */
   #yohoOverlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; z-index:1400; justify-content:center; align-items:center; }
   .yoho-modal { background:#fff; border-radius:16px; padding:14px; width:92%; max-width:460px; max-height:88vh; overflow-y:auto; }
@@ -1934,23 +2127,6 @@ function kanbetsuPage(hId, hospitalName) {
   .yoho-prev .pa { font-size:11px; color:#888; margin-top:3px; display:block; }
   .yoho-btns { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:10px; }
   .yoho-btns button { padding:11px 4px; border:none; border-radius:10px; font-weight:bold; font-size:13px; cursor:pointer; }
-  /* ===== 🌟変更: 帳票の薬の部分をシンプルな3列表に（左=持参薬 / 中央=判定 / 右=鑑別結果） ===== */
-  .rv-table { width:100%; border-collapse:collapse; margin-bottom:4px; table-layout:fixed; }
-  .rv-table th { border:1px solid #999; background:#f2f2f2; font-size:10px; font-weight:bold; padding:3px 6px; text-align:left; color:#333; }
-  .rv-table td { border:1px solid #999; padding:4px 6px; font-size:11px; color:#222; vertical-align:top; word-break:break-word; }
-  .rv-table .c-src { width:43%; }
-  .rv-table .c-arw { width:14%; text-align:center; white-space:nowrap; vertical-align:middle; }
-  .rv-table .c-dst { width:43%; }
-  .rv-table th.c-arw { text-align:center; }
-  .rv-nm { display:block; font-weight:bold; font-size:11.5px; line-height:1.35; }
-  .rv-ug { display:block; font-size:10px; color:#555; line-height:1.35; margin-top:1px; }
-  .rv-arw { font-size:10.5px; font-weight:bold; white-space:nowrap; }
-  .rv-arw.keep { color:#155724; }
-  .rv-arw.switch { color:#b35900; }
-  .rv-keepbg { background:#e6f4ea; }
-  .rv-none { font-size:10px; color:#999; }
-  .rv-unm { font-size:9px; color:#b8860b; font-weight:bold; }
-  .rv-adp { display:inline-block; font-size:9px; font-weight:bold; color:#2e7d32; background:#fff; border:1px solid #a5d6a7; border-radius:4px; padding:0 3px; margin-left:3px; white-space:nowrap; }
   /* ===== 🌟追加: 帳票の定型テキスト／署名 ===== */
   .rv-tmpl { background:#fff; border:1.5px solid #ffd1dc; border-radius:10px; padding:6px 10px; margin-bottom:4px; font-size:12px; color:#222; line-height:1.6; white-space:pre-wrap; }
   .rv-sign { text-align:right; font-size:12px; color:#222; line-height:1.9; padding:4px 10px 0; margin-bottom:4px; white-space:pre-wrap; }
@@ -1961,25 +2137,27 @@ function kanbetsuPage(hId, hospitalName) {
     .no-print { display:none !important; }
     .rv-editrow { border:none; background:none; padding:3px 0; }
     .rv-edithint { display:none; }
-    .rv-card { box-shadow:none; border:1px solid #eee; page-break-inside:avoid; }
-    .rv-card.keep { border-left:5px solid #28a745; }
-    .rv-card.switch { border-left:5px solid #fd7e14; }
-    .rv-card.undecided { border-left:5px solid #adb5bd; }
-    .rv-card.unmatched { border-left:5px solid #ffc107; }
+    .rv-tbl tr { page-break-inside:avoid; }
+    .rv-tbl th, .rv-tbl td { border:1px solid #ccc; }
+    .rv-tbl thead { display:table-header-group; }
     /* 🌟変更: ※本結果は… と施設フッターを【全ページの下端】に固定する */
     @page { margin: 10mm 8mm 26mm; }
     .rv-inner { padding-bottom:0 !important; }
     .rv-pfoot { position:fixed; bottom:0; left:0; right:0; background:#fff; padding-top:3px; }
     .rv-tmpl { border:1px solid #eee; page-break-inside:avoid; }
     .rv-sign { page-break-inside:avoid; }
-    /* 🌟追加: 3列表は複数ページに渡ってよいが、見出しは各ページに出し、1行は分断しない */
-    .rv-table { page-break-inside:auto; }
-    .rv-table thead { display:table-header-group; }
-    .rv-table tr { page-break-inside:avoid; }
     * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
   }
 </style></head>
 <body>
+${mkMenuHtml([
+  { help: true, label: "❓ ヘルプ" },
+  { href: "https://medikani.com/info", blank: true, label: "ℹ️ 公式サイトへ", style: "background:#e3f2fd; color:#0056b3; border:1px solid #bbdefb;" },
+  { href: `/${hId}/kanbetsu-admin`, label: "⚙️ 管理画面", style: "background:#f4f4f4; color:#333; border:1px solid #ccc;" },
+  { href: `/${hId}`, label: "🦀 メディカニ", style: "background:#fff0f5; color:#d63384; border:1px solid #ffd1dc;" },
+  { href: `/${hId}/kanbetsu`, label: "↩️ 戻る" }
+])}
+${mkHelpHtml(helpHtml)}
   <div class="header">
     <h1>🦀 メディカニ鑑別 <span style="font-size:11px; color:#a58; font-weight:normal;">開発版</span></h1>
     <div class="sub">お薬手帳のOCRと刻印検索で持参薬を鑑別するツールですカニ🦀</div>
@@ -1988,7 +2166,7 @@ function kanbetsuPage(hId, hospitalName) {
   <div class="container">
     <div class="search-box">
       <div class="search-row">
-        <input type="text" id="kokuin" placeholder="刻印・薬名を入力（例：HP211、タケキャブ）" autocomplete="off" inputmode="latin">
+        <input type="text" id="kokuin" placeholder="刻印を入力（例：HP211、TA 111）" autocomplete="off" inputmode="latin">
       </div>
       <div class="mode-row">
         <button class="mode-btn on" id="btnModeKokuin" onclick="doSearch('kokuin')">🔍 刻印</button>
@@ -2102,6 +2280,7 @@ function kanbetsuPage(hId, hospitalName) {
   </div></div>
 
   <script>
+${MK_MENU_JS}
     const HID = "${hId}";
     const HNAME = "${(hospitalName || '').replace(/"/g, '')}";
     const inp = document.getElementById('kokuin');
@@ -3138,43 +3317,33 @@ function kanbetsuPage(hId, hospitalName) {
       const BR = String.fromCharCode(10);
       let html = '';
       // ヘッダー: カニアイコン + タイトル（施設名はフッターへ移動）
-      html += '<div class="rv-head"><img class="rv-kani" src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani.png" alt=""><span class="rv-title">メディカニ鑑別結果</span></div>';
+      // 🌟変更: ホーム画面アイコンと同じ icon_kan.png をタイトルの前に置く
+      html += '<div class="rv-head"><img class="rv-kani" src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png" alt=""><span class="rv-title">メディカニ鑑別結果</span></div>';
       html += '<div class="rv-metabox">'
         + '<div>🗓️ <b>日時：</b>' + escHtml(reportDate) + '</div>'
         + '<div class="rv-editrow" data-redit="rmemo">🆔 <b>ID等メモ：</b>' + (reportMemo ? escHtml(reportMemo) : '<span style="color:#bbb;">未入力</span>') + ' <span class="rv-edithint">（タップで編集）</span></div>'
         + '</div>';
-      // 🌟変更: 薬の部分はシンプルな3列表（左=持参薬 / 中央=継続→・切替→ / 右=鑑別結果）
-      // 継続は中央セルと右セルを薄緑にして、ひと目で継続と分かるようにする。切替は背景色なし。
-      html += '<table class="rv-table"><thead><tr>'
-        + '<th class="c-src">持参薬</th>'
-        + '<th class="c-arw">判定</th>'
-        + '<th class="c-dst">鑑別結果</th>'
-        + '</tr></thead><tbody>';
+      // 🌟変更: 明細は「持参薬 / 判定 / 鑑別結果」の3列テーブル
+      const uCell = (u) => u
+        ? '<div class="rv-usage">' + escHtml(u) + '</div>'
+        : '<div class="rv-usage none">用法未入力</div>';
+      html += '<table class="rv-tbl"><colgroup><col class="c1"><col class="c2"><col class="c3"></colgroup>'
+        + '<thead><tr><th>持参薬</th><th style="text-align:center;">判定</th><th>鑑別結果</th></tr></thead><tbody>';
       for (const it of kanbetsuList) {
+        const cls = it.d ? (it.d.type === 'keep' ? 'keep' : 'switch') : (it.m ? 'undecided' : 'unmatched');
         const srcName = it.m ? it.m.name : it.name;
-        const isKeep = !!(it.d && it.d.type === 'keep');
-        const keepBg = isKeep ? ' rv-keepbg' : '';
-        html += '<tr>';
-        // 左: 持参薬（薬品名＋用法）
-        html += '<td class="c-src"><span class="rv-nm">' + escHtml(srcName)
-          + (it.m ? '' : ' <span class="rv-unm">（未照合）</span>') + '</span>'
-          + '<span class="rv-ug">' + (it.usage ? escHtml(it.usage) : '用法未入力') + '</span></td>';
-        // 中央: 継続 → / 切替 →
+        html += '<tr class="' + cls + '">';
+        // 1列目: 持参薬（薬品名＋用法）
+        html += '<td><div class="rv-dname">' + escHtml(srcName) + (it.m ? '' : '（未照合）') + '</div>' + uCell(it.usage) + '</td>';
+        // 2列目: 判定
         if (it.d) {
-          html += '<td class="c-arw' + keepBg + '"><span class="rv-arw ' + (isKeep ? 'keep' : 'switch') + '">'
-            + (isKeep ? '継続 →' : '切替 →') + '</span></td>';
+          const isKeep = it.d.type === 'keep';
+          html += '<td class="jd"><span class="rv-jd ' + (isKeep ? 'keep' : 'switch') + '">' + (isKeep ? '継続 →' : '切替 →') + '</span></td>';
+          // 3列目: 鑑別結果（薬品名＋採用バッジ＋用法）
+          html += '<td><div class="rv-dname">' + escHtml(it.d.name) + (it.d.isAdopted ? '<span class="rv-adopt">🏥 採用</span>' : '') + '</div>' + uCell(it.d.usage) + '</td>';
         } else {
-          html += '<td class="c-arw"><span class="rv-none">—</span></td>';
-        }
-        // 右: 鑑別結果（薬品名＋用法）
-        if (it.d) {
-          html += '<td class="c-dst' + keepBg + '"><span class="rv-nm">' + escHtml(it.d.name)
-            + (it.d.isAdopted ? '<span class="rv-adp">🏥採用</span>' : '') + '</span>'
-            + '<span class="rv-ug">' + (it.d.usage ? escHtml(it.d.usage) : '用法未入力') + '</span></td>';
-        } else if (it.m) {
-          html += '<td class="c-dst"><span class="rv-none">（継続／切替 未決定）</span></td>';
-        } else {
-          html += '<td class="c-dst"><span class="rv-none">—</span></td>';
+          html += '<td class="jd"><span class="rv-jd undecided">未決定</span></td>';
+          html += '<td><div class="rv-usage none">' + (it.m ? '（継続／切替 未決定）' : '（未照合）') + '</div></td>';
         }
         html += '</tr>';
       }
@@ -3444,10 +3613,10 @@ function kanbetsuPage(hId, hospitalName) {
 function kanbetsuAdminPage(hId, isSuper) {
   return `<!DOCTYPE html><html lang="ja"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
+<link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png">
 <link rel="apple-touch-icon" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png">
 <meta name="apple-mobile-web-app-title" content="鑑別マスタ管理">
-<title>メディカニ鑑別 マスタ管理</title>
+<title>メディカニ鑑別 管理画面</title>
 <style>
   * { box-sizing:border-box; margin:0; padding:0; }
   body { font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; background:#fffaf5; color:#333; padding-bottom:130px; }
@@ -3493,7 +3662,7 @@ function kanbetsuAdminPage(hId, isSuper) {
   .msg { font-size:12px; text-align:center; padding:6px; color:#666; }
 </style></head><body>
   <div class="header">
-    <h1>🦀 メディカニ鑑別 マスタ管理</h1>
+    <h1>🦀メディカニ鑑別 管理画面</h1>
     <div class="sub">用法マスタ・追加刻印・帳票の定型文を設定できますカニ🦀</div>
   </div>
   <div class="wrap">
@@ -3918,7 +4087,10 @@ export default {
           });
         }
       }
-      return new Response(kyuyakuCheckerPage(hospitalId, isSuper), {
+        const kyuHelp = await loadHelpHtml(env.HELP_KYUYAKU_TEXT, "HELP_KYUYAKU_html", env);
+      // 🌟追加: 帳票フッター用に施設名を引いておく
+      const kyuHName = (await env.MEDI_KV.get(`${hospitalId}_name`)) || "";
+      return new Response(kyuyakuCheckerPage(hospitalId, isSuper, kyuHelp, kyuHName), {
         headers: { "Content-Type": "text/html; charset=utf-8" }
       });
     }
@@ -4041,7 +4213,8 @@ export default {
             });
           }
         }
-        return new Response(kanbetsuPage(hospitalId, hospitalName), {
+        const kanHelp = await loadHelpHtml(env.HELP_KANBETSU_TEXT, "HELP_KANBETSU_html", env);
+        return new Response(kanbetsuPage(hospitalId, hospitalName, kanHelp), {
           headers: { "Content-Type": "text/html; charset=utf-8" }
         });
       }
