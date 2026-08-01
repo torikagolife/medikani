@@ -1934,6 +1934,23 @@ function kanbetsuPage(hId, hospitalName) {
   .yoho-prev .pa { font-size:11px; color:#888; margin-top:3px; display:block; }
   .yoho-btns { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:10px; }
   .yoho-btns button { padding:11px 4px; border:none; border-radius:10px; font-weight:bold; font-size:13px; cursor:pointer; }
+  /* ===== 🌟変更: 帳票の薬の部分をシンプルな3列表に（左=持参薬 / 中央=判定 / 右=鑑別結果） ===== */
+  .rv-table { width:100%; border-collapse:collapse; margin-bottom:4px; table-layout:fixed; }
+  .rv-table th { border:1px solid #999; background:#f2f2f2; font-size:10px; font-weight:bold; padding:3px 6px; text-align:left; color:#333; }
+  .rv-table td { border:1px solid #999; padding:4px 6px; font-size:11px; color:#222; vertical-align:top; word-break:break-word; }
+  .rv-table .c-src { width:43%; }
+  .rv-table .c-arw { width:14%; text-align:center; white-space:nowrap; vertical-align:middle; }
+  .rv-table .c-dst { width:43%; }
+  .rv-table th.c-arw { text-align:center; }
+  .rv-nm { display:block; font-weight:bold; font-size:11.5px; line-height:1.35; }
+  .rv-ug { display:block; font-size:10px; color:#555; line-height:1.35; margin-top:1px; }
+  .rv-arw { font-size:10.5px; font-weight:bold; white-space:nowrap; }
+  .rv-arw.keep { color:#155724; }
+  .rv-arw.switch { color:#b35900; }
+  .rv-keepbg { background:#e6f4ea; }
+  .rv-none { font-size:10px; color:#999; }
+  .rv-unm { font-size:9px; color:#b8860b; font-weight:bold; }
+  .rv-adp { display:inline-block; font-size:9px; font-weight:bold; color:#2e7d32; background:#fff; border:1px solid #a5d6a7; border-radius:4px; padding:0 3px; margin-left:3px; white-space:nowrap; }
   /* ===== 🌟追加: 帳票の定型テキスト／署名 ===== */
   .rv-tmpl { background:#fff; border:1.5px solid #ffd1dc; border-radius:10px; padding:6px 10px; margin-bottom:4px; font-size:12px; color:#222; line-height:1.6; white-space:pre-wrap; }
   .rv-sign { text-align:right; font-size:12px; color:#222; line-height:1.9; padding:4px 10px 0; margin-bottom:4px; white-space:pre-wrap; }
@@ -1955,6 +1972,10 @@ function kanbetsuPage(hId, hospitalName) {
     .rv-pfoot { position:fixed; bottom:0; left:0; right:0; background:#fff; padding-top:3px; }
     .rv-tmpl { border:1px solid #eee; page-break-inside:avoid; }
     .rv-sign { page-break-inside:avoid; }
+    /* 🌟追加: 3列表は複数ページに渡ってよいが、見出しは各ページに出し、1行は分断しない */
+    .rv-table { page-break-inside:auto; }
+    .rv-table thead { display:table-header-group; }
+    .rv-table tr { page-break-inside:avoid; }
     * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
   }
 </style></head>
@@ -3122,22 +3143,42 @@ function kanbetsuPage(hId, hospitalName) {
         + '<div>🗓️ <b>日時：</b>' + escHtml(reportDate) + '</div>'
         + '<div class="rv-editrow" data-redit="rmemo">🆔 <b>ID等メモ：</b>' + (reportMemo ? escHtml(reportMemo) : '<span style="color:#bbb;">未入力</span>') + ' <span class="rv-edithint">（タップで編集）</span></div>'
         + '</div>';
+      // 🌟変更: 薬の部分はシンプルな3列表（左=持参薬 / 中央=継続→・切替→ / 右=鑑別結果）
+      // 継続は中央セルと右セルを薄緑にして、ひと目で継続と分かるようにする。切替は背景色なし。
+      html += '<table class="rv-table"><thead><tr>'
+        + '<th class="c-src">持参薬</th>'
+        + '<th class="c-arw">判定</th>'
+        + '<th class="c-dst">鑑別結果</th>'
+        + '</tr></thead><tbody>';
       for (const it of kanbetsuList) {
-        const cls = it.d ? (it.d.type === 'keep' ? 'keep' : 'switch') : (it.m ? 'undecided' : 'unmatched');
         const srcName = it.m ? it.m.name : it.name;
-        html += '<div class="rv-card ' + cls + '">';
-        html += '<div><span class="rv-lbl src">持参薬</span><span class="rv-dname">💊 ' + escHtml(srcName) + (it.m ? '' : '（未照合）') + '</span></div>';
-        html += '<div class="rv-usage">📝 ' + (it.usage ? escHtml(it.usage) : '用法未入力') + '</div>';
+        const isKeep = !!(it.d && it.d.type === 'keep');
+        const keepBg = isKeep ? ' rv-keepbg' : '';
+        html += '<tr>';
+        // 左: 持参薬（薬品名＋用法）
+        html += '<td class="c-src"><span class="rv-nm">' + escHtml(srcName)
+          + (it.m ? '' : ' <span class="rv-unm">（未照合）</span>') + '</span>'
+          + '<span class="rv-ug">' + (it.usage ? escHtml(it.usage) : '用法未入力') + '</span></td>';
+        // 中央: 継続 → / 切替 →
         if (it.d) {
-          const isKeep = it.d.type === 'keep';
-          // 🌟継続/切替ラベルを2段目の薬品名の前にインラインで表示
-          html += '<div class="rv-dst"><span class="rv-lbl ' + (isKeep ? 'keep' : 'switch') + '">' + (isKeep ? '継続 →' : '切替 →') + '</span><span class="rv-dname">💊 ' + escHtml(it.d.name) + '</span>' + (it.d.isAdopted ? ' <span class="tag green" style="font-size:10px; padding:1px 6px;">🏥 採用</span>' : '') + '</div>';
-          html += '<div class="rv-usage">📝 ' + (it.d.usage ? escHtml(it.d.usage) : '用法未入力') + '</div>';
-        } else if (it.m) {
-          html += '<div class="rv-undecided">（継続／切替 未決定）</div>';
+          html += '<td class="c-arw' + keepBg + '"><span class="rv-arw ' + (isKeep ? 'keep' : 'switch') + '">'
+            + (isKeep ? '継続 →' : '切替 →') + '</span></td>';
+        } else {
+          html += '<td class="c-arw"><span class="rv-none">—</span></td>';
         }
-        html += '</div>';
+        // 右: 鑑別結果（薬品名＋用法）
+        if (it.d) {
+          html += '<td class="c-dst' + keepBg + '"><span class="rv-nm">' + escHtml(it.d.name)
+            + (it.d.isAdopted ? '<span class="rv-adp">🏥採用</span>' : '') + '</span>'
+            + '<span class="rv-ug">' + (it.d.usage ? escHtml(it.d.usage) : '用法未入力') + '</span></td>';
+        } else if (it.m) {
+          html += '<td class="c-dst"><span class="rv-none">（継続／切替 未決定）</span></td>';
+        } else {
+          html += '<td class="c-dst"><span class="rv-none">—</span></td>';
+        }
+        html += '</tr>';
       }
+      html += '</tbody></table>';
       html += '<div class="rv-metabox"><div class="rv-editrow" data-redit="rbiko">📝 <b>備考：</b>' + (reportBiko ? escHtml(reportBiko).split(BR).join('<br>') : '<span style="color:#bbb;">未入力</span>') + ' <span class="rv-edithint">（タップで編集）</span></div></div>';
       // 🌟追加: 定型テキスト（備考の下・注意書きの上）
       html += '<div class="rv-tmpl rv-editrow" data-redit="rtmpl" style="border-style:solid;">' + (reportTmpl ? escHtml(reportTmpl).split(BR).join('<br>') : '<span style="color:#bbb;">定型テキスト未設定</span>') + ' <span class="rv-edithint">（タップで編集）</span></div>';
