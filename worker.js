@@ -316,6 +316,20 @@ const YOHO_UNIT_DEFAULT = ["錠", "カプセル", "包", "g", "mL", "滴", "枚"
 // 用量プルダウンの初期値
 const YOHO_DOSE_DEFAULT = ["0.5", "1", "1.5", "2", "3", "4", "5", "6", "8", "10"];
 
+// 備考欄に貼り付ける定型文（管理画面で編集可・最大10件）
+const BIKO_PRESET_KANBETSU_DEFAULT = [
+  "持参薬は入院時にすべてお預かりし、薬剤部で管理しています。",
+  "自己管理可能と判断したため、患者本人による管理としています。",
+  "残薬に不足があるため、入院中の処方追加をご検討ください。",
+  "一包化された薬剤のため、個々の薬剤の特定は現物と薬情に基づいています。"
+];
+const BIKO_PRESET_KYUYAKU_DEFAULT = [
+  "休薬の可否および再開時期については、処方元へご確認をお願いいたします。",
+  "抗血栓薬を服用中のため、出血リスクについてご留意ください。",
+  "患者本人・家族へ休薬内容を説明済みです。",
+  "術後の再開時期は主治医の指示に従ってください。"
+];
+
 // 帳票の定型テキスト／定型署名の初期値
 const KANBETSU_TMPL_TEXT_DEFAULT = "上記持参薬について鑑別を行いました。継続・切替の可否および用法用量のご指示をお願いいたします。";
 const KANBETSU_TMPL_SIGN_DEFAULT = "鑑別実施　薬剤師：＿＿＿＿＿＿＿＿\n確　　認　医　師：＿＿＿＿＿＿＿＿";
@@ -328,7 +342,8 @@ function kanbetsuBuiltinDefault() {
     units: YOHO_UNIT_DEFAULT.slice(),
     doses: YOHO_DOSE_DEFAULT.slice(),
     tmplText: KANBETSU_TMPL_TEXT_DEFAULT,
-    tmplSign: KANBETSU_TMPL_SIGN_DEFAULT
+    tmplSign: KANBETSU_TMPL_SIGN_DEFAULT,
+    bikoPresets: BIKO_PRESET_KANBETSU_DEFAULT.slice()   // 🌟追加: 備考の定型文
   };
 }
 
@@ -345,7 +360,8 @@ async function loadKanbetsuDefault(env) {
         units: Array.isArray(d.units) && d.units.length ? d.units : base.units,
         doses: Array.isArray(d.doses) && d.doses.length ? d.doses : base.doses,
         tmplText: typeof d.tmplText === "string" ? d.tmplText : base.tmplText,
-        tmplSign: typeof d.tmplSign === "string" ? d.tmplSign : base.tmplSign
+        tmplSign: typeof d.tmplSign === "string" ? d.tmplSign : base.tmplSign,
+        bikoPresets: Array.isArray(d.bikoPresets) ? d.bikoPresets : base.bikoPresets   // 🌟追加
       };
     }
   } catch (e) { /* 壊れていたら内蔵デフォルトにフォールバック */ }
@@ -354,7 +370,7 @@ async function loadKanbetsuDefault(env) {
 
 // 施設の上書き設定を読む（無ければ空の器）
 async function loadKanbetsuOvr(hId, env) {
-  const empty = { yohoAdd: [], yohoHide: [], units: null, doses: null, tmplText: null, tmplSign: null, updatedAt: "" };
+  const empty = { yohoAdd: [], yohoHide: [], units: null, doses: null, tmplText: null, tmplSign: null, bikoPresets: null, updatedAt: "" };
   if (!hId) return empty;
   try {
     const s = await env.MEDI_KV.get(`${hId}_kanbetsu_json`);
@@ -367,6 +383,7 @@ async function loadKanbetsuOvr(hId, env) {
       doses: Array.isArray(d.doses) && d.doses.length ? d.doses : null,
       tmplText: typeof d.tmplText === "string" ? d.tmplText : null,
       tmplSign: typeof d.tmplSign === "string" ? d.tmplSign : null,
+      bikoPresets: Array.isArray(d.bikoPresets) ? d.bikoPresets : null,   // 🌟追加
       updatedAt: d.updatedAt || ""
     };
   } catch (e) { return empty; }
@@ -391,11 +408,57 @@ function mergeKanbetsuConfig(def, ovr) {
     doses: ovr.doses || def.doses,
     tmplText: (ovr.tmplText !== null && ovr.tmplText !== undefined) ? ovr.tmplText : def.tmplText,
     tmplSign: (ovr.tmplSign !== null && ovr.tmplSign !== undefined) ? ovr.tmplSign : def.tmplSign,
+    bikoPresets: (ovr.bikoPresets && ovr.bikoPresets.length) ? ovr.bikoPresets : (def.bikoPresets || []),   // 🌟追加
     blocks: YOHO_CAT_BLOCKS
   };
 }
 
 // 施設の追加刻印を読む
+// ============================================================================
+// 🔐 ログイン後の戻り先（next）の検証 (ここから)
+// ----------------------------------------------------------------------------
+// ログイン画面へ飛ばすとき ?next=/{hId}/kyu-admin のように元のパスを渡し、
+// ログイン成功後にそこへ戻す。ただし next をそのまま location.href に入れると
+// ?next=https://悪意のサイト で外部へ飛ばされる（オープンリダイレクト）ため、
+// 「/{hId}/ で始まる自施設内のパスだけ」を許可する厳格なホワイトリスト方式にする。
+// ============================================================================
+function safeNextPath(raw, hId, fallback) {
+  const fb = fallback || `/${hId}`;
+  if (!raw || !hId) return fb;
+  let v = String(raw);
+  if (v.length > 300) return fb;                        // 異常に長いものは弾く
+  try { v = decodeURIComponent(v); } catch (e) { return fb; }
+  // 制御文字・空白・バックスラッシュを含むものは弾く
+  if (/[\x00-\x1f\x7f\s\\]/.test(v)) return fb;
+  // 必ず「/」始まりで、「//」始まり（プロトコル相対URL）は不可
+  if (v.charAt(0) !== "/" || v.charAt(1) === "/") return fb;
+  // 「:」を含むもの（http: など）は不可
+  if (v.indexOf(":") !== -1) return fb;
+  // 自施設のパス配下だけ許可（/{hId} 完全一致、または /{hId}/... ）
+  if (v !== `/${hId}` && v.indexOf(`/${hId}/`) !== 0) return fb;
+  // ログイン系へ戻すとループするので弾く
+  if (v.indexOf("/login") !== -1 || v.indexOf("/logout") !== -1) return fb;
+  return v;
+}
+
+// 現在のリクエストから next に載せる文字列を作る（パス＋クエリ）
+function buildNextParam(url) {
+  return encodeURIComponent(url.pathname + (url.search || ""));
+}
+// 🔐 ログイン後の戻り先（next）の検証 (ここまで)
+// ============================================================================
+
+// 🌟追加: 管理パスワードの解決。checkAuth と同じルールにそろえる。
+//   KVに {hId}_pwd が無い施設は、HPTEST1 なら "12345"、それ以外は施設IDそのものが初期パスワード。
+//   （以前は「未設定なら常に拒否」だったため、パスワード未設定の施設は保存が一切通らなかった）
+async function resolveAdminPwd(hId, env) {
+  if (!hId) return "";
+  let pwd = "";
+  try { pwd = await env.MEDI_KV.get(`${hId}_pwd`); } catch (e) {}
+  if (!pwd) pwd = (hId === "HPTEST1") ? "12345" : hId;
+  return pwd;
+}
+
 async function loadKokuinOvr(hId, env) {
   if (!hId) return { items: [] };
   try {
@@ -537,7 +600,7 @@ function kyuyakuAdminPage(hId, isSuper) {
   return `<!DOCTYPE html><html lang="ja"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
-<title>休薬マスタ管理 🦀 メディカニ</title>
+<title>休薬マスタ管理 メディカニ</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; background: #f4f7f9; color: #333; padding-bottom: 120px; }
@@ -613,6 +676,16 @@ function kyuyakuAdminPage(hId, isSuper) {
   </div>
 
   <div id="compList"></div>
+
+  <!-- 🌟追加: 備考の定型文 -->
+  <div class="card">
+    <h2>💬 備考の定型文</h2>
+    <div style="font-size:11px; color:#999; line-height:1.6; margin-bottom:10px;">
+      休薬チェッカーの「備考」欄でタップして貼り付けられる文章です。1行に1つ、最大10件まで。
+    </div>
+    <textarea id="bikoPresetIn" style="width:100%; min-height:130px; padding:10px; font-size:14px; border:1.5px solid #ddd; border-radius:10px; font-family:inherit; line-height:1.6;" placeholder="1行に1つずつ入力してください"></textarea>
+    <div style="font-size:11px; color:#999; margin-top:6px;"><span id="bikoPresetCnt"></span>　※11件目以降は保存時に切り捨てられます。</div>
+  </div>
 </div>
 
 <div class="savebar">
@@ -701,6 +774,7 @@ async function loadMaster() {
   ovrMap = {};
   (OVR.components || []).forEach(c => ovrMap[c.id] = c);
   render();
+  fillBikoPreset();   // 🌟追加: 備考の定型文をテキストエリアへ
 }
 
 // --- マージ済み一覧を返す（施設カスタム優先、施設追加分も含む） ---
@@ -963,6 +1037,35 @@ async function checkAllMatches() {
 }
 
 // --- 保存 ---
+// 🌟追加: 備考の定型文（1行1件）を配列にする
+function splitLines(v){ return String(v||'').split(/\\r?\\n/).map(function(x){ return x.trim(); }).filter(function(x){ return x; }); }
+function countBikoPreset(){
+  const el = document.getElementById('bikoPresetCnt');
+  if (!el) return;
+  const n = splitLines(document.getElementById('bikoPresetIn').value).length;
+  el.textContent = n + '件';
+  el.style.color = n > 10 ? '#c62828' : '#999';
+  el.style.fontWeight = n > 10 ? 'bold' : 'normal';
+}
+// 🌟追加: 内蔵デフォルト（サーバ側の BIKO_PRESET_KYUYAKU_DEFAULT と同じ内容）
+const BIKO_FALLBACK = [
+  "休薬の可否および再開時期については、処方元へご確認をお願いいたします。",
+  "抗血栓薬を服用中のため、出血リスクについてご留意ください。",
+  "患者本人・家族へ休薬内容を説明済みです。",
+  "術後の再開時期は主治医の指示に従ってください。"
+];
+function fillBikoPreset(){
+  const el = document.getElementById('bikoPresetIn');
+  if (!el) return;
+  let bp = [];
+  if (OVR && Array.isArray(OVR.bikoPresets) && OVR.bikoPresets.length) bp = OVR.bikoPresets;
+  else if (DEF && Array.isArray(DEF.bikoPresets) && DEF.bikoPresets.length) bp = DEF.bikoPresets;
+  else bp = BIKO_FALLBACK;
+  el.value = bp.join('\\n');
+  countBikoPreset();
+  el.addEventListener('input', countBikoPreset);
+}
+
 async function saveMaster(scope) {
   const pwd = document.getElementById('adminPwd').value;
   if (!pwd) { alert('管理パスワードを入力してくださいカニ🦀'); return; }
@@ -975,7 +1078,9 @@ async function saveMaster(scope) {
   } else {
     data = { version: 1, components: Object.values(ovrMap) };
   }
-  const res = await fetch('/api/admin/kyuyaku?h=' + HID, {
+  // 🌟追加: 備考の定型文（最大10件）を一緒に保存する
+  data.bikoPresets = splitLines(document.getElementById('bikoPresetIn').value).slice(0, 10);
+  const res = await fetch('/api/kyuyaku/save?h=' + HID, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pwd, scope, data })
   });
@@ -999,7 +1104,11 @@ loadMaster();
 // 患者の薬リストを作り（検索して確定／写真OCR→チップ→検索して確定）、休薬マスタと突合して帳票印刷する。
 // 候補検索は /api/kyuyaku/search、写真は /api/kyuyaku/ocr（お薬手帳・薬情の両対応）。
 // 刻印検索と同じ「読み取る→候補を出す→人が確定する」フローで統一。
-function kyuyakuCheckerPage(hId, isSuper, helpHtml, hospitalName) {
+function kyuyakuCheckerPage(hId, isSuper, helpHtml, hospitalName, bikoPresets) {
+  // 🌟追加: ヘッダーに出す施設名バッジ（鑑別ページと同じ見た目）
+  const facilityBadge = hospitalName
+    ? '<div style="display:inline-block; background:#fff; color:#d63384; font-size:12px; font-weight:bold; padding:4px 14px; border-radius:20px; border:1.5px solid #ffb6c1; margin-top:8px;">🏥 ' + hospitalName + '</div>'
+    : '';
   return `<!DOCTYPE html>
 <html lang="ja"><head>
 <meta charset="UTF-8">
@@ -1009,28 +1118,43 @@ function kyuyakuCheckerPage(hId, isSuper, helpHtml, hospitalName) {
 <link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kyu.png">
 <link rel="apple-touch-icon" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kyu.png">
 <meta name="apple-mobile-web-app-title" content="休薬チェッカー">
-<title>メディカニ休薬チェッカー 🦀</title>
+<title>メディカニ休薬チェッカー</title>
 <style>
-  :root { --pink:#e84c88; }
+  /* 🌟変更: 配色・余白をメディカニ鑑別に合わせた */
+  :root { --pink:#d63384; --bg:#fffaf5; }
   * { box-sizing:border-box; }
-  body { font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN",sans-serif; margin:0; background:#faf7f8; color:#333; }
-  .wrap { max-width:720px; margin:0 auto; padding:16px; position:relative; }
-  h1 { font-size:19px; margin:6px 0 2px; padding-right:44px; }
+  body { font-family:'Hiragino Kaku Gothic ProN','Meiryo',-apple-system,sans-serif; margin:0; background:var(--bg); color:#333; }
+  /* ヘッダー（鑑別と同じピンク帯）*/
+  .header { background:#ffe4e1; text-align:center; padding:22px 15px 18px; border-bottom:2px solid #ffd1dc; position:relative; }
+  /* 🌟【サイズ調整はここ】ヘッダーロゴ。height を変えれば大きさが変わります（例: 52px→64px）*/
+  .header .logo { height:52px; width:auto; max-width:88%; display:block; margin:0 auto; }
+  .header .sub { font-size:12px; color:#a58; margin-top:6px; }
+  .wrap { max-width:600px; margin:0 auto; padding:15px; }
 ${MK_MENU_CSS}
-  .sub { font-size:12px; color:#888; margin-bottom:14px; }
-  .card { background:#fff; border:1px solid #eee; border-radius:14px; padding:14px; margin-bottom:12px; }
+  /* カードも鑑別の .search-box と同じ質感に */
+  .card { background:#fff; border:1.5px solid #ffd1dc; border-radius:15px; padding:15px; margin-bottom:12px; box-shadow:0 2px 8px rgba(214,51,132,0.06); }
+  .card-ttl { font-weight:bold; font-size:14px; color:#555; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+  .card-ttl .cnt { font-weight:normal; color:#999; font-size:12px; }
+  /* 🌟追加: リストの全削除ボタン */
+  .btn-clear { margin-left:auto; background:#fff; border:1.5px solid #e0d0d8; color:#888; border-radius:16px; padding:5px 12px; font-size:11px; font-weight:bold; cursor:pointer; white-space:nowrap; }
+  .btn-clear:active { background:#f6f0f3; }
   .set-row { display:flex; gap:10px; flex-wrap:wrap; }
-  .set-row .fld { flex:1; min-width:130px; }
+  .set-row .fld { flex:1; min-width:0; }
+  /* 🌟修正: iOSのdate入力は中身の幅を優先してはみ出すので、
+     文字サイズと余白を少し詰めて max-width:100% で押さえ込む */
+  input[type=date] { font-size:15px; padding:11px 8px; max-width:100%; min-width:0; }
   label { display:block; font-size:12px; color:#666; margin-bottom:4px; font-weight:bold; }
-  select, input[type=text], input[type=date] { width:100%; padding:11px; font-size:16px; border:1.5px solid #ddd; border-radius:10px; outline:none; }
+  select, input[type=text], input[type=date] { width:100%; padding:12px; font-size:16px; border:1.5px solid #ddd; border-radius:12px; outline:none; }
   select:focus, input:focus { border-color:var(--pink); }
   .addrow { display:flex; gap:8px; margin-top:4px; }
   .addrow input { flex:1; }
-  .btn { padding:12px 16px; border:none; border-radius:10px; font-weight:bold; font-size:14px; cursor:pointer; white-space:nowrap; }
+  .btn { padding:13px 16px; border:none; border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; white-space:nowrap; }
   .btn.pink { background:var(--pink); color:#fff; }
-  .btn.photo { width:100%; margin-top:8px; background:#fff; color:var(--pink); border:2px solid var(--pink); }
-  .btn.print { width:100%; margin-top:6px; background:#2e7d32; color:#fff; padding:15px; font-size:16px; }
-  .btn.ghost { background:#f4f4f4; color:#666; font-size:12px; padding:9px 12px; }
+  .btn:active { transform:scale(0.97); }
+  /* 📷ボタンは鑑別のOCRボタンと同じ水色系に */
+  .btn.photo { width:100%; margin-top:10px; background:#f0fafd; color:#00838f; border:1.5px dashed #4dd0e1; padding:13px; }
+  .btn.print { width:100%; margin-top:6px; background:#00838f; color:#fff; padding:15px; font-size:15px; border-radius:12px; }
+  .btn.ghost { background:#f4f4f4; color:#666; font-size:12px; padding:9px 12px; border-radius:10px; }
   #status { text-align:center; font-size:13px; color:#888; margin:8px 0; min-height:18px; }
   .empty { text-align:center; color:#aaa; font-size:13px; padding:18px; }
   /* OCRチップ */
@@ -1068,8 +1192,14 @@ ${MK_MENU_CSS}
   .j-none { color:#999; }
   .j-unknown { color:#b8860b; }
   .rdel { background:#f2f2f2; border:none; border-radius:50%; width:26px; height:26px; font-size:15px; color:#888; cursor:pointer; flex-shrink:0; }
-  .notice { font-size:11px; color:#a06; background:#fff3f7; border:1px solid #ffd9e6; border-radius:10px; padding:10px; margin-top:6px; }
-  .footer { text-align:center; font-size:11px; color:#bbb; padding:20px 0; }
+  /* 🌟追加: 備考欄と定型文パレット */
+  textarea { width:100%; padding:12px; font-size:15px; border:1.5px solid #ddd; border-radius:12px; outline:none; font-family:inherit; min-height:80px; line-height:1.6; resize:vertical; }
+  textarea:focus { border-color:var(--pink); }
+  .bp-ttl { font-size:11px; font-weight:bold; color:#a05070; margin:10px 0 6px; }
+  .bp-item { display:block; width:100%; text-align:left; background:#fff; border:1.5px solid #ffd1dc; color:#444; border-radius:10px; padding:9px 11px; margin-bottom:6px; font-size:12.5px; line-height:1.5; cursor:pointer; font-family:inherit; }
+  .bp-item:active { background:#fff0f5; }
+  .notice { font-size:11px; color:#a06; background:#fff3f7; border:1px solid #ffd9e6; border-radius:10px; padding:12px; margin-top:10px; line-height:1.6; }
+  .footer { text-align:center; font-size:11px; color:#bbb; padding:24px 0; line-height:1.7; }
   /* ===== 帳票（印刷用）: 🌟変更 メディカニ鑑別の帳票とレイアウトを揃えた ===== */
   #report { display:none; }
   @media print {
@@ -1110,6 +1240,8 @@ ${MK_MENU_CSS}
     #report .rp-jd.j-none, #report .rp-jd.j-unknown { background:#eee; color:#777; font-weight:normal; }
     #report tr.r-stop td { background:#fffafa; }
     /* 定型テキスト・署名（鑑別の帳票と同じ並び）*/
+    /* 🌟追加: 備考 */
+    #report .rp-biko { font-size:12px; color:#222; border:1.5px solid #ffd1dc; border-radius:10px; padding:7px 10px; margin-top:4px; line-height:1.6; page-break-inside:avoid; }
     #report .disc { font-size:11px; color:#333; border:1.5px solid #ffd1dc; border-radius:10px; padding:7px 10px; margin-top:4px; line-height:1.6; }
     #report .sign { text-align:right; font-size:12px; line-height:1.9; padding:6px 10px 0; white-space:pre-wrap; }
     #report .rp-pfoot { position:fixed; bottom:0; left:0; right:0; background:#fff; padding-top:3px; }
@@ -1121,7 +1253,6 @@ ${MK_MENU_CSS}
   }
 </style>
 </head><body>
-<div class="wrap">
   <div class="no-print">
 ${mkMenuHtml([
   { help: true, label: "❓ ヘルプ" },
@@ -1131,10 +1262,17 @@ ${mkMenuHtml([
   { href: `/${hId}/kyuyaku`, label: "↩️ 戻る" }
 ])}
 ${mkHelpHtml(helpHtml)}
-    <h1>🦀 メディカニ休薬チェッカー</h1>
-    <div class="sub">患者さんの薬を追加して、術式・検査ごとの休薬判定を確認・印刷できますカニ🦀</div>
+  </div>
+  <!-- 🌟変更: 鑑別と同じピンク帯のヘッダー（タイトル文字→ロゴ画像、施設名バッジを追加）-->
+  <div class="header no-print">
+    <img class="logo" src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kyu_logo.png" alt="メディカニ休薬チェッカー">
+    <div class="sub">患者さんの薬をお薬手帳から追加して、休薬判定を確認・印刷できますカニ🦀</div>
+    ${facilityBadge}
+  </div>
+  <div class="wrap no-print">
 
     <div class="card">
+      <div class="card-ttl">🗓️ 手術・検査の設定</div>
       <div class="set-row">
         <div class="fld"><label>分類（術式・検査）</label><select id="catSel" onchange="onCatChange()"></select></div>
         <div class="fld"><label>手術予定日</label><input type="date" id="opDate" onchange="renderList()"></div>
@@ -1143,7 +1281,7 @@ ${mkHelpHtml(helpHtml)}
     </div>
 
     <div class="card">
-      <label>薬を検索して追加</label>
+      <div class="card-ttl">🔍 薬を検索して追加</div>
       <div class="addrow">
         <input type="text" id="nameInput" placeholder="薬の名前・成分名（例：ワーファリン／アスピリン）" autocomplete="off">
         <button class="btn pink" onclick="doSearch()">🔍 検索</button>
@@ -1175,22 +1313,36 @@ ${mkHelpHtml(helpHtml)}
     </div>
 
     <div class="card">
-      <label>薬リストと休薬判定</label>
+      <!-- 🌟追加: 件数表示とリストの全削除ボタン -->
+      <div class="card-ttl"><span>💊 薬リストと休薬判定</span><span class="cnt" id="listCount"></span><button class="btn-clear" onclick="clearList()">🗑️ すべてクリア</button></div>
       <div id="list"><div class="empty">まだ薬がありません。検索か写真で追加してくださいカニ🦀</div></div>
       <div class="notice">「リスト対象外」は休薬マスタの対象外という意味で、継続してよいかを保証するものではありませんカニ🦀 最終判断は必ず処方医・薬剤師へ。</div>
     </div>
 
-    <button class="btn print" onclick="printReport()">🖨️ 休薬チェッカー確認票を印刷</button>
-    <div class="footer">🦀 メディカニ休薬チェッカー</div>
+    <!-- 🌟追加: 備考（確認票に印刷される）＋定型文パレット -->
+    <div class="card">
+      <div class="card-ttl">📝 備考（確認票に印刷されます）</div>
+      <textarea id="bikoInput" placeholder="申し送り事項などを入力できます（空欄でもOK）"></textarea>
+      <div id="bikoPalette" style="display:none;">
+        <div class="bp-ttl">💬 定型文（タップで貼り付け）</div>
+        <div id="bikoPresetList"></div>
+      </div>
+    </div>
+
+    <button class="btn print" onclick="printReport()">🖨️ 休薬チェッカー確認票を印刷 🦀</button>
+    <div class="footer">
+      🦀 メディカニ 休薬チェッカー（β）<br>© 2026 🐔トリの巣ワークス メディカニ運営事務局
+    </div>
   </div>
 
   <div id="report"></div>
-</div>
 
 <script>
 ${MK_MENU_JS}
 const HID = "${hId}";
 const HOSP = "${hId}";
+// 🌟追加: 備考に貼り付ける定型文（管理画面 /kyu-admin で編集可）
+const BIKO_PRESETS = ${JSON.stringify(Array.isArray(bikoPresets) ? bikoPresets.slice(0, 10) : [])};
 // 🌟追加: 帳票フッターに出す施設名（未設定なら表示しない）
 const HNAME = "${String(hospitalName || '').replace(/"/g, '')}";
 const ACT = { continue:"継続可", stop:"休薬", consult:"処方元に照会" };
@@ -1404,6 +1556,9 @@ function clearChips(){ CHIPS = []; renderChips(); }
 /* ===== リストと帳票 ===== */
 function renderList(){
   const box = document.getElementById('list');
+  // 🌟追加: 見出しに件数を出す（0件のときは非表示）
+  const cnt = document.getElementById('listCount');
+  if (cnt) cnt.textContent = LIST.length ? '（' + LIST.length + '件）' : '';
   if (!LIST.length){ box.innerHTML = '<div class="empty">まだ薬がありません。検索か写真で追加してくださいカニ🦀</div>'; return; }
   box.innerHTML = LIST.map(function(it){
     const j = judge(it);
@@ -1416,12 +1571,43 @@ function renderList(){
 }
 function removeItem(id){ LIST = LIST.filter(function(x){ return x.id!==id; }); renderList(); }
 
+// 🌟追加: 備考の定型文パレット。タップすると備考欄の末尾に改行して差し込む。
+function renderBikoPalette(){
+  const box = document.getElementById('bikoPalette');
+  const list = document.getElementById('bikoPresetList');
+  if (!BIKO_PRESETS.length){ box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  list.innerHTML = BIKO_PRESETS.map(function(p, i){
+    return '<button type="button" class="bp-item" data-bp="' + i + '">' + esc(p) + '</button>';
+  }).join('');
+}
+document.getElementById('bikoPresetList').addEventListener('click', function(e){
+  const b = e.target.closest('[data-bp]');
+  if (!b) return;
+  const txt = BIKO_PRESETS[Number(b.getAttribute('data-bp'))];
+  if (!txt) return;
+  const ta = document.getElementById('bikoInput');
+  const cur = ta.value;
+  ta.value = cur.trim() ? (cur.replace(/\\s+$/, '') + String.fromCharCode(10) + txt) : txt;
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = ta.value.length;
+});
+
+// 🌟追加: 薬リストをまるごと空にする
+function clearList(){
+  if (!LIST.length) return;
+  if (!confirm('薬リストをすべて削除しますか？（' + LIST.length + '件）')) return;
+  LIST = [];
+  renderList();
+}
+
 function printReport(){
   if (!LIST.length){ alert('先に薬を追加してくださいカニ🦀'); return; }
   const cat = MASTER.cats.filter(function(c){ return c.id===currentCat(); })[0];
   const catLabel = cat ? cat.label : '';
   const op = document.getElementById('opDate').value;
   const pt = document.getElementById('ptName').value.trim();
+  const biko = document.getElementById('bikoInput').value.trim();   // 🌟追加
   // 🌟変更: 薬剤と成分を同じセルにまとめ（成分は2行目に［］で表示）、休薬開始は折り返さない
   const rows = LIST.map(function(it){
     const j = judge(it);
@@ -1435,14 +1621,18 @@ function printReport(){
   const t = new Date();
   const p2 = function(n){ return (n < 10 ? '0' : '') + n; };
   const td = t.getFullYear() + '/' + p2(t.getMonth()+1) + '/' + p2(t.getDate());
+  // 🌟変更: 手術予定日も「2026/08/02」形式にそろえる（input[type=date] は 2026-08-02 で返るため）
+  const opTxt = op ? op.replace(/-/g, '/') : '';
   document.getElementById('report').innerHTML =
     // 🌟変更: ホーム画面アイコンと同じ icon_kyu.png をタイトルの前に置く（鑑別と揃えた）
     '<div class="rp-head"><img class="rp-icon" src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kyu.png" alt=""><span class="rp-title">メディカニ休薬チェッカー 確認票</span></div>'
     + '<table class="meta"><tr><td>患者</td><td>' + esc(pt||'　') + '</td><td>作成日</td><td>' + td + '</td></tr>'
-    + '<tr><td>分類</td><td>' + esc(catLabel||'　') + '</td><td>手術予定日</td><td>' + esc(op||'　') + '</td></tr></table>'
+    + '<tr><td>分類</td><td>' + esc(catLabel||'　') + '</td><td>手術予定日</td><td>' + esc(opTxt||'　') + '</td></tr></table>'
     + '<table class="rep"><colgroup><col class="w1"><col class="w2"><col class="w3"><col class="w4"></colgroup>'
     + '<thead><tr><th>薬剤／［成分］</th><th style="text-align:center;">判定</th><th style="text-align:center;">休薬開始</th><th>備考</th></tr></thead>'
     + '<tbody>' + rows + '</tbody></table>'
+    // 🌟追加: 備考（入力があるときだけ印刷する）
+    + (biko ? '<div class="rp-biko"><b>📝 備考：</b>' + esc(biko).split(String.fromCharCode(10)).join('<br>') + '</div>' : '')
     + '<div class="disc">※本票の判定は休薬マスタに基づく参考情報です。最終的な休薬の可否・時期は必ず処方医・薬剤師がご確認ください。「リスト対象外」は休薬マスタの対象外を示すもので、継続の可否を保証するものではありません。</div>'
     + '<div class="sign">確認　薬剤師：＿＿＿＿＿＿＿＿<br>確認　医　師：＿＿＿＿＿＿＿＿</div>'
     // 施設名は鑑別と同じくフッターへ
@@ -1454,6 +1644,7 @@ function printReport(){
 }
 
 document.getElementById('nameInput').addEventListener('keydown', function(e){ if (e.key==='Enter') doSearch(); });
+renderBikoPalette();   // 🌟追加
 loadMaster();
 </script>
 </body></html>`;
@@ -2033,7 +2224,10 @@ function kanbetsuPage(hId, hospitalName, helpHtml) {
   /* ▼ kpモーダル（刻印からお薬を特定）の入力欄・検索ボタンを大きく */
   #kpQ { font-size:19px !important; font-weight:bold; padding:12px 10px !important; letter-spacing:0.5px; flex:1 1 auto; min-width:0 !important; width:auto !important; box-sizing:border-box; }
   #kpSearchBtn { font-size:16px !important; font-weight:bold; padding:12px 16px !important; flex:0 0 auto; white-space:nowrap; }
-  .jlist-title { font-weight:bold; font-size:14px; color:#555; margin:18px 0 10px; }
+  .jlist-title { font-weight:bold; font-size:14px; color:#555; margin:18px 0 10px; display:flex; align-items:center; gap:8px; }
+  /* 🌟追加: 持参薬リストの全削除ボタン */
+  .btn-clear { margin-left:auto; background:#fff; border:1.5px solid #e0d0d8; color:#888; border-radius:16px; padding:5px 12px; font-size:11px; font-weight:bold; cursor:pointer; white-space:nowrap; }
+  .btn-clear:active { background:#f6f0f3; }
   .jitem { background:#fff; border-radius:15px; padding:14px 16px; margin-bottom:12px; box-shadow:0 4px 10px rgba(0,0,0,0.03); border-left:6px solid #ccc; position:relative; }
   .jitem.adopted { border-left-color:#28a745; }
   .jitem.unmatched { border-left-color:#ffc107; background:#fffdf5; }
@@ -2048,6 +2242,11 @@ function kanbetsuPage(hId, hospitalName, helpHtml) {
   .edit-modal textarea:focus { border-color:#d63384; }
   .edit-btns { display:flex; gap:8px; margin-top:12px; }
   .edit-btns button { flex:1; padding:11px; border:none; border-radius:10px; font-weight:bold; font-size:14px; cursor:pointer; }
+  /* 🌟追加: 備考の定型文パレット */
+  .bp-ttl { font-size:11px; font-weight:bold; color:#a05070; margin:10px 0 6px; }
+  .bp-item { display:block; width:100%; text-align:left; background:#fff; border:1.5px solid #ffd1dc; color:#444; border-radius:10px; padding:9px 11px; margin-bottom:6px; font-size:12.5px; line-height:1.5; cursor:pointer; font-family:inherit; }
+  .bp-item:active { background:#fff0f5; }
+  #bikoPalette { max-height:34vh; overflow-y:auto; }
   #pickerOverlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; z-index:1200; justify-content:center; align-items:center; }
   .picker-modal { background:#fff; width:92%; max-width:400px; border-radius:20px; padding:18px; max-height:85vh; overflow-y:auto; }
   .picker-cats { display:flex; gap:6px; margin-bottom:10px; }
@@ -2105,6 +2304,8 @@ ${MK_MENU_CSS}
   /* 🌟追加: メニューボタンとタイトルが重ならないよう余白を確保 */
   .header { position:relative; }
   .header h1 { padding:0 40px; }
+  /* 🌟【サイズ調整はここ】ヘッダーロゴ。height を変えれば大きさが変わります（例: 52px→64px）*/
+  .header .logo { height:52px; width:auto; max-width:88%; display:block; margin:0 auto; }
   /* ===== 🌟追加: 用法選択モーダル ===== */
   #yohoOverlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; z-index:1400; justify-content:center; align-items:center; }
   .yoho-modal { background:#fff; border-radius:16px; padding:14px; width:92%; max-width:460px; max-height:88vh; overflow-y:auto; }
@@ -2159,8 +2360,9 @@ ${mkMenuHtml([
 ])}
 ${mkHelpHtml(helpHtml)}
   <div class="header">
-    <h1>🦀 メディカニ鑑別 <span style="font-size:11px; color:#a58; font-weight:normal;">開発版</span></h1>
-    <div class="sub">お薬手帳のOCRと刻印検索で持参薬を鑑別するツールですカニ🦀</div>
+    <!-- 🌟変更: タイトル文字 → ロゴ画像（サイズは .header .logo の height で調整）-->
+    <img class="logo" src="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kan_logo.png" alt="メディカニ鑑別">
+    <div class="sub">お薬手帳のOCRと刻印検索で持参薬を鑑別し報告書を作るツールですカニ🦀</div>
     ${facilityBadge}
   </div>
   <div class="container">
@@ -2172,14 +2374,14 @@ ${mkHelpHtml(helpHtml)}
         <button class="mode-btn on" id="btnModeKokuin" onclick="doSearch('kokuin')">🔍 刻印</button>
         <button class="mode-btn" id="btnModeName" onclick="doSearch('name')">🔍 薬名</button>
       </div>
-      <div class="hint" id="searchHint">💡 英数字2文字以上で検索できます。大文字小文字・全角半角・スペースの違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。</div>
+      <div class="hint" id="searchHint">💡 英数字2文字以上で検索できます。大文字小文字・全角半角・スペースの違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。<BR>ℹ️刻印情報が登録されていない製剤もあります。管理画面で追加可能です。</div>
     </div>
     <div class="ocr-row">
       <button class="btn-ocr" onclick="document.getElementById('ocrFile').click()">📷 手帳OCR</button>
       <button class="btn-qr" onclick="openQrScanner()">📱 手帳QR</button>
     </div>
     <input type="file" id="ocrFile" accept="image/*" multiple style="display:none">
-    <button class="btn-kokuin" onclick="document.getElementById('kokuinFile').click()">💊 裸錠の刻印OCR（まとめ撮り対応）</button>
+    <button class="btn-kokuin" onclick="document.getElementById('kokuinFile').click()">💊 裸錠の刻印OCR（試験中）</button>
     <input type="file" id="kokuinFile" accept="image/*" style="display:none">
     <div id="kokuinChips"></div>
     <!-- 🌟撤去: ➕お薬名で検索して追加 → 検索窓の「🔍 薬名」に統合。openPickerForAdd() は刻印なしチップから使うので関数は残す -->
@@ -2195,16 +2397,16 @@ ${mkHelpHtml(helpHtml)}
     <div id="status"></div>
     <div id="results"></div>
     <div id="jlistArea" style="display:none;">
-      <div class="jlist-title">📋 持参薬リスト <span id="jlistCount" style="font-weight:normal; color:#999; font-size:12px;"></span></div>
+      <div class="jlist-title"><span>📋 持参薬リスト</span><span id="jlistCount" style="font-weight:normal; color:#999; font-size:12px;"></span><button class="btn-clear" onclick="clearJList()">🗑️ すべてクリア</button></div>
       <div id="jlist"></div>
       <button class="btn-report" onclick="openReport()">📄 メディカニ鑑別結果を作成する 🦀</button>
     </div>
     <div class="notice">
-      ⚠️ 本ツールは添付文書の識別コード情報をもとに候補を絞り込む<b>補助ツール</b>です。刻印情報が登録されていない製剤もあります。<b>最終的な同定は必ず現物・添付文書でご確認ください。</b>
+      ⚠️ 本ツールはお薬手帳のOCRや添付文書の識別コード情報をもとに候補を絞り込む<b>補助ツール</b>です。<b>最終的な同定は必ず現物・添付文書でご確認ください。</b>
     </div>
   </div>
   <div class="footer">
-    🦀 メディカニ鑑別（β）<br>© 2026 🐔トリの巣ワークス メディカニ運営事務局
+    🦀 メディカニ 鑑別（β）<br>© 2026 🐔トリの巣ワークス メディカニ運営事務局
   </div>
 
   <div id="modalOverlay"><div class="modal" onclick="event.stopPropagation()">
@@ -2215,6 +2417,11 @@ ${mkHelpHtml(helpHtml)}
   <div id="editModalOverlay"><div class="edit-modal" onclick="event.stopPropagation()">
     <div id="editModalTitle" style="font-weight:bold; font-size:14px; color:#555; margin-bottom:10px;">✏️ 編集</div>
     <textarea id="editModalText"></textarea>
+    <!-- 🌟追加: 備考の定型文パレット（タップで本文に差し込む）-->
+    <div id="bikoPalette" style="display:none;">
+      <div class="bp-ttl">💬 定型文（タップで貼り付け）</div>
+      <div id="bikoPresetList"></div>
+    </div>
     <div class="edit-btns">
       <button style="background:#eee; color:#666;" onclick="closeEditModal()">キャンセル</button>
       <button style="background:#d63384; color:#fff;" onclick="saveEditModal()">保存</button>
@@ -2969,6 +3176,14 @@ ${MK_MENU_JS}
       pickerAddChipIdx = null;
     });
 
+    // 🌟追加: 持参薬リストをまるごと空にする
+    function clearJList() {
+      if (!kanbetsuList.length) return;
+      if (!confirm('持参薬リストをすべて削除しますか？（' + kanbetsuList.length + '件）')) return;
+      kanbetsuList = [];
+      renderJList();
+    }
+
     function renderJList() {
       const area = document.getElementById('jlistArea');
       const list = document.getElementById('jlist');
@@ -3375,9 +3590,35 @@ ${MK_MENU_JS}
       const vals = { rmemo: reportMemo, rbiko: reportBiko, rtmpl: (reportTmpl || ''), rsign: (reportSign || '') };
       document.getElementById('editModalTitle').textContent = titles[field] || '✏️ 編集';
       document.getElementById('editModalText').value = vals[field] || '';
+      renderBikoPalette(field === 'rbiko');   // 🌟追加: 備考のときだけ定型文を出す
       document.getElementById('editModalOverlay').style.display = 'flex';
       setTimeout(function(){ document.getElementById('editModalText').focus(); }, 50);
     }
+
+    // 🌟追加: 備考の定型文パレット。タップするとカーソル位置に差し込む（改行区切りで追記）。
+    function renderBikoPalette(show) {
+      const box = document.getElementById('bikoPalette');
+      const list = document.getElementById('bikoPresetList');
+      const presets = (YOHO_CFG && Array.isArray(YOHO_CFG.bikoPresets)) ? YOHO_CFG.bikoPresets : [];
+      if (!show || !presets.length) { box.style.display = 'none'; list.innerHTML = ''; return; }
+      box.style.display = 'block';
+      list.innerHTML = presets.map(function(p, i){
+        return '<button type="button" class="bp-item" data-bp="' + i + '">' + escHtml(p) + '</button>';
+      }).join('');
+    }
+    document.getElementById('bikoPresetList').addEventListener('click', function(e){
+      const b = e.target.closest('[data-bp]');
+      if (!b) return;
+      const presets = (YOHO_CFG && YOHO_CFG.bikoPresets) ? YOHO_CFG.bikoPresets : [];
+      const txt = presets[Number(b.getAttribute('data-bp'))];
+      if (!txt) return;
+      const ta = document.getElementById('editModalText');
+      const cur = ta.value;
+      // すでに入力があれば改行してから追記、無ければそのまま入れる
+      ta.value = cur.trim() ? (cur.replace(/\\s+$/, '') + String.fromCharCode(10) + txt) : txt;
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = ta.value.length;
+    });
 
     // 📋 コピー: テキスト整形してクリップボードへ
     function buildReportText() {
@@ -3613,10 +3854,12 @@ ${MK_MENU_JS}
 function kanbetsuAdminPage(hId, isSuper) {
   return `<!DOCTYPE html><html lang="ja"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 🌟変更: ブラウザのタブは🦀に統一（ホーム画面アイコンは icon_kan.png のまま）-->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
 <link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png">
 <link rel="apple-touch-icon" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png">
 <meta name="apple-mobile-web-app-title" content="鑑別マスタ管理">
-<title>メディカニ鑑別 管理画面</title>
+<title>メディカニ鑑別 マスタ管理</title>
 <style>
   * { box-sizing:border-box; margin:0; padding:0; }
   body { font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; background:#fffaf5; color:#333; padding-bottom:130px; }
@@ -3662,7 +3905,7 @@ function kanbetsuAdminPage(hId, isSuper) {
   .msg { font-size:12px; text-align:center; padding:6px; color:#666; }
 </style></head><body>
   <div class="header">
-    <h1>🦀メディカニ鑑別 管理画面</h1>
+    <h1>🦀 メディカニ鑑別 マスタ管理</h1>
     <div class="sub">用法マスタ・追加刻印・帳票の定型文を設定できますカニ🦀</div>
   </div>
   <div class="wrap">
@@ -3725,7 +3968,16 @@ function kanbetsuAdminPage(hId, isSuper) {
       <button class="btn gray small" style="margin-top:8px;" onclick="resetTmpl('text')">デフォルトに戻す</button>
     </div>
 
-    <!-- ⑤ 定型署名 -->
+    <!-- ⑤ 備考の定型文 -->
+    <div class="card">
+      <h2>💬 備考の定型文</h2>
+      <div class="desc">鑑別結果の「備考」を編集するときに、タップで貼り付けられる文章です。1行に1つ、最大10件まで登録できます。</div>
+      <textarea id="bikoPresetIn" style="min-height:130px;" placeholder="1行に1つずつ入力してください"></textarea>
+      <div style="font-size:11px; color:#999; margin-top:6px;"><span id="bikoPresetCnt"></span>　※11件目以降は保存時に切り捨てられます。</div>
+      <button class="btn gray small" style="margin-top:8px;" onclick="resetTmpl('biko')">デフォルトに戻す</button>
+    </div>
+
+    <!-- ⑥ 定型署名 -->
     <div class="card">
       <h2>✍️ 帳票の定型署名</h2>
       <div class="desc">定型テキストのさらに下、印刷時に<b>右寄せ</b>で出ます。改行するとそのまま複数行になります。</div>
@@ -3771,6 +4023,10 @@ async function load(){
     document.getElementById('dosesIn').value = (OVR.doses || DEF.doses || []).join(', ');
     document.getElementById('tmplTextIn').value = (OVR.tmplText !== null && OVR.tmplText !== undefined) ? OVR.tmplText : (DEF.tmplText || '');
     document.getElementById('tmplSignIn').value = (OVR.tmplSign !== null && OVR.tmplSign !== undefined) ? OVR.tmplSign : (DEF.tmplSign || '');
+    // 🌟追加: 備考の定型文（1行1件）
+    const bp = (OVR.bikoPresets && OVR.bikoPresets.length) ? OVR.bikoPresets : (DEF.bikoPresets || []);
+    document.getElementById('bikoPresetIn').value = bp.join('\\n');
+    countBikoPreset();
     document.getElementById('addCat').innerHTML = BLOCKS.map(function(b){ return '<option value="' + esc(b.cat) + '">' + esc(b.cat) + '</option>'; }).join('');
     renderYoho();
     renderKokuinList();
@@ -3869,9 +4125,21 @@ function delYoho(code){
 /* ===== 定型文 ===== */
 function resetTmpl(which){
   if (which === 'text') document.getElementById('tmplTextIn').value = DEF.tmplText || '';
+  else if (which === 'biko') { document.getElementById('bikoPresetIn').value = (DEF.bikoPresets||[]).join('\\n'); countBikoPreset(); }
   else document.getElementById('tmplSignIn').value = DEF.tmplSign || '';
   setMsg('デフォルトに戻しました（まだ保存されていません）');
 }
+
+// 🌟追加: 定型文の件数表示（10件を超えたら警告色）
+function splitLines(s){ return String(s||'').split(/\\r?\\n/).map(function(x){ return x.trim(); }).filter(function(x){ return x; }); }
+function countBikoPreset(){
+  const n = splitLines(document.getElementById('bikoPresetIn').value).length;
+  const el = document.getElementById('bikoPresetCnt');
+  el.textContent = n + '件';
+  el.style.color = n > 10 ? '#c62828' : '#999';
+  el.style.fontWeight = n > 10 ? 'bold' : 'normal';
+}
+document.getElementById('bikoPresetIn').addEventListener('input', countBikoPreset);
 
 /* ===== 追加刻印 ===== */
 function renderDrugs(){
@@ -3974,6 +4242,7 @@ async function saveAll(scope){
   const doses = splitList(document.getElementById('dosesIn').value);
   const tmplText = document.getElementById('tmplTextIn').value;
   const tmplSign = document.getElementById('tmplSignIn').value;
+  const bikoPresets = splitLines(document.getElementById('bikoPresetIn').value).slice(0, 10);   // 🌟追加
 
   let config;
   if (scope === 'default') {
@@ -3983,7 +4252,7 @@ async function saveAll(scope){
       .concat(OVR.yohoAdd || [])
       .map(function(y){ return { code: Number(y.code), cat: y.cat, name: y.name, abbr: y.abbr || y.name }; })
       .sort(function(a,b){ return a.code - b.code; });
-    config = { version: 1, yoho: yoho, units: units, doses: doses, tmplText: tmplText, tmplSign: tmplSign };
+    config = { version: 1, yoho: yoho, units: units, doses: doses, tmplText: tmplText, tmplSign: tmplSign, bikoPresets: bikoPresets };
   } else {
     config = {
       yohoAdd: OVR.yohoAdd || [],
@@ -3991,7 +4260,8 @@ async function saveAll(scope){
       units: units,
       doses: doses,
       tmplText: tmplText,
-      tmplSign: tmplSign
+      tmplSign: tmplSign,
+      bikoPresets: bikoPresets
     };
   }
 
@@ -4056,6 +4326,77 @@ export default {
     }
     // =========================================================
 
+    // === 🦀休薬チェッカー: /kyu-admin と /kyuyaku のルートはここにありましたが、
+    //     認証ゲートより前だったため素通りしていました。認証ロジックの直後へ移動しています。
+    //     （下の「認証の判定ロジック (ここまで)」を参照）
+
+    // === 新規追加: ユーザーパスワード機能 (ここから) ===
+    const isUserLoginPage = pathParts[1] === "login" && pathParts[0] !== "api";
+    const isUserLoginApi = url.pathname.includes("/api/userlogin");
+
+    if (hospitalId && env.MEDI_KV) {
+      const userPwd = await env.MEDI_KV.get(`${hospitalId}_userpwd`);
+      if (userPwd) {
+        let isUserAuth = false;
+        const cookieString = request.headers.get("Cookie");
+        if (cookieString) {
+          const cookies = cookieString.split(';').map(c => c.trim());
+          const targetCookie = `medikani_userauth_${hospitalId}=`;
+          const authCookie = cookies.find(c => c.startsWith(targetCookie));
+          if (authCookie) {
+            const cookiePwd = decodeURIComponent(authCookie.substring(targetCookie.length));
+            if (cookiePwd === userPwd) isUserAuth = true;
+          }
+        }
+        
+        // ログイン画面、ログインAPI、管理画面関連を除き、未認証ならブロック
+        // 🌟修正: kyu-admin / kanbetsu-admin とその保存APIも「管理画面関連」として扱う。
+        //   これらは施設の管理パスワード（medikani_auth_ Cookie）で守るので、
+        //   利用者パスワードの対象からは外す＝通常メディカニの /admin と同じ扱いにする。
+        const isMasterAdminPage = pathParts[1] === "kyu-admin" || pathParts[1] === "kanbetsu-admin";
+        const isMasterAdminApi = url.pathname.includes("/api/kyuyaku/save") || url.pathname.includes("/api/kanbetsu/save");
+        const isExempt = isUserLoginPage || isUserLoginApi || pathParts[1] === "admin" || url.pathname.includes("/api/admin/")
+          || isMasterAdminPage || isMasterAdminApi;
+        if (!isUserAuth && !isExempt) {
+          if (url.pathname.includes("/api/")) {
+            return new Response(JSON.stringify({error: "ユーザー認証エラー"}), { status: 401, headers: { "Content-Type": "application/json" } });
+          } else {
+            // 🌟変更: 元のページを next に載せ、ログイン後にそこへ戻れるようにする
+            return Response.redirect(`${url.origin}/${hospitalId}/login?next=${buildNextParam(url)}`, 302);
+          }
+        }
+      }
+    }
+    // === 新規追加: ユーザーパスワード機能 (ここまで) ===
+
+    // === 新規追加: 認証の判定ロジック (ここから) ===
+    const isAdminResetPage = pathParts[1] === "admin" && pathParts[2] === "reset" && pathParts[0] !== "api";
+    const isLoginPage = pathParts[1] === "admin" && pathParts[2] === "login" && pathParts[0] !== "api";
+    const isLogoutPage = pathParts[1] === "admin" && pathParts[2] === "logout" && pathParts[0] !== "api";
+
+    const isAdminResetApi = url.pathname.includes("/api/admin/reset");
+    const isLoginApi = url.pathname.includes("/api/admin/login");
+    const isAdminApi = url.pathname.includes("/api/admin/") && !isAdminResetApi && !isLoginApi;
+    const isAdminPage = pathParts[1] === "admin" && pathParts[0] !== "api" && !isAdminResetPage && !isLoginPage && !isLogoutPage;
+    // 🌟追加: 休薬マスタ管理／鑑別マスタ管理も通常の管理画面と同じログインで守る。
+    //   （条件が "admin" の完全一致だったため、これまで素通りで開けてしまっていた）
+    const isMasterAdmin = pathParts[0] !== "api" && (pathParts[1] === "kyu-admin" || pathParts[1] === "kanbetsu-admin");
+
+    if (isAdminApi || isAdminPage || isMasterAdmin) {
+      const targetHId = url.searchParams.get("h") || hospitalId;
+      const isAuth = await this.checkAuth(request, env, targetHId);
+      if (!isAuth) {
+        if (isAdminApi) {
+          return new Response(JSON.stringify({error: "認証エラー"}), { status: 401, headers: { "Content-Type": "application/json" } });
+        } else {
+          // ログイン画面へリダイレクト
+          // 🌟変更: 元のページを next に載せ、ログイン後にそこへ戻れるようにする
+          return Response.redirect(`${url.origin}/${targetHId}/admin/login?next=${buildNextParam(url)}`, 302);
+        }
+      }
+    }
+    // === 新規追加: 認証の判定ロジック (ここまで) ===
+
     // === 🦀休薬チェッカー: 管理画面ルート (ここから) ===
     // === 🦀新規追加: 休薬マスタ管理画面 /{hId}/kyu-admin（オプション施設のみ） ===
     if (hospitalId && pathParts[1] === "kyu-admin") {
@@ -4087,70 +4428,30 @@ export default {
           });
         }
       }
-        const kyuHelp = await loadHelpHtml(env.HELP_KYUYAKU_TEXT, "HELP_KYUYAKU_html", env);
-      // 🌟追加: 帳票フッター用に施設名を引いておく
-      const kyuHName = (await env.MEDI_KV.get(`${hospitalId}_name`)) || "";
-      return new Response(kyuyakuCheckerPage(hospitalId, isSuper, kyuHelp, kyuHName), {
+      const kyuHelp = await loadHelpHtml(env.HELP_KYUYAKU_TEXT, "HELP_KYUYAKU_html", env);
+      // 🌟修正: ヘッダーの施設名バッジと印刷フッターの施設名に使う。
+      //   ⚠️ 鑑別ルート側にある「HPTEST1ならテスト総合病院」のフォールバックが
+      //      ここに無かったため、KVに {hId}_name が無い環境では施設名が空になっていた。
+      let kyuHName = "";
+      try { kyuHName = (await env.MEDI_KV.get(`${hospitalId}_name`)) || ""; } catch (e) {}
+      if (hospitalId === "HPTEST1" && !kyuHName) kyuHName = "テスト総合病院";
+      // 🌟追加: 備考の定型文（施設設定 → 共通デフォルト → コード内蔵 の順に採用）
+      let kyuBiko = BIKO_PRESET_KYUYAKU_DEFAULT.slice();
+      try {
+        const [kd, ko] = await Promise.all([
+          env.MEDI_KV.get("KYUYAKU_DEFAULT_json", { cacheTtl: 300 }),
+          env.MEDI_KV.get(`${hospitalId}_kyuyaku_json`)
+        ]);
+        const kdj = kd ? JSON.parse(kd) : null;
+        const koj = ko ? JSON.parse(ko) : null;
+        if (kdj && Array.isArray(kdj.bikoPresets) && kdj.bikoPresets.length) kyuBiko = kdj.bikoPresets;
+        if (koj && Array.isArray(koj.bikoPresets) && koj.bikoPresets.length) kyuBiko = koj.bikoPresets;
+      } catch (e) { /* 壊れていても内蔵デフォルトで動く */ }
+      return new Response(kyuyakuCheckerPage(hospitalId, isSuper, kyuHelp, kyuHName, kyuBiko), {
         headers: { "Content-Type": "text/html; charset=utf-8" }
       });
     }
     // === 🦀休薬チェッカー: 利用ページルート (ここまで) ===
-
-    // === 新規追加: ユーザーパスワード機能 (ここから) ===
-    const isUserLoginPage = pathParts[1] === "login" && pathParts[0] !== "api";
-    const isUserLoginApi = url.pathname.includes("/api/userlogin");
-
-    if (hospitalId && env.MEDI_KV) {
-      const userPwd = await env.MEDI_KV.get(`${hospitalId}_userpwd`);
-      if (userPwd) {
-        let isUserAuth = false;
-        const cookieString = request.headers.get("Cookie");
-        if (cookieString) {
-          const cookies = cookieString.split(';').map(c => c.trim());
-          const targetCookie = `medikani_userauth_${hospitalId}=`;
-          const authCookie = cookies.find(c => c.startsWith(targetCookie));
-          if (authCookie) {
-            const cookiePwd = decodeURIComponent(authCookie.substring(targetCookie.length));
-            if (cookiePwd === userPwd) isUserAuth = true;
-          }
-        }
-        
-        // ログイン画面、ログインAPI、管理画面関連を除き、未認証ならブロック
-        const isExempt = isUserLoginPage || isUserLoginApi || pathParts[1] === "admin" || url.pathname.includes("/api/admin/");
-        if (!isUserAuth && !isExempt) {
-          if (url.pathname.includes("/api/")) {
-            return new Response(JSON.stringify({error: "ユーザー認証エラー"}), { status: 401, headers: { "Content-Type": "application/json" } });
-          } else {
-            return Response.redirect(`${url.origin}/${hospitalId}/login`, 302);
-          }
-        }
-      }
-    }
-    // === 新規追加: ユーザーパスワード機能 (ここまで) ===
-
-    // === 新規追加: 認証の判定ロジック (ここから) ===
-    const isAdminResetPage = pathParts[1] === "admin" && pathParts[2] === "reset" && pathParts[0] !== "api";
-    const isLoginPage = pathParts[1] === "admin" && pathParts[2] === "login" && pathParts[0] !== "api";
-    const isLogoutPage = pathParts[1] === "admin" && pathParts[2] === "logout" && pathParts[0] !== "api";
-
-    const isAdminResetApi = url.pathname.includes("/api/admin/reset");
-    const isLoginApi = url.pathname.includes("/api/admin/login");
-    const isAdminApi = url.pathname.includes("/api/admin/") && !isAdminResetApi && !isLoginApi;
-    const isAdminPage = pathParts[1] === "admin" && pathParts[0] !== "api" && !isAdminResetPage && !isLoginPage && !isLogoutPage;
-
-    if (isAdminApi || isAdminPage) {
-      const targetHId = url.searchParams.get("h") || hospitalId;
-      const isAuth = await this.checkAuth(request, env, targetHId);
-      if (!isAuth) {
-        if (isAdminApi) {
-          return new Response(JSON.stringify({error: "認証エラー"}), { status: 401, headers: { "Content-Type": "application/json" } });
-        } else {
-          // ログイン画面へリダイレクト
-          return Response.redirect(`${url.origin}/${targetHId}/admin/login`, 302);
-        }
-      }
-    }
-    // === 新規追加: 認証の判定ロジック (ここまで) ===
 
     // --- 1. Web画面の表示 (GETリクエスト) ---
     if (request.method === "GET") {
@@ -4732,7 +5033,9 @@ export default {
 
       // === 新規追加: 認証とリセット関連画面 (ここから) ===
       if (isLoginPage) {
-        return new Response(this.getLoginHTML(env, hospitalId, hospitalName), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+        // 🌟変更: next を検証してからHTMLに埋め込む（既定は従来どおり管理画面）
+        const nextTo = safeNextPath(url.searchParams.get("next"), hospitalId, `/${hospitalId}/admin`);
+        return new Response(this.getLoginHTML(env, hospitalId, hospitalName, nextTo), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
       }
       if (isLogoutPage) {
         return new Response(null, {
@@ -4747,7 +5050,9 @@ export default {
         return new Response(this.getResetHTML(env, hospitalId, hospitalName), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
       }
       if (isUserLoginPage) {
-        return new Response(this.getUserLoginHTML(hospitalId, hospitalName), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+        // 🌟変更: next を検証してからHTMLに埋め込む（既定は従来どおり施設トップ）
+        const nextTo = safeNextPath(url.searchParams.get("next"), hospitalId, `/${hospitalId}`);
+        return new Response(this.getUserLoginHTML(hospitalId, hospitalName, nextTo), { headers: { "Content-Type": "text/html;charset=UTF-8" } });
       }
       // === 新規追加: 認証とリセット関連画面 (ここまで) ===
 
@@ -4960,8 +5265,11 @@ export default {
       }
     }
 
-    // --- 🦀休薬チェッカー: 休薬マスタ保存API POST /api/admin/kyuyaku（パスワード必須） ---
-    if (request.method === "POST" && url.pathname.includes("/api/admin/kyuyaku")) {
+    // --- 🦀休薬チェッカー: 休薬マスタ保存API POST /api/kyuyaku/save ---
+    // 🌟変更: 以前は /api/admin/kyuyaku だったが、そのパスは管理画面のログインCookieも
+    //   必須になるため「正しいパスワードを入れても401」になっていた。鑑別の
+    //   /api/kanbetsu/save と同じ形にそろえ、この中で管理パスワードを照合する。
+    if (request.method === "POST" && url.pathname.includes("/api/kyuyaku/save")) {
       try {
         const hId = url.searchParams.get("h") || "";
         let planOk = false;
@@ -4977,8 +5285,9 @@ export default {
           return new Response(JSON.stringify({ success: false, error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
         }
         const body = await request.json();
-        const pwd = await env.MEDI_KV.get(`${hId}_pwd`);
-        if (!hId || !pwd || body.pwd !== pwd) {
+        // 🌟修正: 未設定施設の既定値も checkAuth と同じルールで解決する
+        const pwd = await resolveAdminPwd(hId, env);
+        if (!hId || body.pwd !== pwd) {
           return new Response(JSON.stringify({ success: false, error: "auth" }), { status: 403, headers: { "Content-Type": "application/json" } });
         }
         const data = body.data || {};
@@ -5017,9 +5326,9 @@ export default {
           }
         }
         const body = await request.json();
-        // 施設管理パスワードで認証（既存の {hId}_pwd を流用）
-        const pwd = await env.MEDI_KV.get(`${hId}_pwd`);
-        if (!hId || !pwd || body.pwd !== pwd) {
+        // 🌟修正: 施設管理パスワードで認証。未設定施設の既定値も checkAuth と同じルールで解決する。
+        const pwd = await resolveAdminPwd(hId, env);
+        if (!hId || body.pwd !== pwd) {
           return new Response(JSON.stringify({ success: false, error: "auth" }), { status: 403, headers: { "Content-Type": "application/json" } });
         }
         const stamp = new Date().toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" });
@@ -5037,6 +5346,7 @@ export default {
               doses: Array.isArray(cfg.doses) ? cfg.doses : [],
               tmplText: typeof cfg.tmplText === "string" ? cfg.tmplText : "",
               tmplSign: typeof cfg.tmplSign === "string" ? cfg.tmplSign : "",
+              bikoPresets: Array.isArray(cfg.bikoPresets) ? cfg.bikoPresets.slice(0, 10) : [],   // 🌟追加
               updatedAt: stamp
             }));
           } else {
@@ -5047,6 +5357,7 @@ export default {
               doses: Array.isArray(cfg.doses) ? cfg.doses : [],
               tmplText: typeof cfg.tmplText === "string" ? cfg.tmplText : "",
               tmplSign: typeof cfg.tmplSign === "string" ? cfg.tmplSign : "",
+              bikoPresets: Array.isArray(cfg.bikoPresets) ? cfg.bikoPresets.slice(0, 10) : [],   // 🌟追加
               updatedAt: stamp
             }));
           }
@@ -6164,7 +6475,7 @@ export default {
     </body></html>`;
   },
 
-  getLoginHTML(env, hId, hName = "") {
+  getLoginHTML(env, hId, hName = "", nextTo = "") {
     return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>ログイン - メディカニ</title>
     <link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani-icon.png">
@@ -6220,7 +6531,8 @@ export default {
           });
           const data = await res.json();
           if(data.success) {
-            window.location.href = "/${hId}/admin";
+            // 🌟変更: 直前に開こうとしていたページへ戻る（サーバ側で検証済みの値）
+            window.location.href = "${nextTo || `/${hId}/admin`}";
           } else {
             msg.innerText = "❌ " + data.error;
             msg.style.color = "#dc3545";
@@ -6233,7 +6545,7 @@ export default {
     </body></html>`;
   },
 
-  getUserLoginHTML(hId, hName = "") {
+  getUserLoginHTML(hId, hName = "", nextTo = "") {
     return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>スタッフログイン - メディカニ</title>
     <link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/kani-icon.png">
@@ -6282,7 +6594,8 @@ export default {
           });
           const data = await res.json();
           if(data.success) {
-            window.location.href = "/${hId}";
+            // 🌟変更: 直前に開こうとしていたページへ戻る（サーバ側で検証済みの値）
+            window.location.href = "${nextTo || `/${hId}`}";
           } else {
             msg.innerText = "❌ " + data.error;
             msg.style.color = "#dc3545";
