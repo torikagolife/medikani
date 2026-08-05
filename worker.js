@@ -1287,7 +1287,7 @@ ${mkHelpHtml(helpHtml)}
         <button class="btn pink" onclick="doSearch()">🔍 検索</button>
       </div>
       <button class="btn photo" onclick="document.getElementById('photoFile').click()">📷 お薬手帳・薬情を撮って読み取る</button>
-      <input type="file" id="photoFile" accept="image/*" style="display:none">
+      <input type="file" id="photoFile" accept="image/*" capture="environment" style="display:none">
     </div>
 
     <div class="card" id="chipBox">
@@ -1734,7 +1734,7 @@ function jisanPage(hId, hospitalName) {
       </div>
       <div class="hint">💡 英数字2文字以上で検索できます。全角半角違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。</div>
       <button class="btn-kokuin" onclick="document.getElementById('kokuinFile').click()">🧪 裸錠の刻印OCR<span class="beta">試験中</span></button>
-      <input type="file" id="kokuinFile" accept="image/*" style="display:none">
+      <input type="file" id="kokuinFile" accept="image/*" capture="environment" style="display:none">
       <div id="kokuinChips"></div>
       <div id="kokuinStatus"></div>
     </div>
@@ -2380,9 +2380,9 @@ ${mkHelpHtml(helpHtml)}
       <button class="btn-ocr" onclick="document.getElementById('ocrFile').click()">📷 手帳OCR</button>
       <button class="btn-qr" onclick="openQrScanner()">📱 手帳QR</button>
     </div>
-    <input type="file" id="ocrFile" accept="image/*" multiple style="display:none">
+    <input type="file" id="ocrFile" accept="image/*" capture="environment" style="display:none">
     <button class="btn-kokuin" onclick="document.getElementById('kokuinFile').click()">💊 裸錠の刻印OCR（試験中）</button>
-    <input type="file" id="kokuinFile" accept="image/*" style="display:none">
+    <input type="file" id="kokuinFile" accept="image/*" capture="environment" style="display:none">
     <div id="kokuinChips"></div>
     <!-- 🌟撤去: ➕お薬名で検索して追加 → 検索窓の「🔍 薬名」に統合。openPickerForAdd() は刻印なしチップから使うので関数は残す -->
     <div id="ocrStatus" style="text-align:center; font-size:13px; color:#888; margin-top:10px;"></div>
