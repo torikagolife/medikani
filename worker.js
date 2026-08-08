@@ -1652,378 +1652,7 @@ loadMaster();
 // === 🦀休薬チェッカー: 利用ページ生成関数 (ここまで) ===　
 
 // === 🦀メディカニ鑑別（持参薬サポート）: ページ生成関数 (ここから) ===
-function jisanPage(hId, hospitalName) {
-  const facilityBadge = hospitalName
-    ? '<div style="display:inline-block; background:#fff; color:#d63384; font-size:12px; font-weight:bold; padding:4px 14px; border-radius:20px; border:1.5px solid #ffb6c1; margin-top:8px;">🏥 ' + hospitalName + '</div>'
-    : '';
-  return `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="robots" content="noindex">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦀</text></svg>">
-<link rel="icon" type="image/png" sizes="512x512" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png">
-<link rel="apple-touch-icon" href="https://pub-c7c02d36bdac4c67bd68891550df9b90.r2.dev/icon_kan.png">
-<meta name="apple-mobile-web-app-title" content="メディカニ鑑別">
-<title>メディカニ鑑別 | 刻印から探す</title>
-<style>
-  :root { --pink:#d63384; --bg:#fffaf5; }
-  * { box-sizing:border-box; }
-  body { font-family:'Hiragino Kaku Gothic ProN','Meiryo',sans-serif; background:var(--bg); margin:0; padding:0; color:#333; }
-  .header { background:#ffe4e1; text-align:center; padding:22px 15px 18px; border-bottom:2px solid #ffd1dc; }
-  .header h1 { margin:0; font-size:20px; color:var(--pink); }
-  .header .sub { font-size:12px; color:#a58; margin-top:4px; }
-  .container { max-width:600px; margin:0 auto; padding:15px; }
-  .search-box { background:#fff; border:1.5px solid #ffd1dc; border-radius:15px; padding:15px; margin-top:10px; box-shadow:0 2px 8px rgba(214,51,132,0.06); }
-  .search-row { display:flex; gap:8px; }
-  #kokuin { flex:1; min-width:0; padding:13px 14px; font-size:16px; border:1.5px solid #ddd; border-radius:12px; outline:none; }
-  #kokuin:focus { border-color:var(--pink); }
-  #btnSearch { padding:13px 20px; background:var(--pink); color:#fff; border:none; border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; white-space:nowrap; }
-  #btnSearch:active { transform:scale(0.97); }
-  /* ▼ 🧪裸錠の刻印OCR（試験中）追加分 */
-  .btn-kokuin { width:100%; margin-top:10px; padding:14px 10px; background:#fff; color:var(--pink); border:2px solid var(--pink); border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; }
-  .btn-kokuin:active { transform:scale(0.97); }
-  .btn-kokuin .beta { font-size:11px; background:var(--pink); color:#fff; border-radius:8px; padding:1px 7px; margin-left:6px; vertical-align:middle; }
-  #kokuinChips { display:none; flex-wrap:wrap; gap:8px; margin-top:12px; }
-  .kchip { display:inline-block; background:#fff; border:1.5px solid var(--pink); color:var(--pink); border-radius:20px; padding:9px 14px; font-size:14px; font-weight:bold; cursor:pointer; line-height:1.2; }
-  .kchip:active { transform:scale(0.96); }
-  .kchip.low { border-style:dashed; border-color:#e0a800; color:#b8860b; }
-  .kchip.used { background:#f2fff2; border-color:#a5d6a7; color:#2e7d32; }
-  .kchip.noimp { background:#f5f5f5; border-color:#ddd; color:#aaa; cursor:default; }
-  .kchip .knote { font-size:10px; font-weight:normal; color:#999; margin-left:4px; }
-  #kokuinStatus { text-align:center; font-size:13px; color:#888; margin-top:10px; }
-  .hint { font-size:11px; color:#999; margin-top:8px; line-height:1.6; }
-  .notice { background:#fff8e1; border:1px solid #ffe082; border-radius:10px; padding:10px 12px; font-size:11px; color:#8a6d3b; line-height:1.6; margin-top:12px; }
-  #status { text-align:center; font-size:13px; color:#888; margin:18px 0 8px; }
-  /* ▼ メイン検索と同じカード・タグの見た目 */
-  .card { background: #fff; border-radius: 15px; padding: 16px; margin-bottom: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.03); border-left: 6px solid #ccc; transition: transform 0.1s; }
-  .card[data-key] { cursor: pointer; }
-  .card[data-key]:active { transform: scale(0.98); }
-  .card.adopted { border-left-color: #28a745; }
-  .tag { font-size: 11px; padding: 4px 10px; border-radius: 20px; background: #eee; font-weight: bold; white-space: nowrap; display: inline-block; }
-  .tag.green { background: #d1ffd1; color: #155724; }
-  .tag.red { background: #ffebeb; color: #dc3545; border: 1px solid #ffcdd2; }
-  .tag.blue { background: #e3f2fd; color: #0d47a1; border: 1px solid #bbdefb; }
-  /* ▼ 刻印行と画像検索ボタン */
-  .code-row { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:10px; }
-  .code-chip { background:#fdf2f7; color:var(--pink); border:1px dashed #f3a9c9; border-radius:8px; padding:3px 10px; font-size:13px; font-weight:bold; letter-spacing:0.5px; word-break:break-all; }
-  .btn-img { flex-shrink:0; background:#e8f5e9; color:#1b5e20; border:1px solid #a5d6a7; border-radius:10px; padding:6px 12px; font-size:12px; font-weight:bold; cursor:pointer; white-space:nowrap; }
-  .btn-img:active { transform:scale(0.96); }
-  .tap-hint { font-size:11px; color:#bbb; margin-top:8px; }
-  .pmda-link { display:inline-block; margin-top:8px; font-size:12px; color:#0056b3; text-decoration:none; border-bottom:1px dotted #0056b3; }
-  .no-results { text-align: center; padding: 40px 20px; color: #777; font-size: 15px; line-height: 1.6; }
-  .footer { text-align:center; font-size:10px; color:#c9a9b8; padding:25px 15px 30px; line-height:1.8; }
-  /* ▼ 詳細モーダル（メインのお薬詳細と同じ雰囲気） */
-  #modalOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(3px); display: none; z-index: 1000; justify-content: center; align-items: center; }
-  .modal { background: #fff; width: 92%; max-width: 400px; border-radius: 24px; padding: 25px; position: relative; overflow-y: auto; max-height: 85vh; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-  .modal-close { position: absolute; top: 12px; right: 16px; font-size: 22px; color: #bbb; cursor: pointer; background: none; border: none; line-height: 1; }
-  .alt-item { display: block; padding: 10px 12px; margin-bottom: 8px; border-radius: 10px; font-size: 13px; background: #f8f9fa; text-decoration: none; color: #444; border: 1px solid #eee; cursor: pointer; transition: background 0.2s; }
-  .alt-item:active { background: #e9ecef; }
-  .alt-item.adopted { background: #f2fff2; border-color: #d1ffd1; }
-  .alt-item.adopted:active { background: #e2ffe2; }
-</style></head>
-<body>
-  <div class="header">
-    <h1>🔍 メディカニ鑑別</h1>
-    <div class="sub">錠剤の刻印から候補を絞る、持参薬サポートツールですカニ🦀</div>
-    ${facilityBadge}
-  </div>
-  <div class="container">
-    <div class="search-box">
-      <div class="search-row">
-        <input type="text" id="kokuin" placeholder="刻印を入力（例：HP211、TA 111）" autocomplete="off">
-        <button id="btnSearch" onclick="doSearch()">🔍 検索</button>
-      </div>
-      <div class="hint">💡 英数字2文字以上で検索できます。全角半角違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。</div>
-      <button class="btn-kokuin" onclick="document.getElementById('kokuinFile').click()">🧪 裸錠の刻印OCR<span class="beta">試験中</span></button>
-      <input type="file" id="kokuinFile" accept="image/*" capture="environment" style="display:none">
-      <div id="kokuinChips"></div>
-      <div id="kokuinStatus"></div>
-    </div>
-    <div class="notice">
-      ⚠️ 本ツールはPMDA添付文書の識別コード情報をもとに候補を絞り込む<b>補助ツール</b>です。同じ刻印が複数の製品に該当する場合や、刻印情報が登録されていない製剤もあります。<b>最終的な同定は必ず現物・添付文書でご確認ください。</b>
-    </div>
-    <div id="status"></div>
-    <div id="results"></div>
-  </div>
-  <div class="footer">
-    🦀 メディカニ鑑別（β）<br>© 2026 🐔トリの巣ワークス メディカニ運営事務局
-  </div>
-
-  <div id="modalOverlay"><div class="modal" onclick="event.stopPropagation()">
-    <button class="modal-close" onclick="closeModal()">×</button>
-    <div id="modalBody"></div>
-  </div></div>
-
-  <script>
-    const HID = "${hId}";
-    const inp = document.getElementById('kokuin');
-    inp.addEventListener('keydown', function(e){ if (e.key === 'Enter') doSearch(); });
-    // 🖼️画像検索は委譲、カードタップは詳細モーダルを開く（ボタン優先）
-    document.getElementById('results').addEventListener('click', function(e){
-      const b = e.target.closest('.btn-img');
-      if (b) { openImageSearch(b.getAttribute('data-name') || ''); return; }
-      const c = e.target.closest('.card[data-key]');
-      if (c) openDetail(c.getAttribute('data-key'));
-    });
-    document.getElementById('modalOverlay').addEventListener('click', closeModal);
-
-    function closeModal() { document.getElementById('modalOverlay').style.display = 'none'; }
-
-    // カテゴリ絵文字（キーの[内][外][注]から判定）
-    function formEmoji(key) {
-      if (!key) return '💊';
-      if (key.indexOf('[注]') !== -1) return '💉';
-      if (key.indexOf('[外]') !== -1) return '🧴';
-      return '💊';
-    }
-
-    // 🖼️ 画像検索: Googleイメージ検索を小窓ポップアップで開く（画面遷移しない）
-    // ※Googleはiframe埋め込みを禁止しているため、モーダル内表示は技術的に不可。
-    function openImageSearch(name) {
-      const url = 'https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(name + ' 錠剤');
-      window.open(url, 'kanbetsu_img', 'width=900,height=700,scrollbars=yes');
-    }
-
-    // ===== 🧪 裸錠の刻印OCR（試験中）: 撮影→刻印チップ→タップで検索窓に入れて検索 =====
-    var jKokuinChips = [];
-
-    function jCompress(file, maxDim, quality) {
-      return new Promise(function(resolve, reject){
-        const img = new Image();
-        const fr = new FileReader();
-        fr.onload = function(){ img.src = fr.result; };
-        fr.onerror = reject;
-        img.onload = function(){
-          let w = img.width, h = img.height;
-          if (Math.max(w, h) > maxDim) { const sc = maxDim / Math.max(w, h); w = Math.round(w*sc); h = Math.round(h*sc); }
-          const cv = document.createElement('canvas');
-          cv.width = w; cv.height = h;
-          cv.getContext('2d').drawImage(img, 0, 0, w, h);
-          resolve(cv.toDataURL('image/jpeg', quality));
-        };
-        img.onerror = reject;
-        fr.readAsDataURL(file);
-      });
-    }
-
-    async function jPostKokuin(file, st) {
-      const plans = [ {dim:1600,q:0.8}, {dim:1280,q:0.75}, {dim:1000,q:0.7} ];
-      let lastErr = null;
-      for (let a = 0; a < plans.length; a++) {
-        const dataUrl = await jCompress(file, plans[a].dim, plans[a].q);
-        if (a > 0) st.textContent = '📶 電波が弱いので軽量化して再送信中(' + (a+1) + '回目)...🦀';
-        try {
-          const r = await fetch('/api/kokuin-ocr', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ h: HID, image: dataUrl })
-          });
-          const raw = await r.text();
-          try { return JSON.parse(raw); }
-          catch (pe) { throw new Error('HTTP ' + r.status + ' 非JSON応答'); }
-        } catch (err) { lastErr = err; }
-      }
-      throw lastErr;
-    }
-
-    function jRenderKokuinChips() {
-      const box = document.getElementById('kokuinChips');
-      if (!jKokuinChips.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
-      box.style.display = 'flex';
-      let html = '';
-      for (const c of jKokuinChips) {
-        if (!c.imprint) {
-          html += '<span class="kchip noimp">（刻印なし）' + (c.note ? '<span class="knote">' + escHtml(c.note) + '</span>' : '') + '</span>';
-        } else {
-          const cls = c.used ? 'kchip used' : (c.confidence === '低' ? 'kchip low' : 'kchip');
-          html += '<span class="' + cls + '" data-jchip="' + c.i + '">' + (c.used ? '✅ ' : '🔍 ') + escHtml(c.imprint)
-            + (c.confidence === '低' ? '<span class="knote">自信なし</span>' : '')
-            + (c.note ? '<span class="knote">' + escHtml(c.note) + '</span>' : '')
-            + '</span>';
-        }
-      }
-      box.innerHTML = html;
-    }
-
-    async function jHandleKokuinFile(e) {
-      const files = Array.from(e.target.files || []);
-      e.target.value = '';
-      if (!files.length) return;
-      const st = document.getElementById('kokuinStatus');
-      st.textContent = '💊 錠剤の刻印を読み取り中...🦀（少し時間がかかります）';
-      try {
-        const data = await jPostKokuin(files[0], st);
-        if (data.error) { st.textContent = '⚠️ 読み取りエラー: ' + data.error; return; }
-        if (!data.pills || !data.pills.length) { st.textContent = '📭 この写真からは錠剤が読み取れませんでしたカニ🦀💦 明るい場所で錠剤同士を離して撮ってみてね！'; return; }
-        for (const ppp of data.pills) {
-          jKokuinChips.push({ i: jKokuinChips.length, imprint: ppp.imprint || '', confidence: ppp.confidence || '中', note: ppp.note || '', used: false });
-        }
-        st.textContent = '✅ ' + data.pills.length + '錠分の刻印を読み取りましたカニ🦀 チップをタップすると検索できます！';
-        jRenderKokuinChips();
-      } catch (err) {
-        st.textContent = '⚠️ 電波が不安定で送信できませんでしたカニ🦀💦（3回試しました）電波の良い場所で再度お試しください。';
-      }
-    }
-
-    function jHandleChipTap(e) {
-      const ch = e.target.closest('[data-jchip]');
-      if (!ch) return;
-      const c = jKokuinChips[Number(ch.getAttribute('data-jchip'))];
-      if (!c || !c.imprint) return;
-      inp.value = String(c.imprint).replace(/【[^】]*】/g, '').trim();
-      c.used = true;
-      jRenderKokuinChips();
-      doSearch();
-      document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-
-    // ページ読み込み時にリスナーを登録（★doSearchの外で登録するのが重要）
-    (function bindKokuinOcr(){
-      const fileEl = document.getElementById('kokuinFile');
-      const chipsEl = document.getElementById('kokuinChips');
-      if (fileEl) fileEl.addEventListener('change', jHandleKokuinFile);
-      if (chipsEl) chipsEl.addEventListener('click', jHandleChipTap);
-    })();
-
-    async function doSearch() {
-      const q = inp.value.trim();
-      const st = document.getElementById('status');
-      const res = document.getElementById('results');
-      res.innerHTML = '';
-      if (q.replace(/\s/g,'').length < 2) {
-        st.textContent = '2文字以上入力してくださいカニ🦀';
-        return;
-      }
-      st.textContent = '検索中...🦀';
-      try {
-        const r = await fetch('/api/jisan-search?h=' + encodeURIComponent(HID) + '&q=' + encodeURIComponent(q));
-        const data = await r.json();
-        if (data.error === 'index_not_found') { st.textContent = '刻印データが未登録です。管理者にお問い合わせください。'; return; }
-        if (data.error) { st.textContent = 'エラーが発生しました（' + data.error + '）'; return; }
-        if (!data.results || data.results.length === 0) {
-          st.textContent = '';
-          res.innerHTML = '<div class="no-results">📭 「' + escHtml(q) + '」に一致する刻印は見つかりませんでしたカニ🦀💦<br><span style="font-size:12px;color:#aaa;">刻印の一部だけで再検索してみてね！</span></div>';
-          return;
-        }
-        st.textContent = data.count + '件の候補が見つかりました' + (data.count >= 50 ? '（上位50件を表示。文字を足して絞り込めます）' : '') + 'カニ🦀';
-        let html = '';
-        for (const i of data.results) {
-          const nameForImg = String(i.name || '');
-          html += '<div class="card ' + (i.isAdopted ? 'adopted' : '') + '"' + (i.key ? ' data-key="' + escHtml(i.key) + '"' : '') + '>'
-            + '<div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; font-size:15px; gap:8px;">'
-              + '<div style="flex:1; line-height:1.4;">' + formEmoji(i.key) + ' ' + escHtml(i.name) + '</div>'
-              + '<div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">'
-                + (i.isBrand ? '<span class="tag blue">先</span>' : '')
-                + (i.price && i.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>' + escHtml(i.price) + '</span>' : '')
-                + (i.yj && i.yj.indexOf('8') === 0 ? '<span class="tag red">麻</span>' : '')
-                + (i.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">未採用</span>')
-              + '</div>'
-            + '</div>'
-            + (i.spec ? '<div style="font-size:12px; color:#888; margin-top:8px;">📦 ' + escHtml(i.spec) + ' ' + (i.type ? '/ ' + escHtml(i.type) : '') + '</div>' : '')
-            + '<div class="code-row">'
-              + '<span class="code-chip">刻印: ' + escHtml(i.code) + '</span>'
-              + (i.own ? '<span class="code-chip" style="border-style:solid; background:#e8f5e9; color:#2e7d32; border-color:#c8e6c9;">🏥 施設登録</span>' : '')
-              + '<button class="btn-img" data-name="' + escHtml(nameForImg) + '">🖼️ 画像検索</button>'
-            + '</div>'
-            + (i.key
-                ? '<div class="tap-hint">👆 タップでお薬詳細・切替候補を表示カニ🦀</div>'
-                : '<a class="pmda-link" href="https://www.pmda.go.jp/PmdaSearch/rdSearch/02/' + escHtml(i.yj) + '?user=1" target="_blank" onclick="event.stopPropagation()">📄 添付文書等のお薬詳細を見る（PMDA公式）</a>')
-            + '</div>';
-        }
-        res.innerHTML = html;
-      } catch (e) {
-        st.textContent = '通信エラーが発生したカニ🦀💦 少し待ってからもう一度お試しください。';
-      }
-    }
-
-    // ===== お薬詳細モーダル（メインのメディカニと同じ内容構成） =====
-    async function openDetail(key) {
-      const ov = document.getElementById('modalOverlay');
-      const body = document.getElementById('modalBody');
-      body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">読み込み中...🦀</div>';
-      ov.style.display = 'flex';
-      try {
-        const r = await fetch('/api/detail?key=' + encodeURIComponent(key) + '&h=' + encodeURIComponent(HID));
-        const d = await r.json();
-        if (!d || d.error) { body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">詳細を取得できませんでしたカニ🦀💦</div>'; return; }
-
-        let html = '';
-        // ヘッダー（薬品名・タグ）
-        html += '<div style="font-weight:bold; font-size:17px; color:#0056b3; line-height:1.4; margin-bottom:8px; padding-right:20px;">' + formEmoji(d.label || d.key) + ' ' + escHtml(d.fullName || '') + '</div>';
-        html += '<div style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:12px;">'
-          + (d.isBrand ? '<span class="tag blue">先</span>' : '')
-          + (d.price && d.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>' + escHtml(d.price) + '</span>' : '')
-          + (d.yj && d.yj.indexOf('8') === 0 ? '<span class="tag red">麻</span>' : '')
-          + (d.isAdopted ? '<span class="tag green">🏥 採用</span>' : '<span class="tag">🏠 未採用のお薬ですカニ🦀</span>')
-          + '</div>';
-
-        // 施設メモ（あれば）
-        if (d.comment) {
-          html += '<div style="background:#fff5f7; border-left:5px solid #ff8da1; border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:12px; white-space:pre-wrap;">📝 ' + escHtml(d.comment) + '</div>';
-        }
-
-        // PMDA要約（効能・用法・禁忌）… メインと同じレイアウト
-        if (d.pmdaEfficacy || d.pmdaUsage || d.pmdaContra) {
-          html += '<div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:12px; padding:15px; margin-bottom:12px; font-size:13px; line-height:1.6; color:#333;">';
-          if (d.pmdaEfficacy) {
-            html += '<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:4px;">'
-              + '<div style="color:#0056b3; font-weight:bold;">💊 効能・効果</div>'
-              + (d.pmdaLastUpdated ? '<div style="font-size:11px; color:#888;">🗒️最終更新日：' + escHtml(d.pmdaLastUpdated) + '</div>' : '')
-              + '</div><div style="margin-bottom:12px;">' + d.pmdaEfficacy + '</div>';
-          }
-          if (d.pmdaUsage) html += '<div style="color:#28a745; font-weight:bold; margin-bottom:4px;">🕒 用法・用量</div><div style="margin-bottom:12px;">' + d.pmdaUsage + '</div>';
-          if (d.pmdaContra) html += '<div style="color:#d63384; font-weight:bold; margin-bottom:4px;">🚫 禁忌</div><div>' + d.pmdaContra + '</div>';
-          html += '</div>';
-          html += '<div style="background:#fff8e1; border:1px solid #ffe082; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:11px; line-height:1.5; color:#8a6d3b;">⚠️ 本要約はAIが生成した参考情報であり、正確性を保証するものではありません。実際の使用にあたっては、必ず最新の添付文書をご確認ください。</div>';
-        }
-
-        // ボタン: 画像検索 & PMDA公式
-        html += '<button class="btn-img" data-name="' + escHtml(d.fullName || '') + '" style="width:100%; padding:12px; margin-bottom:8px; font-size:13px;">🖼️ この薬の画像を検索する</button>';
-        if (d.yj && d.yj !== 'NONE') {
-          html += '<a href="https://www.pmda.go.jp/PmdaSearch/rdSearch/02/' + escHtml(d.yj) + '?user=1" target="_blank" style="display:flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:14px; background:#fff0f5; border:2px solid #d63384; color:#d63384; border-radius:12px; text-decoration:none; font-weight:bold; font-size:14px; box-sizing:border-box; margin-bottom:15px; box-shadow:0 2px 4px rgba(214,51,132,0.1);">📄 添付文書等のお薬詳細を見る 🔍</a>';
-        }
-
-        // 切替候補（採用薬が一番上＝APIのソート済み）
-        html += '<hr style="border:none; border-top:1px dashed #ccc; margin:15px 0;">';
-        html += '<p style="font-weight:bold; font-size:14px; margin-bottom:12px; color:#555;">🔄 同成分・切替候補カニ🦀</p>';
-        if (d.alts && d.alts.length) {
-          for (const a of d.alts) {
-            html += '<div class="alt-item ' + (a.isAdopted ? 'adopted' : '') + '" data-altkey="' + escHtml(a.key) + '">'
-              + '<div style="display:flex; flex-direction:column; gap:6px;">'
-                + '<div style="display:flex; justify-content:space-between; align-items:flex-start;">'
-                  + '<span style="font-weight:bold; line-height:1.3;">' + formEmoji(a.key) + ' ' + escHtml(a.name) + ' <span style="font-weight:normal;color:#666;font-size:11px;">' + escHtml(a.spec || '') + '</span></span>'
-                  + '<span style="font-weight:bold;color:' + (a.isAdopted ? '#28a745' : '#aaa') + '; white-space:nowrap; margin-left:8px;">' + (a.isAdopted ? '🏥 採用' : '') + ' ❯</span>'
-                + '</div>'
-                + '<div style="display:flex; gap:4px; align-items:center;">'
-                  + (a.isBrand ? '<span class="tag blue" style="font-size:10px; padding:2px 6px;">先</span>' : '')
-                  + (a.yj && a.yj.indexOf('8') === 0 ? '<span class="tag red" style="font-size:10px; padding:2px 6px;">麻</span>' : '')
-                  + (a.price && a.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;font-size:10px; padding:2px 6px;"><span style="color:#e65100;">￥</span>' + escHtml(a.price) + '</span>' : '')
-                + '</div>'
-              + '</div></div>';
-          }
-        } else {
-          html += '<div style="font-size:12px; color:#999; text-align:center; padding:10px;">切替候補が見つかりませんでしたカニ🦀</div>';
-        }
-
-        body.innerHTML = html;
-      } catch (e) {
-        body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">通信エラーが発生したカニ🦀💦</div>';
-      }
-    }
-
-    // モーダル内のクリック委譲（切替候補タップ→その薬の詳細へ、画像検索ボタン）
-    document.getElementById('modalBody').addEventListener('click', function(e){
-      const b = e.target.closest('.btn-img');
-      if (b) { openImageSearch(b.getAttribute('data-name') || ''); return; }
-      const a = e.target.closest('.alt-item[data-altkey]');
-      if (a) openDetail(a.getAttribute('data-altkey'));
-    });
-
-    function escHtml(s) {
-      return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-  </script>
-</body></html>`;
-}
-// === 🦀メディカニ鑑別: ページ生成関数 (ここまで) ===
+// === 🦀メディカニ鑑別: jisanページ（持参薬サポート単独）は廃止。/{hId}/jisan は /kanbetsu へリダイレクト ===
 
 // === 🦀持参薬鑑別: KV照合ヘルパー（薬品名の配列→マスタ/採用とマッチング） (ここから) ===
 async function kanbetsuMatchNames(names, hId, env) {
@@ -2326,6 +1955,10 @@ ${MK_MENU_CSS}
   .yoho-prev { background:#f7f7f7; border-radius:9px; padding:8px 10px; margin-top:8px; font-size:13px; color:#333; word-break:break-all; }
   .yoho-prev .pl { font-size:10px; color:#999; display:block; }
   .yoho-prev .pa { font-size:11px; color:#888; margin-top:3px; display:block; }
+  /* 🌟追加: プレビュー行（上部）と「表示通りに決定」ボタン */
+  .yoho-prevrow { display:flex; gap:8px; align-items:stretch; margin-bottom:10px; }
+  .yoho-okdisp { flex:0 0 auto; background:#d63384; color:#fff; border:none; border-radius:9px; padding:6px 12px; font-size:12px; font-weight:bold; cursor:pointer; line-height:1.25; white-space:nowrap; }
+  .yoho-okdisp:active { transform:scale(0.97); }
   .yoho-btns { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:10px; }
   .yoho-btns button { padding:11px 4px; border:none; border-radius:10px; font-weight:bold; font-size:13px; cursor:pointer; }
   /* ===== 🌟追加: 帳票の定型テキスト／署名 ===== */
@@ -2376,11 +2009,14 @@ ${mkHelpHtml(helpHtml)}
       </div>
       <div class="hint" id="searchHint">💡 英数字2文字以上で検索できます。大文字小文字・全角半角・スペースの違いは気にしなくてOKカニ🦀 一部だけでも検索できます（例:「211」）。<BR>ℹ️刻印情報が登録されていない製剤もあります。管理画面で追加可能です。</div>
     </div>
+    <!-- 🌟変更: 手帳写真（カメラ即起動）／手帳画像（ファイル選択）／手帳QR の3ボタン -->
     <div class="ocr-row">
-      <button class="btn-ocr" onclick="document.getElementById('ocrFile').click()">📷 手帳OCR</button>
+      <button class="btn-ocr" onclick="document.getElementById('ocrFile').click()">📷 手帳写真</button>
+      <button class="btn-ocr" style="background:#ec89ac;" onclick="document.getElementById('ocrFileImg').click()">🖼️ 手帳画像</button>
       <button class="btn-qr" onclick="openQrScanner()">📱 手帳QR</button>
     </div>
     <input type="file" id="ocrFile" accept="image/*" capture="environment" style="display:none">
+    <input type="file" id="ocrFileImg" accept="image/*" style="display:none">
     <button class="btn-kokuin" onclick="document.getElementById('kokuinFile').click()">💊 裸錠の刻印OCR（試験中）</button>
     <input type="file" id="kokuinFile" accept="image/*" capture="environment" style="display:none">
     <div id="kokuinChips"></div>
@@ -2391,6 +2027,8 @@ ${mkHelpHtml(helpHtml)}
       <div id="qrCount">お薬手帳のQRを枠に合わせてね🦀</div>
       <div id="qrHint">QRが複数あるときは1個ずつ順番にかざしてください</div>
       <button class="qr-btn go" id="qrGoBtn" onclick="analyzeQr()" style="display:none;">この内容で解析する</button>
+      <input type="file" id="qrImgFile" accept="image/*" style="display:none">
+      <button class="qr-btn" style="background:#0d6efd; color:#fff;" onclick="document.getElementById('qrImgFile').click()">🖼️ QRを写真から読む</button>
       <button class="qr-btn cancel" onclick="closeQrScanner()">閉じる</button>
     </div>
     <!-- 🌟変更: 検索候補（status／results）を持参薬リストより【上】に移動 -->
@@ -2459,6 +2097,11 @@ ${mkHelpHtml(helpHtml)}
   <!-- 🌟追加: 用法選択モーダル（用量プルダウン＋単位プルダウン＋用法マスタ＋自由入力） -->
   <div id="yohoOverlay"><div class="yoho-modal" onclick="event.stopPropagation()">
     <div class="yoho-ttl" id="yohoTitle">📝 用法を入力</div>
+    <!-- 🌟変更: 帳票・画面の表示（プレビュー）を一番上に。右に「表示通りに決定」 -->
+    <div class="yoho-prevrow">
+      <div class="yoho-prev" id="yohoPrev" style="flex:1; margin-top:0;"></div>
+      <button class="yoho-okdisp" onclick="saveYoho()">表示通り<br>に決定</button>
+    </div>
     <div class="yoho-dose">
       <span>1回</span>
       <select id="yohoDose"></select>
@@ -2467,7 +2110,6 @@ ${mkHelpHtml(helpHtml)}
     <input type="text" class="yoho-find" id="yohoFind" placeholder="用法をしぼり込み（例：毎食後、就寝前）" autocomplete="off">
     <div class="yoho-list" id="yohoList"></div>
     <input type="text" class="yoho-free" id="yohoFree" placeholder="自由入力（用法を選ぶとここに入ります。直接書き換えもOK）">
-    <div class="yoho-prev" id="yohoPrev"></div>
     <div class="yoho-btns">
       <button style="background:#eee; color:#666;" onclick="closeYoho()">キャンセル</button>
       <button style="background:#fff0f5; color:#d63384; border:1.5px solid #ffd1dc;" onclick="clearYoho()">クリア</button>
@@ -2818,16 +2460,16 @@ ${MK_MENU_JS}
       throw lastErr;
     }
 
-    document.getElementById('ocrFile').addEventListener('change', async function(e){
-      const files = Array.from(e.target.files || []);
-      e.target.value = '';
+    // 🌟変更: 手帳写真・手帳画像で共通利用。OCR解像度を引き上げ（大きく・遅くても精度優先）
+    async function handleOcrFiles(files){
+      files = Array.from(files || []);
       if (!files.length) return;
       const st = document.getElementById('ocrStatus');
       for (let i = 0; i < files.length; i++) {
         st.textContent = '📷 ' + (i+1) + '/' + files.length + ' 枚目を読み取り中...🦀（少し時間がかかります）';
         try {
           const res = await postImageWithRetry('/api/kanbetsu-ocr', files[i],
-            [ {dim:1600, q:0.8}, {dim:1200, q:0.7}, {dim:900, q:0.6} ],
+            [ {dim:2200, q:0.85}, {dim:1600, q:0.8}, {dim:1100, q:0.7} ],
             st, '📷 ' + (i+1) + '/' + files.length + ' 枚目');
           const data = res.data;
           if (data.error) { st.textContent = '⚠️ 読み取りエラー: ' + data.error; continue; }
@@ -2842,7 +2484,9 @@ ${MK_MENU_JS}
         }
         renderJList();
       }
-    });
+    }
+    document.getElementById('ocrFile').addEventListener('change', function(e){ const f = Array.from(e.target.files||[]); e.target.value=''; handleOcrFiles(f); });
+    document.getElementById('ocrFileImg').addEventListener('change', function(e){ const f = Array.from(e.target.files||[]); e.target.value=''; handleOcrFiles(f); });
 
     // 画像を長辺1600pxのJPEGに圧縮（通信量とOCRコストの節約）
     // ===== 📱 手帳QR（JAHIS規格）: 1個ずつスキャンして貯める =====
@@ -2880,6 +2524,27 @@ ${MK_MENU_JS}
       }
     }
 
+    function decodeImageData(d){
+      if (!window.jsQR || !d) return null;
+      try { return window.jsQR(d.data, d.width, d.height, { inversionAttempts: 'attemptBoth' }); }
+      catch (e) { return null; }
+    }
+    // 🌟追加: デコード結果を登録（QRの重複は自動でまとめる）
+    function registerQrText(code){
+      if (!code) return false;
+      var text = '';
+      try { text = new TextDecoder('shift-jis').decode(new Uint8Array(code.binaryData)); }
+      catch (e) { text = code.data || ''; }
+      const key = text.slice(0, 40) + '|' + text.length;
+      if (text && !qrSeen[key]) {
+        qrSeen[key] = 1; qrTexts.push(text);
+        document.getElementById('qrCount').textContent = '✅ ' + qrTexts.length + '個 読み取り済み';
+        document.getElementById('qrGoBtn').style.display = 'block';
+        if (navigator.vibrate) navigator.vibrate(60);
+        return true;
+      }
+      return false;
+    }
     function qrTick() {
       if (!qrScanning) return;
       const v = document.getElementById('qrVideo');
@@ -2888,22 +2553,33 @@ ${MK_MENU_JS}
         cv.width = v.videoWidth; cv.height = v.videoHeight;
         const ctx = cv.getContext('2d');
         ctx.drawImage(v, 0, 0, cv.width, cv.height);
-        const img = ctx.getImageData(0, 0, cv.width, cv.height);
-        const code = window.jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
-        if (code) {
-          var text = '';
-          try { text = new TextDecoder('shift-jis').decode(new Uint8Array(code.binaryData)); }
-          catch (e) { text = code.data || ''; }
-          const key = text.slice(0, 40) + '|' + text.length;
-          if (text && !qrSeen[key]) {
-            qrSeen[key] = 1; qrTexts.push(text);
-            document.getElementById('qrCount').textContent = '✅ ' + qrTexts.length + '個 読み取り済み';
-            document.getElementById('qrGoBtn').style.display = 'block';
-            if (navigator.vibrate) navigator.vibrate(60);
-          }
+        // まず全画面。外したら枠内（中央60%）を切り出して再挑戦（小さめQR対策）
+        let code = decodeImageData(ctx.getImageData(0, 0, cv.width, cv.height));
+        if (!code) {
+          const cw = Math.max(1, Math.round(cv.width * 0.6)), ch = Math.max(1, Math.round(cv.height * 0.6));
+          const cx = Math.round((cv.width - cw) / 2), cy = Math.round((cv.height - ch) / 2);
+          try { code = decodeImageData(ctx.getImageData(cx, cy, cw, ch)); } catch (e) {}
         }
+        registerQrText(code);
       }
       requestAnimationFrame(qrTick);
+    }
+    // 🌟追加: ライブで読めない時の保険。QRを撮った写真/画像から読み取る（複数スケールで挑戦）
+    async function qrFromImageFile(file){
+      if (!file) return;
+      const st = document.getElementById('qrCount');
+      try { await loadJsQR(); } catch (e) { st.textContent = '⚠️ QRライブラリを読み込めませんでした'; return; }
+      const dataUrl = await new Promise(function(res, rej){ const fr = new FileReader(); fr.onload = function(){ res(fr.result); }; fr.onerror = rej; fr.readAsDataURL(file); });
+      const im = await new Promise(function(res, rej){ const x = new Image(); x.onload = function(){ res(x); }; x.onerror = rej; x.src = dataUrl; });
+      let found = 0;
+      for (const dim of [1600, 1100, 2200, 800]) {
+        let w = im.width, h = im.height;
+        if (Math.max(w, h) > dim) { const sc = dim / Math.max(w, h); w = Math.round(w * sc); h = Math.round(h * sc); }
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d'); ctx.drawImage(im, 0, 0, w, h);
+        if (registerQrText(decodeImageData(ctx.getImageData(0, 0, w, h)))) found++;
+      }
+      st.textContent = found ? ('✅ ' + qrTexts.length + '個 読み取り済み（写真から）') : '📭 写真からQRを読み取れませんでした。もっと大きく・平らに写してね🦀';
     }
 
     function stopQrCamera() {
@@ -2915,6 +2591,10 @@ ${MK_MENU_JS}
       document.getElementById('qrOverlay').style.display = 'none';
     }
 
+    document.addEventListener('DOMContentLoaded', function(){
+      var qf = document.getElementById('qrImgFile');
+      if (qf) qf.addEventListener('change', function(e){ const f = (e.target.files||[])[0]; e.target.value=''; qrFromImageFile(f); });
+    });
     async function analyzeQr() {
       if (!qrTexts.length) return;
       stopQrCamera();
@@ -3006,7 +2686,11 @@ ${MK_MENU_JS}
         if (data.error) { st.textContent = '⚠️ 読み取りエラー: ' + data.error; return; }
         if (!data.pills || !data.pills.length) { st.textContent = '📭 この写真からは錠剤が読み取れませんでしたカニ🦀💦 明るい場所で錠剤同士を離して撮ってみてね！'; return; }
         for (const p of data.pills) {
-          kokuinChipList.push({ i: kokuinChipList.length, imprint: p.imprint || '', kind: p.kind || '', confidence: p.confidence || '中', note: p.note || '', used: false });
+          const cleaned = cleanImprint(p.imprint || '');
+          // 🌟変更: ロゴ等の非文字しか無い刻印は「刻印なし」チップに寄せる（Ω等を表示しない）
+          let note = p.note || '';
+          if (!cleaned && (p.imprint || '').trim()) { note = (note ? note + ' / ' : '') + 'ロゴ等のみ'; }
+          kokuinChipList.push({ i: kokuinChipList.length, imprint: cleaned, kind: p.kind || '', confidence: p.confidence || '中', note: note, used: false });
         }
         st.textContent = '✅ ' + data.pills.length + '錠分の刻印を読み取りましたカニ🦀 チップをタップしてお薬を特定してね！';
         renderKokuinChips();
@@ -3015,6 +2699,16 @@ ${MK_MENU_JS}
       }
     });
 
+    // 🌟追加: 刻印文字のクリーニング（メーカーロゴ等の非文字を除去。Ω等はチップに出さない）
+    function cleanImprint(s){
+      if (!s) return '';
+      var t = String(s).replace(/【[^】]*】/g, ' ');   // ロゴ等の注記を除去
+      t = t.normalize('NFKC');                        // 全角→半角に統一
+      // 許可: 英数字・カタカナ・長音/中黒・一部記号のみ残す（Ω・記号・図形などは落とす）
+      t = t.replace(/[^0-9A-Za-z\u30A0-\u30FF\u3005ー・.\-\/+ ]/g, ' ');
+      t = t.replace(/\s+/g, ' ').trim();
+      return t;
+    }
     function renderKokuinChips() {
       const box = document.getElementById('kokuinChips');
       if (!kokuinChipList.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
@@ -3380,6 +3074,25 @@ ${MK_MENU_JS}
       return ['内服', '頓服', '外用', '外用(眼)', '外用(鼻)', '外用(他)'];
     }
 
+    // 🌟追加: 手帳のusage文字列から {dose, unit, name} を推定（best-effort）
+    function normUnit(u){
+      u = String(u||'').normalize('NFKC');
+      if (u==='C'||u==='cap'||u==='カプセル') return 'カプセル';
+      if (u==='ml') return 'mL';
+      return u;
+    }
+    function parseTechoUsage(raw){
+      const s0 = String(raw||'').trim();
+      if (!s0) return { dose:'', unit:'', name:'' };
+      const s = s0.normalize('NFKC');
+      const uPat = '(?:カプセル|吸入|puff|単位|包|錠|枚|滴|本|管|袋|mL|ml|mg|g|C)';
+      const m = s.match(new RegExp('1回\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(' + uPat + ')'));
+      if (m) {
+        const rest = s.replace(m[0], ' ').replace(/\s+/g, ' ').trim();
+        return { dose:m[1], unit:normUnit(m[2]), name:rest };
+      }
+      return { dose:'', unit:'', name:s };   // 明示の「1回◯◯」が無ければ全文を用法本文に
+    }
     function openYoho(id, field) {
       const it = kanbetsuList.find(function(x){ return x.id === id; });
       if (!it) return;
@@ -3395,19 +3108,26 @@ ${MK_MENU_JS}
       if (field === 'dusage') ttl = '📝 ' + (it.d.type === 'keep' ? '継続後' : '切替後') + 'の用法を入力';
       document.getElementById('yohoTitle').textContent = ttl;
 
-      // 用量・単位のプルダウンを組み立て
+      // 🌟変更: 「1回1錠」の強制デフォルトを廃止。先頭に空（未指定）を置く。
+      //         前回値が無ければ手帳の記載（OCR/QRのusage）から既定を推定して合わせる。
       const dsel = document.getElementById('yohoDose');
       const usel = document.getElementById('yohoUnit');
-      dsel.innerHTML = (YOHO_CFG.doses || ['1']).map(function(d){ return '<option value="' + escHtml(d) + '">' + escHtml(d) + '</option>'; }).join('');
-      usel.innerHTML = (YOHO_CFG.units || ['錠']).map(function(u){ return '<option value="' + escHtml(u) + '">' + escHtml(u) + '</option>'; }).join('');
-      // デフォルトは「1」「錠」。前回値があればそれを復元
-      dsel.value = curD || ((YOHO_CFG.doses || []).indexOf('1') !== -1 ? '1' : (YOHO_CFG.doses || ['1'])[0]);
-      usel.value = curU || ((YOHO_CFG.units || []).indexOf('錠') !== -1 ? '錠' : (YOHO_CFG.units || ['錠'])[0]);
-      if (!dsel.value) dsel.selectedIndex = 0;
-      if (!usel.value) usel.selectedIndex = 0;
+      let defD = curD, defU = curU, defName = curN;
+      if (!defD && !defU && !defName && cur) {
+        const p = parseTechoUsage(cur);
+        defD = p.dose; defU = p.unit; defName = p.name;
+      }
+      const doseVals = [''].concat((YOHO_CFG.doses || ['1']).filter(function(x){ return x !== ''; }));
+      const unitVals = [''].concat((YOHO_CFG.units || ['錠']).filter(function(x){ return x !== ''; }));
+      if (defD && doseVals.indexOf(defD) === -1) doseVals.push(defD);   // マスタに無い用量も選べるように
+      if (defU && unitVals.indexOf(defU) === -1) unitVals.push(defU);
+      dsel.innerHTML = doseVals.map(function(d){ return '<option value="' + escHtml(d) + '">' + (d === '' ? '（未指定）' : escHtml(d)) + '</option>'; }).join('');
+      usel.innerHTML = unitVals.map(function(u){ return '<option value="' + escHtml(u) + '">' + (u === '' ? '（未指定）' : escHtml(u)) + '</option>'; }).join('');
+      dsel.value = defD || '';
+      usel.value = defU || '';
 
       // 自由入力欄には「用法名だけ」を入れる（用量・単位はプルダウン側で持つ）
-      document.getElementById('yohoFree').value = curN || (curD ? '' : cur);
+      document.getElementById('yohoFree').value = defName || ((defD || defU) ? '' : cur) || '';
       document.getElementById('yohoFind').value = '';
       renderYohoList('');
       updateYohoPrev();
@@ -4294,14 +4014,24 @@ export default {
 
       // 📦 jsQRライブラリを同一オリジンで配信（ページCSP回避）。jsDelivrを中継しエッジキャッシュ
       if (url.pathname === "/vendor/jsqr.js") {
-        try {
-          let up = await fetch("https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js", { cf: { cacheTtl: 604800, cacheEverything: true } });
-          if (!up.ok) up = await fetch("https://unpkg.com/jsqr@1.4.0/dist/jsQR.js");
-          const jsBody = await up.text();
-          return new Response(jsBody, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=604800" } });
-        } catch (e) {
-          return new Response("/* jsQR load failed */", { status: 502, headers: { "content-type": "application/javascript; charset=utf-8" } });
+        // 🌟変更: 3つのCDNを順に試し、確実にjsQRを配信（読込失敗でQRが使えない事故を防ぐ）
+        const jsqrSrcs = [
+          "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js",
+          "https://unpkg.com/jsqr@1.4.0/dist/jsQR.js",
+          "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"
+        ];
+        for (const s of jsqrSrcs) {
+          try {
+            const up = await fetch(s, { cf: { cacheTtl: 604800, cacheEverything: true } });
+            if (up.ok) {
+              const jsBody = await up.text();
+              if (jsBody && jsBody.length > 1000) {
+                return new Response(jsBody, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=604800" } });
+              }
+            }
+          } catch (e) { /* 次のCDNへ */ }
         }
+        return new Response("/* jsQR load failed (all CDNs) */", { status: 502, headers: { "content-type": "application/javascript; charset=utf-8" } });
       }
 
     const pathParts = url.pathname.split('/').filter(p => p);
@@ -4465,22 +4195,9 @@ export default {
         hospitalName = "テスト総合病院";
       }
 
-      // === 🦀メディカニ鑑別（持参薬サポート）: ページルート /{hId}/jisan (ここから) ===
-      // 顧客マスタZ列「持参薬オプション」に◯がある施設（KV: {hId}_jisan = "1"）だけ利用可。
-      // スーパー管理施設(HPTEST1)は常に可（テスト用）。
+      // === 🦀メディカニ鑑別: /{hId}/jisan は廃止 → /kanbetsu へリダイレクト ===
       if (hospitalId && pathParts[1] === "jisan") {
-        const isSuperJisan = hospitalId === (env.SUPER_ADMIN_HID || "HPTEST1");
-        if (!isSuperJisan) {
-          const jisanFlag = await env.MEDI_KV.get(`${hospitalId}_jisan`) || "";
-          if (jisanFlag !== "1") {
-            return new Response("持参薬オプションが有効ではありませんカニ🦀", {
-              status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" }
-            });
-          }
-        }
-        return new Response(jisanPage(hospitalId, hospitalName), {
-          headers: { "Content-Type": "text/html; charset=utf-8" }
-        });
+        return Response.redirect(new URL(`/${hospitalId}/kanbetsu`, url.origin).toString(), 301);
       }
       // === 🦀メディカニ鑑別: ページルート (ここまで) ===
 
