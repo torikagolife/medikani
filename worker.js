@@ -68,6 +68,53 @@ function extractDrugData(parts, yj) {
 const KEYLIST_CACHE = new Map();
 const KEYLIST_TTL_MS = 180000; // 3分
 
+// 🌟v9追加: AI要約が「記載なし」等のプレースホルダを返している項目を空に潰すヘルパー。
+// PMDA_DB には「原文に禁忌の記載が無い」ケースで summary.contraindications = "記載なし"
+// が入っている（約5,700件）。素通しすると if(d.pmdaContra) が truthy になり、
+// 画面に「🚫 禁忌：記載なし」という中身のない見出しが出てしまうため、ここで空にする。
+const PMDA_PLACEHOLDER_RE = /^(記載なし|記載無し|記載がありません|該当なし|該当無し|なし|無し|特になし|情報なし|不明|―|—|‐|-|N\/?A)[。．.]?$/i;
+function cleanPmdaText(t) {
+  const s = String(t == null ? "" : t).replace(/[\s\u3000]+/g, " ").trim();
+  if (!s) return "";
+  if (PMDA_PLACEHOLDER_RE.test(s.replace(/[\s\u3000]/g, ""))) return "";
+  return String(t);
+}
+
+// 🌟v7追加: YJコードからPMDA_DBの要約（効能・用法・禁忌）を引くヘルパー。
+// handleWebDetail 内の処理と同じ探し方（12桁→前方9桁→前方7桁）を関数として切り出したもの。
+// 既存の handleWebDetail には手を入れず、YJ指定の口（handleWebDetailByYj）から使う。
+async function pmdaSummaryByYj(yj, env) {
+  const out = { pmdaEfficacy: "", pmdaUsage: "", pmdaContra: "", pmdaWarnings: null, pmdaLastUpdated: "" };
+  const clean = String(yj || "").replace(/[^a-zA-Z0-9]/g, "");
+  if (!clean || clean === "NONE" || !env || !env.PMDA_DB) return out;
+  try {
+    let v = await env.PMDA_DB.get(clean);
+    if (!v && clean.length >= 9) {
+      const l9 = await env.PMDA_DB.list({ prefix: clean.substring(0, 9), limit: 1 });
+      if (l9.keys.length > 0) v = await env.PMDA_DB.get(l9.keys[0].name);
+    }
+    if (!v && clean.length >= 7) {
+      const l7 = await env.PMDA_DB.list({ prefix: clean.substring(0, 7), limit: 1 });
+      if (l7.keys.length > 0) v = await env.PMDA_DB.get(l7.keys[0].name);
+    }
+    if (v) {
+      const d = JSON.parse(v);
+      if (d.summary) {
+        // 🌟v9変更: 「記載なし」等は空に潰す
+        out.pmdaEfficacy   = cleanPmdaText(d.summary.efficacy);
+        out.pmdaUsage      = cleanPmdaText(d.summary.usage);
+        out.pmdaContra     = cleanPmdaText(d.summary.contraindications);
+        out.pmdaWarnings   = d.warnings || null;
+        out.pmdaLastUpdated = d.last_updated || "";
+      } else {
+        out.pmdaEfficacy = cleanPmdaText(d.efficacy);
+        out.pmdaUsage    = cleanPmdaText(d.usage);
+      }
+    }
+  } catch (e) { /* 拾えなくても致命的ではないので空のまま返す */ }
+  return out;
+}
+
 async function listKeysCached(cacheKey, prefixes, env) {
   const now = Date.now();
   const hit = KEYLIST_CACHE.get(cacheKey);
@@ -649,23 +696,37 @@ function kyuyakuAdminPage(hId, isSuper) {
   .field textarea { min-height: 64px; }
   .cat-desc { font-size: 11px; color: #666; line-height: 1.6; }
   .match-info { font-size: 11px; margin-top: 6px; color: #555; background: #f0f6ff; border-radius: 6px; padding: 6px 8px; display: none; }
+  /* 🌟v8追加: 処置分類の1行 */
+  .cat-row { display: flex; align-items: flex-start; gap: 6px; padding: 8px; border: 1px solid #e0e6ea; border-radius: 10px; margin-bottom: 6px; background: #fafcfd; }
+  .cat-row .btn { flex-shrink: 0; }
 </style></head><body>
 
-<div class="header">
-  <h1>🦀 休薬マスタ管理</h1>
-  <div class="sub">施設ID: ${hId} ${isSuper ? "／👑 共通デフォルト編集権限あり" : ""}</div>
+<!-- 🌟v7追加: ヘッダー右上に「戻る」ボタン（休薬チェッカーへ） ここから -->
+<div class="header" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+  <div style="min-width:0;">
+    <h1>🦀 休薬マスタ管理</h1>
+    <div class="sub">施設ID: ${hId} ${isSuper ? "／👑 共通デフォルト編集権限あり" : ""}</div>
+  </div>
+  <a href="/${hId}/kyuyaku" style="flex-shrink:0; background:rgba(255,255,255,.2); border:1px solid rgba(255,255,255,.65); color:#fff; text-decoration:none; font-size:12px; font-weight:bold; padding:9px 13px; border-radius:10px; white-space:nowrap;">↩️ 戻る</a>
 </div>
+<!-- 🌟v7追加: ヘッダー右上に「戻る」ボタン ここまで -->
 
 <div class="wrap">
-  <div id="statusBanner" class="banner red" style="display:none;">
-    ⚠️ このマスタは<b>監修前のドラフト</b>です。薬剤師の監修が完了するまで臨床使用しないでください。
-  </div>
+  <!-- 🌟v8削除: 「監修前のドラフト」警告バナーは廃止しました -->
   <div class="banner">
     値はすべて「参考情報」です。実際の休薬判断は<b>処方医・薬剤師の確認</b>を前提としてください。編集したセルは施設カスタム値（<span class="tag ovr">施設</span>）として保存され、共通デフォルト（<span class="tag def">既定</span>）より優先されます。
   </div>
 
   <div class="card">
-    <h2>処置分類</h2>
+    <!-- 🌟v8変更: 処置分類をこの画面から追加・編集・削除できるようにした -->
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
+      <h2 style="margin:0;">処置分類</h2>
+      <button class="btn small green" onclick="openCatEdit(null)">＋ 分類を追加</button>
+    </div>
+    <div style="font-size:11px; color:#999; line-height:1.6; margin-bottom:8px;">
+      追加した分類は<b>一番上</b>に表示され、休薬チェッカーのプルダウンでも先頭に出ますカニ🦀
+      追加直後は全成分が「処方元に照会」になっているので、各成分のマスを押して設定してください。
+    </div>
     <div id="catList" class="cat-desc">読み込み中…🦀</div>
   </div>
 
@@ -724,7 +785,20 @@ function kyuyakuAdminPage(hId, isSuper) {
     <h3 id="yjModalTitle">YJコード照合</h3>
     <div style="font-size:11px; color:#777; margin-bottom:8px;">この成分の判定に使うYJコード（先頭7桁）の一覧です。ここに登録された番号の薬が休薬判定でヒットします。</div>
     <div id="yjList"></div>
-    <div style="display:flex; gap:6px; margin:10px 0; flex-wrap:wrap;">
+
+    <!-- 🌟v8追加: 薬名・成分名で検索してYJ7を追加する -->
+    <div style="border-top:1px dashed #ddd; margin:12px 0 8px; padding-top:10px;">
+      <div style="font-size:11px; color:#777; margin-bottom:6px;">🔍 薬名・成分名で検索して追加（採用薬以外もマスタ全体から探せます）</div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        <input id="yjSearchQ" placeholder="例: ワーファリン／エリキュース" style="flex:1; min-width:150px; border:1px solid #ccc; border-radius:8px; padding:8px; font-size:13px;">
+        <button class="btn small blue" onclick="searchYj()">🔍 検索</button>
+      </div>
+      <div id="yjSearchStatus" style="font-size:11px; color:#888; margin:6px 0 4px;"></div>
+      <div id="yjSearchList" style="max-height:240px; overflow-y:auto;"></div>
+    </div>
+
+    <div style="font-size:11px; color:#777; margin:10px 0 4px;">⌨️ 手入力で追加</div>
+    <div style="display:flex; gap:6px; margin:0 0 10px; flex-wrap:wrap;">
       <input id="yjAddCode" placeholder="YJ先頭7桁" maxlength="7" style="width:110px; border:1px solid #ccc; border-radius:8px; padding:8px; font-size:13px;">
       <input id="yjAddName" placeholder="成分名（任意）" style="flex:1; min-width:130px; border:1px solid #ccc; border-radius:8px; padding:8px; font-size:13px;">
       <button class="btn small green" onclick="addYjManual()">＋追加</button>
@@ -732,6 +806,22 @@ function kyuyakuAdminPage(hId, isSuper) {
     <div style="display:flex; gap:8px; justify-content:space-between; flex-wrap:wrap;">
       <button class="btn small blue" onclick="autoAddFromAdopted()">🔍 採用薬から自動追加</button>
       <button class="btn gray" onclick="closeModal('yjModalBg')">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 🌟v8追加: 処置分類 編集／追加モーダル -->
+<div class="modal-bg" id="catModalBg">
+  <div class="modal">
+    <h3 id="catModalTitle">処置分類を追加</h3>
+    <div id="catDefNote" style="display:none; font-size:11px; color:#9b1c1c; background:#fde8e8; border:1px solid #f5b5b5; border-radius:8px; padding:8px 10px; margin-bottom:10px; line-height:1.6;">
+      これは<b>共通デフォルト</b>の分類です。ここでの変更は「👑 共通デフォルトとして保存」でのみ反映されます。
+    </div>
+    <div class="field"><label>分類名（プルダウンに出る名前）</label><input id="catLabel" placeholder="例: 硬膜外麻酔"></div>
+    <div class="field"><label>説明（管理画面の一覧に出ます・任意）</label><textarea id="catDesc" placeholder="例: 出血リスクが高く、抗血栓薬は原則休薬"></textarea></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn gray" onclick="closeModal('catModalBg')">キャンセル</button>
+      <button class="btn red" onclick="saveCatEdit()">反映</button>
     </div>
   </div>
 </div>
@@ -757,6 +847,7 @@ function kyuyakuAdminPage(hId, isSuper) {
 
 <script>
 const HID = "${hId}";
+const IS_SUPER = ${isSuper ? "true" : "false"};   // 🌟v8追加: 共通デフォルトの分類を編集できるのは超管理者だけ
 let DEF = null;      // 共通デフォルト
 let OVR = null;      // 施設オーバーライド { components: [...] }
 let ovrMap = {};     // id -> 施設カスタム成分
@@ -789,12 +880,21 @@ function esc(s) { return String(s == null ? "" : s).replace(/&/g,'&amp;').replac
 
 // --- 描画 ---
 function render() {
-  document.getElementById('statusBanner').style.display = (DEF.status === "DRAFT_UNREVIEWED") ? 'block' : 'none';
+  // 🌟v8削除: 「監修前のドラフト」バナーの表示切替は廃止しました
 
-  const cats = DEF.categories || [];
-  document.getElementById('catList').innerHTML = cats.map(c =>
-    '<div style="margin-bottom:4px;"><b>' + esc(c.label) + '</b>：' + esc(c.desc) + '</div>'
-  ).join('') || '分類が未設定です';
+  // 🌟v8変更: 施設が追加した処置分類を先頭に混ぜ、編集・削除ボタン付きで表示する
+  const cats = mergedCategories();
+  document.getElementById('catList').innerHTML = cats.map(function(c){
+    return '<div class="cat-row">'
+      + '<div style="flex:1; min-width:0;">'
+        + '<b>' + esc(c.label) + '</b>'
+        + (c._facility ? '<span class="tag ovr" style="margin-left:6px;">施設追加</span>' : '<span class="tag def" style="margin-left:6px;">既定</span>')
+        + '<div style="font-size:11px; color:#888; margin-top:3px; line-height:1.5;">' + esc(c.desc || '') + '</div>'
+      + '</div>'
+      + ((c._facility || IS_SUPER) ? '<button class="btn small gray" onclick="openCatEdit(\\'' + esc(c.id) + '\\')">✏️</button>' : '')
+      + (c._facility ? '<button class="btn small red" onclick="removeCat(\\'' + esc(c.id) + '\\')">🗑️</button>' : '')
+      + '</div>';
+  }).join('') || '分類が未設定です';
 
   const comps = mergedComponents();
   const byClass = {};
@@ -822,7 +922,6 @@ function compCard(c, cats) {
 
   const badges =
     (c._ovr ? '<span class="tag ovr">施設</span>' : '<span class="tag def">既定</span>') +
-    (c.reviewedBy ? '<span class="tag ok">✔ 監修済 ' + esc(c.reviewedBy) + '</span>' : '<span class="tag ng">未監修</span>') +
     (c.verified ? '<span class="tag ok">YJ照合済(' + (c.yj7List || []).length + ')</span>' : '<span class="tag ng">YJ未照合</span>');
 
   return '<div class="card">' +
@@ -848,11 +947,64 @@ function ensureOvr(id) {
 }
 function getComp(id) { return ovrMap[id] || (DEF.components || []).find(c => c.id === id); }
 
+// ===== 🌟v8追加: 処置分類（大分類）の施設追加 ここから =====
+// 施設が追加した分類は OVR.catAdd に入れ、共通デフォルトより【前】に並べる。
+// これで「追加したものが一番上に出る」＝チェッカーのプルダウンでも先頭になる。
+function facilityCats() {
+  if (!OVR) return [];
+  if (!Array.isArray(OVR.catAdd)) OVR.catAdd = [];
+  return OVR.catAdd;
+}
+function mergedCategories() {
+  const out = [], seen = {};
+  const push = function(c, isFac) {
+    if (!c || !c.id) return;
+    if (seen[c.id] || seen['L:' + c.label]) return;   // 共通に取り込み済みの分類が二重に出ないように
+    seen[c.id] = 1; seen['L:' + c.label] = 1;
+    out.push(Object.assign({}, c, { _facility: isFac }));
+  };
+  facilityCats().forEach(function(c){ push(c, true); });
+  (DEF.categories || []).forEach(function(c){ push(c, false); });
+  return out;
+}
+let editingCatEditId = null;
+function openCatEdit(catId) {
+  editingCatEditId = catId || null;
+  const c = catId ? mergedCategories().find(function(x){ return x.id === catId; }) : null;
+  document.getElementById('catModalTitle').textContent = catId ? '処置分類の編集' : '処置分類を追加';
+  document.getElementById('catLabel').value = c ? (c.label || '') : '';
+  document.getElementById('catDesc').value  = c ? (c.desc  || '') : '';
+  document.getElementById('catDefNote').style.display = (c && !c._facility) ? 'block' : 'none';
+  document.getElementById('catModalBg').style.display = 'flex';
+}
+function saveCatEdit() {
+  const label = document.getElementById('catLabel').value.trim();
+  const desc  = document.getElementById('catDesc').value.trim();
+  if (!label) { alert('分類名を入力してくださいカニ🦀'); return; }
+  if (!editingCatEditId) {
+    facilityCats().unshift({ id: 'cat_' + Date.now(), label: label, desc: desc });   // 先頭に差し込む
+  } else {
+    const f = facilityCats().find(function(x){ return x.id === editingCatEditId; });
+    if (f) { f.label = label; f.desc = desc; }
+    else {
+      const base = (DEF.categories || []).find(function(x){ return x.id === editingCatEditId; });
+      if (base) { base.label = label; base.desc = desc; }   // 共通デフォルト保存でのみ永続化される
+    }
+  }
+  closeModal('catModalBg'); render();
+}
+function removeCat(catId) {
+  if (!confirm('この処置分類を削除しますか？（成分ごとに設定した内容も表示されなくなります）')) return;
+  OVR.catAdd = facilityCats().filter(function(x){ return x.id !== catId; });
+  render();
+}
+// ===== 🌟v8追加: 処置分類（大分類）の施設追加 ここまで =====
+
 // --- セル編集 ---
 function openCellEdit(compId, catId) {
   editingCompId = compId; editingCatId = catId;
   const c = getComp(compId);
-  const cat = (DEF.categories || []).find(x => x.id === catId);
+  const cat = mergedCategories().find(x => x.id === catId);   // 🌟v8変更: 施設追加分も対象
   const r = (c.rules || {})[catId] || { action: "consult", days: null, comment: "" };
   document.getElementById('cellModalTitle').textContent = c.component + ' × ' + (cat ? cat.label : catId);
   document.getElementById('cellAction').value = r.action || "consult";
@@ -894,7 +1046,7 @@ function saveCompMeta() {
   if (!editingCompId) {
     const id = 'custom_' + Date.now();
     c = ovrMap[id] = { id, rules: {}, yj7List: [], verified: false };
-    (DEF.categories || []).forEach(cat => c.rules[cat.id] = { action: "consult", days: null, comment: "" });
+    mergedCategories().forEach(cat => c.rules[cat.id] = { action: "consult", days: null, comment: "" });   // 🌟v8変更: 施設追加分も初期化
   } else {
     c = ensureOvr(editingCompId);
   }
@@ -962,8 +1114,78 @@ function applyYj(compId, yjJoined) {
 function openYjModal(compId) {
   editingCompId = compId;
   renderYjModal();
+  // 🌟v8追加: 前回の検索結果を持ち越さないようにクリア
+  yjSearchResults = [];
+  document.getElementById('yjSearchQ').value = '';
+  document.getElementById('yjSearchStatus').textContent = '';
+  document.getElementById('yjSearchList').innerHTML = '';
   document.getElementById('yjModalBg').style.display = 'flex';
 }
+
+// ===== 🌟v8追加: 薬名検索からYJ7を登録する ここから =====
+// 既存の休薬チェッカー用検索API（/api/kyuyaku/search）をそのまま流用。
+// 返ってきた薬をYJ先頭7桁でまとめ、まだ登録していないものだけ「＋追加」を出す。
+let yjSearchResults = [];
+async function searchYj() {
+  const q  = document.getElementById('yjSearchQ').value.trim();
+  const st = document.getElementById('yjSearchStatus');
+  const box = document.getElementById('yjSearchList');
+  if (q.length < 2) { st.textContent = '2文字以上で入力してくださいカニ🦀'; return; }
+  st.textContent = '🔍 検索中...🦀'; box.innerHTML = '';
+  try {
+    const res = await fetch('/api/kyuyaku/search?h=' + encodeURIComponent(HID) + '&q=' + encodeURIComponent(q));
+    const data = await res.json();
+    const results = data.results || [];
+    // 数字キーのオブジェクトは Object.keys で昇順に並び替えられてしまうので、
+    // 検索の並び順（採用薬が上）を order 配列で保持する
+    const map = {}, order = [];
+    results.forEach(function(r){
+      const y7 = String(r.yj || '').substring(0, 7);
+      if (y7.length !== 7) return;
+      if (!map[y7]) { map[y7] = { yj7: y7, name: r.name, component: r.component || '', adopted: false, n: 0 }; order.push(y7); }
+      map[y7].n++;
+      if (r.isAdopted) map[y7].adopted = true;
+    });
+    yjSearchResults = order.map(function(k){ return map[k]; });
+    if (!yjSearchResults.length) {
+      st.textContent = '📭 該当なしカニ🦀 別の言い方（成分名・先発品名）でも試してみてね';
+      return;
+    }
+    st.textContent = '🔎 YJコード ' + yjSearchResults.length + '件が見つかりましたカニ🦀 「＋追加」で登録してね';
+    renderYjSearch();
+  } catch (e) {
+    st.textContent = '⚠️ 通信エラーが発生しましたカニ🦀';
+  }
+}
+function renderYjSearch() {
+  const c = getComp(editingCompId);
+  const have = (c && c.yj7List) ? c.yj7List : [];
+  document.getElementById('yjSearchList').innerHTML = yjSearchResults.map(function(r, i){
+    const dup = have.indexOf(r.yj7) !== -1;
+    return '<div style="display:flex; align-items:center; gap:8px; padding:7px 8px; border:1px solid #e0e6ea; border-radius:8px; margin-bottom:5px; background:' + (dup ? '#f5f5f5' : '#fff') + ';">'
+      + '<b style="font-family:monospace; font-size:13px;">' + esc(r.yj7) + '</b>'
+      + '<div style="flex:1; min-width:0; font-size:12px; color:#555; line-height:1.4;">' + esc(r.name)
+        + (r.component ? '<div style="font-size:10px; color:#999;">' + esc(r.component) + '</div>' : '')
+      + '</div>'
+      + (r.adopted ? '<span class="tag ok">🏥採用</span>' : '')
+      + (dup ? '<span class="tag def">登録済</span>' : '<button class="btn small green" onclick="addYjFromSearch(' + i + ')">＋追加</button>')
+      + '</div>';
+  }).join('');
+}
+function addYjFromSearch(i) {
+  const r = yjSearchResults[i];
+  if (!r) return;
+  const c = ensureOvr(editingCompId);
+  c.yj7List = c.yj7List || [];
+  if (c.yj7List.indexOf(r.yj7) === -1) {
+    c.yj7List.push(r.yj7);
+    c.yjNames = c.yjNames || {};
+    c.yjNames[r.yj7] = r.component || r.name || '';
+  }
+  c.verified = c.yj7List.length > 0;
+  renderYjModal(); renderYjSearch(); render();
+}
+// ===== 🌟v8追加: 薬名検索からYJ7を登録する ここまで =====
 function nameOfYj(c, yj) {
   if (c.yjNames && c.yjNames[yj]) return c.yjNames[yj];
   if (adoptedCache) {
@@ -1074,9 +1296,12 @@ async function saveMaster(scope) {
     if (!confirm('【共通デフォルト】を上書きします。全施設の既定値に影響しますが、よろしいですか？')) return;
     // デフォルト保存＝現在のマージ結果をそのまま新デフォルトにする
     const comps = mergedComponents().map(c => { const x = { ...c }; delete x._ovr; delete x._facilityOnly; return x; });
-    data = { ...DEF, components: comps };
+    // 🌟v8追加: 施設で追加した処置分類も共通デフォルトの分類に取り込む
+    const catsAll = mergedCategories().map(c => { const x = { ...c }; delete x._facility; return x; });
+    data = { ...DEF, categories: catsAll, components: comps };
   } else {
-    data = { version: 1, components: Object.values(ovrMap) };
+    // 🌟v8追加: 施設で追加した処置分類（catAdd）も一緒に保存する
+    data = { version: 1, components: Object.values(ovrMap), catAdd: facilityCats() };
   }
   // 🌟追加: 備考の定型文（最大10件）を一緒に保存する
   data.bikoPresets = splitLines(document.getElementById('bikoPresetIn').value).slice(0, 10);
@@ -1153,6 +1378,10 @@ ${MK_MENU_CSS}
   .btn:active { transform:scale(0.97); }
   /* 📷ボタンは鑑別のOCRボタンと同じ水色系に */
   .btn.photo { width:100%; margin-top:10px; background:#f0fafd; color:#00838f; border:1.5px dashed #4dd0e1; padding:13px; }
+  /* 🌟v8追加: 「写真を撮る」「画像を選ぶ」の2ボタン並び */
+  .photo-row { display:flex; gap:8px; }
+  .photo-row .btn.photo { flex:1; width:auto; min-width:0; }
+  .btn.photo.img { background:#fff0f5; color:#c2185b; border-color:#f8bbd0; }
   .btn.print { width:100%; margin-top:6px; background:#00838f; color:#fff; padding:15px; font-size:15px; border-radius:12px; }
   .btn.ghost { background:#f4f4f4; color:#666; font-size:12px; padding:9px 12px; border-radius:10px; }
   #status { text-align:center; font-size:13px; color:#888; margin:8px 0; min-height:18px; }
@@ -1286,8 +1515,14 @@ ${mkHelpHtml(helpHtml)}
         <input type="text" id="nameInput" placeholder="薬の名前・成分名（例：ワーファリン／アスピリン）" autocomplete="off">
         <button class="btn pink" onclick="doSearch()">🔍 検索</button>
       </div>
-      <button class="btn photo" onclick="document.getElementById('photoFile').click()">📷 お薬手帳・薬情を撮って読み取る</button>
+      <!-- 🌟v8変更: 鑑別と同じく「カメラ即起動」と「画像を選ぶ」を分離 -->
+      <div class="photo-row">
+        <button class="btn photo" onclick="document.getElementById('photoFile').click()">📷 写真を撮る</button>
+        <button class="btn photo img" onclick="document.getElementById('photoFileImg').click()">🖼️ 画像を選ぶ</button>
+      </div>
+      <div style="font-size:11px; color:#aaa; text-align:center; margin-top:6px;">お薬手帳・薬情を読み取って薬名の候補を出しますカニ🦀</div>
       <input type="file" id="photoFile" accept="image/*" capture="environment" style="display:none">
+      <input type="file" id="photoFileImg" accept="image/*" style="display:none">
     </div>
 
     <div class="card" id="chipBox">
@@ -1369,7 +1604,8 @@ async function loadMaster(){
     const defIds = {}; (DEF.components||[]).forEach(function(c){ defIds[c.id]=1; });
     let comps = (DEF.components||[]).map(function(c){ return ovrMap[c.id] ? Object.assign({}, ovrMap[c.id]) : Object.assign({}, c); });
     (OVR.components||[]).forEach(function(c){ if(!defIds[c.id]) comps.push(Object.assign({}, c)); });
-    MASTER.cats = DEF.categories || [];
+    // 🌟v8変更: 施設が追加した処置分類（catAdd）を先頭に並べる
+    MASTER.cats = (Array.isArray(OVR.catAdd) ? OVR.catAdd : []).concat(DEF.categories || []);
     MASTER.comps = comps;
     YJ7IDX = {};
     comps.forEach(function(c){ (c.yj7List||[]).forEach(function(y){ YJ7IDX[String(y).slice(0,7)] = c; }); });
@@ -1511,7 +1747,8 @@ function compressImage(file){
   });
 }
 
-document.getElementById('photoFile').addEventListener('change', async function(e){
+// 🌟v8変更: 「写真を撮る」「画像を選ぶ」の2つの入力から同じ処理を呼ぶ
+async function handleKyuPhoto(e){
   const files = Array.from(e.target.files || []); e.target.value = '';
   if (!files.length) return;
   const st = document.getElementById('status');
@@ -1528,7 +1765,9 @@ document.getElementById('photoFile').addEventListener('change', async function(e
     renderChips();
     document.getElementById('chipBox').scrollIntoView({ behavior:'smooth', block:'center' });
   } catch(e){ st.textContent = '⚠️ 通信エラーが発生しましたカニ🦀'; }
-});
+}
+document.getElementById('photoFile').addEventListener('change', handleKyuPhoto);
+document.getElementById('photoFileImg').addEventListener('change', handleKyuPhoto);
 
 function renderChips(){
   const box = document.getElementById('chipBox');
@@ -1861,6 +2100,13 @@ function kanbetsuPage(hId, hospitalName, helpHtml) {
   .jitem.adopted { border-left-color:#28a745; }
   .jitem.unmatched { border-left-color:#ffc107; background:#fffdf5; }
   .jitem .del { position:absolute; top:8px; right:10px; background:none; border:none; color:#ccc; font-size:16px; cursor:pointer; padding:4px; }
+  /* 🌟v7追加: ℹ️お薬情報ボタン & 別レイヤーのポップアップ ここから */
+  .jitem .infoi { position:absolute; top:7px; right:34px; background:none; border:none; color:#0d6efd; font-size:15px; cursor:pointer; padding:3px; line-height:1; }
+  .info-btn { background:#eaf3ff; border:1px solid #b8d8ff; color:#0d6efd; font-size:11px; font-weight:bold; border-radius:8px; padding:4px 10px; cursor:pointer; white-space:nowrap; }
+  .info-btn:active { background:#d6e9ff; }
+  #infoOverlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.55); backdrop-filter:blur(3px); display:none; z-index:3500; justify-content:center; align-items:center; }
+  #infoOverlay .modal { max-width:440px; }
+  /* 🌟v7追加: ℹ️お薬情報ボタン & 別レイヤーのポップアップ ここまで */
   .usage-line { font-size:13px; color:#555; margin-top:8px; background:#f8f9fa; border:1px dashed #ddd; border-radius:8px; padding:7px 10px; cursor:pointer; }
   .usage-line .lbl { color:#0d6efd; font-weight:bold; font-size:11px; }
   .ocr-src { font-size:10px; color:#bbb; margin-top:6px; }
@@ -2051,6 +2297,13 @@ ${mkHelpHtml(helpHtml)}
     <button class="modal-close" onclick="closeModal()">×</button>
     <div id="modalBody"></div>
   </div></div>
+
+  <!-- 🌟v7追加: お薬情報ポップアップ（継続/切替モーダルの【上】に重なる別レイヤー） ここから -->
+  <div id="infoOverlay"><div class="modal" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeInfo()">×</button>
+    <div id="infoBody"></div>
+  </div></div>
+  <!-- 🌟v7追加: お薬情報ポップアップ ここまで -->
 
   <div id="editModalOverlay"><div class="edit-modal" onclick="event.stopPropagation()">
     <div id="editModalTitle" style="font-weight:bold; font-size:14px; color:#555; margin-bottom:10px;">✏️ 編集</div>
@@ -2394,6 +2647,112 @@ ${MK_MENU_JS}
     function escHtml(s) {
       return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
+
+    // ===== 🌟v7追加: お薬情報ポップアップ（薬効・用法・禁忌） ここから =====
+    // openDetail / openDecide はどちらも #modalOverlay を共有しているため、
+    // ここで詳細を出すと「継続/切替の選択」が消えてしまう。
+    // そこで専用の #infoOverlay（z-index 3500）を新設し、選択モーダルの【上】に重ねる。
+    function closeInfo() {
+      document.getElementById('infoOverlay').style.display = 'none';
+    }
+
+    // opt = { key, yj, spec, name }  key が無ければ yj で問い合わせる
+    async function openInfo(opt) {
+      opt = opt || {};
+      const ov = document.getElementById('infoOverlay');
+      const body = document.getElementById('infoBody');
+      body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">お薬情報を読み込み中...🦀</div>';
+      ov.style.display = 'flex';
+      if (!opt.key && !opt.yj) {
+        body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">この薬は手がかり（薬価キー・YJコード）が無いため情報を出せませんカニ🦀💦</div>';
+        return;
+      }
+      const q = opt.key
+        ? ('key=' + encodeURIComponent(opt.key))
+        : ('yj=' + encodeURIComponent(opt.yj || '') + '&spec=' + encodeURIComponent(opt.spec || ''));
+      try {
+        const r = await fetch('/api/detail?' + q + '&h=' + encodeURIComponent(HID));
+        const d = await r.json();
+        if (!d || d.error) { body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">お薬情報を取得できませんでしたカニ🦀💦</div>'; return; }
+
+        const nm   = d.fullName || opt.name || '';
+        const spec = opt.spec || '';
+        const yj   = d.yj || opt.yj || '';
+
+        let html = '';
+        html += '<div style="font-weight:bold; font-size:16px; color:#0056b3; line-height:1.4; margin-bottom:6px; padding-right:26px;">' + formEmoji(d.label || d.key || opt.key || '') + ' ' + escHtml(nm) + '</div>';
+        if (spec) html += '<div style="font-size:12px; color:#888; margin-bottom:8px;">📦 ' + escHtml(spec) + '</div>';
+        html += '<div style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:12px;">'
+          + (d.isBrand ? '<span class="tag blue">先</span>' : '')
+          + (d.price && d.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>' + escHtml(d.price) + '</span>' : '')
+          + (yj && yj.indexOf('8') === 0 ? '<span class="tag red">麻</span>' : '')
+          + (d.isAdopted ? '<span class="tag green">🏥 採用</span>' : '')
+          + '</div>';
+
+        // 施設メモ（採用薬に登録されていれば）
+        if (d.comment) {
+          html += '<div style="background:#fff5f7; border-left:5px solid #ff8da1; border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:12px; white-space:pre-wrap;">📝 ' + escHtml(d.comment) + '</div>';
+        }
+
+        // 効能・用法・禁忌（通常のメディカニと同じ構成）
+        if (d.pmdaEfficacy || d.pmdaUsage || d.pmdaContra) {
+          html += '<div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:12px; padding:15px; margin-bottom:12px; font-size:13px; line-height:1.6; color:#333;">';
+          if (d.pmdaEfficacy) {
+            html += '<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:4px;">'
+              + '<div style="color:#0056b3; font-weight:bold;">💊 効能・効果</div>'
+              + (d.pmdaLastUpdated ? '<div style="font-size:11px; color:#888;">🗒️最終更新日：' + escHtml(d.pmdaLastUpdated) + '</div>' : '')
+              + '</div><div style="margin-bottom:12px;">' + d.pmdaEfficacy + '</div>';
+          }
+          if (d.pmdaUsage) html += '<div style="color:#28a745; font-weight:bold; margin-bottom:4px;">🕒 用法・用量</div><div style="margin-bottom:12px;">' + d.pmdaUsage + '</div>';
+          if (d.pmdaContra) html += '<div style="color:#d63384; font-weight:bold; margin-bottom:4px;">🚫 禁忌</div><div>' + d.pmdaContra + '</div>';
+          html += '</div>';
+          html += '<div style="background:#fff8e1; border:1px solid #ffe082; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:11px; line-height:1.5; color:#8a6d3b;">⚠️ 本要約はAIが生成した参考情報であり、正確性を保証するものではありません。実際の使用にあたっては、必ず最新の添付文書をご確認ください。</div>';
+        } else {
+          html += '<div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:12px; padding:15px; margin-bottom:12px; font-size:12px; color:#888; text-align:center; line-height:1.6;">この薬の効能・用法・禁忌の要約は登録されていませんでしたカニ🦀<br>下のボタンからPMDAの添付文書をご確認ください。</div>';
+        }
+
+        html += '<button class="btn-img" data-name="' + escHtml(nm) + '" style="width:100%; padding:12px; margin-bottom:8px; font-size:13px;">🖼️ この薬の画像を検索する</button>';
+        if (yj && yj !== 'NONE') {
+          html += '<a href="https://www.pmda.go.jp/PmdaSearch/rdSearch/02/' + escHtml(yj) + '?user=1" target="_blank" style="display:flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:14px; background:#fff0f5; border:2px solid #d63384; color:#d63384; border-radius:12px; text-decoration:none; font-weight:bold; font-size:14px; box-sizing:border-box; margin-bottom:10px; box-shadow:0 2px 4px rgba(214,51,132,0.1);">📄 添付文書等のお薬詳細を見る 🔍</a>';
+        }
+        html += '<button class="info-close-btn" style="width:100%; padding:12px; font-size:13px; font-weight:bold; background:#eceff1; color:#555; border:none; border-radius:12px; cursor:pointer;">閉じる</button>';
+
+        body.innerHTML = html;
+      } catch (e) {
+        body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">通信エラーが発生したカニ🦀💦</div>';
+      }
+    }
+
+    // ℹ️ボタンは「キャプチャ段階」で拾って伝播を止める。
+    // こうしないと、同じ要素に付いている既存のクリック委譲
+    //（#modalBody の継続/切替 決定、#jlist のカードタップ→openDecide）が
+    // 一緒に発火して、意図せず継続/切替が確定してしまう。
+    function bindInfoBtn(el) {
+      if (!el) return;
+      el.addEventListener('click', function(e){
+        const b = e.target.closest('[data-info]');
+        if (!b) return;
+        e.stopPropagation();
+        e.preventDefault();
+        openInfo({
+          key:  b.getAttribute('data-ikey')  || '',
+          yj:   b.getAttribute('data-iyj')   || '',
+          spec: b.getAttribute('data-ispec') || '',
+          name: b.getAttribute('data-iname') || ''
+        });
+      }, true);
+    }
+    bindInfoBtn(document.getElementById('modalBody'));
+    bindInfoBtn(document.getElementById('jlist'));
+
+    // 背景タップで閉じる／中身のボタン（画像検索・閉じる）
+    document.getElementById('infoOverlay').addEventListener('click', closeInfo);
+    document.getElementById('infoBody').addEventListener('click', function(e){
+      if (e.target.closest('.info-close-btn')) { closeInfo(); return; }
+      const b = e.target.closest('.btn-img');
+      if (b) { openImageSearch(b.getAttribute('data-name') || ''); return; }
+    });
+    // ===== 🌟v7追加: お薬情報ポップアップ ここまで =====
 
     // ===== 📷 持参薬鑑別: OCR＆持参薬リスト（フェーズ1） =====
     let kanbetsuList = [];   // {id, ocrName, name, usage, m:{found,key,name,spec,price,isBrand,isAdopted,yj}|null}
@@ -2891,7 +3250,9 @@ ${MK_MENU_JS}
           // ✅ KV照合ヒット: 通常検索と同じカード風
           html += '<div class="jitem ' + (it.m.isAdopted ? 'adopted' : '') + '" data-jid="' + it.id + '" data-decide="' + it.id + '">'
             + '<button class="del" data-del="' + it.id + '">✕</button>'
-            + '<div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; font-size:15px; gap:8px; padding-right:22px;">'
+            // 🌟v7追加: ℹ️ お薬情報（薬効・用法・禁忌）
+            + '<button class="infoi" data-info="1" data-ikey="' + escHtml(it.m.key || '') + '" data-iyj="' + escHtml(it.m.yj || '') + '" data-ispec="' + escHtml(it.m.spec || '') + '" data-iname="' + escHtml(it.m.name || '') + '" title="お薬情報">ℹ️</button>'
+            + '<div style="display:flex; justify-content:space-between; align-items:flex-start; font-weight:bold; font-size:15px; gap:8px; padding-right:46px;">'
               + '<div style="flex:1; line-height:1.4;">' + formEmoji(it.m.key) + ' ' + escHtml(it.m.name) + '</div>'
               + '<div style="flex-shrink:0; display:flex; gap:4px; margin-top:2px;">'
                 + (it.m.isBrand ? '<span class="tag blue">先</span>' : '')
@@ -2974,7 +3335,11 @@ ${MK_MENU_JS}
             + '<span style="font-weight:bold; line-height:1.3;"><span style="background:#28a745; color:#fff; font-size:10px; padding:2px 8px; border-radius:10px; margin-right:6px;">継続</span>' + formEmoji(it.m.key) + ' ' + escHtml(it.m.name) + ' <span style="font-weight:normal;color:#666;font-size:11px;">' + escHtml(it.m.spec || '') + '</span></span>'
             + '<span style="font-weight:bold;color:' + (it.m.isAdopted ? '#28a745' : '#aaa') + '; white-space:nowrap; margin-left:8px;">' + (it.m.isAdopted ? '🏥 採用' : '') + ' ❯</span>'
           + '</div>'
-          + '<div style="font-size:11px; color:#888; margin-top:4px;">このまま同じ薬を続ける場合はこちらカニ🦀</div>'
+          // 🌟v7変更: 説明文の右に ℹ️ お薬情報 ボタンを追加
+          + '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:6px;">'
+            + '<span style="font-size:11px; color:#888;">このまま同じ薬を続ける場合はこちらカニ🦀</span>'
+            + '<button class="info-btn" data-info="1" data-ikey="' + escHtml(it.m.key || '') + '" data-iyj="' + escHtml(it.m.yj || '') + '" data-ispec="' + escHtml(it.m.spec || '') + '" data-iname="' + escHtml(it.m.name || '') + '">ℹ️ お薬情報</button>'
+          + '</div>'
         + '</div>';
 
         // 切替候補（採用×同mgソート済み）
@@ -2993,6 +3358,8 @@ ${MK_MENU_JS}
                   + (a.isBrand ? '<span class="tag blue" style="font-size:10px; padding:2px 6px;">先</span>' : '')
                   + (a.yj && a.yj.indexOf('8') === 0 ? '<span class="tag red" style="font-size:10px; padding:2px 6px;">麻</span>' : '')
                   + (a.price && a.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;font-size:10px; padding:2px 6px;"><span style="color:#e65100;">￥</span>' + escHtml(a.price) + '</span>' : '')
+                  // 🌟v7追加: ℹ️ お薬情報（タップしても切替は確定しない）
+                  + '<button class="info-btn" data-info="1" data-ikey="' + escHtml(a.key || '') + '" data-iyj="' + escHtml(a.yj || '') + '" data-ispec="' + escHtml(a.spec || '') + '" data-iname="' + escHtml(a.name || '') + '" style="margin-left:auto;">ℹ️ 情報</button>'
                 + '</div>'
               + '</div></div>';
           }
@@ -3624,10 +3991,15 @@ function kanbetsuAdminPage(hId, isSuper) {
   .savebar input { flex:1; min-width:0; }
   .msg { font-size:12px; text-align:center; padding:6px; color:#666; }
 </style></head><body>
-  <div class="header">
-    <h1>🦀 メディカニ鑑別 マスタ管理</h1>
-    <div class="sub">用法マスタ・追加刻印・帳票の定型文を設定できますカニ🦀</div>
+  <!-- 🌟v7追加: ヘッダー右上に「戻る」ボタン（メディカニ鑑別へ） ここから -->
+  <div class="header" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+    <div style="min-width:0;">
+      <h1>🦀 メディカニ鑑別 マスタ管理</h1>
+      <div class="sub">用法マスタ・追加刻印・帳票の定型文を設定できますカニ🦀</div>
+    </div>
+    <a href="/${hId}/kanbetsu" style="flex-shrink:0; background:rgba(255,255,255,.2); border:1px solid rgba(255,255,255,.65); color:#fff; text-decoration:none; font-size:12px; font-weight:bold; padding:9px 13px; border-radius:10px; white-space:nowrap;">↩️ 戻る</a>
   </div>
+  <!-- 🌟v7追加: ヘッダー右上に「戻る」ボタン ここまで -->
   <div class="wrap">
     <div class="banner">
       ここでの変更は <b>この施設のメディカニ鑑別</b>にだけ反映されます。保存には施設の<b>管理パスワード</b>が必要カニ🦀<br>
@@ -6750,15 +7122,16 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           const pmdaData = JSON.parse(pmdaVal);
           // ✨修正：新しいデータ構造（summary内に効能・用法・禁忌）に対応！
           if (pmdaData.summary) {
-            pmdaEfficacy = pmdaData.summary.efficacy || "";
-            pmdaUsage = pmdaData.summary.usage || "";
-            pmdaContra = pmdaData.summary.contraindications || ""; // 🌟追加：禁忌の要約を拾う
+            // 🌟v9変更: 「記載なし」等のプレースホルダは空に潰す（空セクションを出さない）
+            pmdaEfficacy = cleanPmdaText(pmdaData.summary.efficacy);
+            pmdaUsage = cleanPmdaText(pmdaData.summary.usage);
+            pmdaContra = cleanPmdaText(pmdaData.summary.contraindications); // 🌟追加：禁忌の要約を拾う
             pmdaWarnings = pmdaData.warnings || null; // 旧データ用（新データでは通常null）
             pmdaLastUpdated = pmdaData.last_updated || "";
           } else {
             // 古いデータが残っていてもエラーにならないように配慮
-            pmdaEfficacy = pmdaData.efficacy || "";
-            pmdaUsage = pmdaData.usage || "";
+            pmdaEfficacy = cleanPmdaText(pmdaData.efficacy);
+            pmdaUsage = cleanPmdaText(pmdaData.usage);
           }
         }
       } catch(e) { console.log("PMDA DB Error", e); }
@@ -6795,6 +7168,9 @@ if (ayj && ayj.substring(0, 7) === yj7) {
     };
     if (!cleanYj || cleanYj.length < 7) return empty;
     const yj7 = cleanYj.substring(0, 7);
+
+    // 🌟v7追加: 薬価マスタ未収載（key空）の薬でも、ℹ️お薬情報で効能・用法・禁忌を出せるようにする
+    Object.assign(empty, await pmdaSummaryByYj(cleanYj, env));
 
     // キー一覧はメモリキャッシュから（採用薬を先頭に置いて優先させる）
     const masterKeys = await getMasterKeysCached(env);
