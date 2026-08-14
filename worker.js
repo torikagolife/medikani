@@ -1371,6 +1371,35 @@ ${MK_MENU_CSS}
   label { display:block; font-size:12px; color:#666; margin-bottom:4px; font-weight:bold; }
   select, input[type=text], input[type=date] { width:100%; padding:12px; font-size:16px; border:1.5px solid #ddd; border-radius:12px; outline:none; }
   select:focus, input:focus { border-color:var(--pink); }
+  /* 🌟v10修正: 上の一括指定が、先に書いた date 用の調整を後勝ちで打ち消していた。
+     同じ詳細度なので【後ろ】に置き直す。iOSのdate入力は中身の幅を優先して
+     はみ出すため、文字と余白を詰めて min-width:0 で縮めるようにする */
+  /* 🌟v13修正: width:100% を指定してもiOSのdate入力ははみ出す。
+     ネイティブ装飾が「内容が収まる幅」を最低幅として主張するため。
+     appearance:none で装飾を外すと幅の主張が消えて、分類・患者名の欄と揃う。
+     （装飾を外してもタップでカレンダーは今までどおり開く） */
+  input[type=date] {
+    -webkit-appearance:none; appearance:none;
+    width:100%; min-width:0; max-width:100%; box-sizing:border-box;
+    font-size:16px; padding:12px; text-align:left;
+    background:#fff; color:#333; line-height:1.2; height:auto;
+  }
+  input[type=date]::-webkit-date-and-time-value { text-align:left; margin:0; }
+  input[type=date]::-webkit-calendar-picker-indicator { margin-left:auto; }
+  /* 🌟v14修正: appearance:none で装飾を外すと、未入力のとき中身の高さが無くなって
+     箱が薄くなる。分類（select）・患者名（text）と同じ高さになるよう行高を明示する */
+  select, input[type=text], input[type=date] { min-height:52px; box-sizing:border-box; }
+  input[type=date] { line-height:25px; }
+  .set-row .fld { flex:1 1 46%; min-width:0; }
+  /* 🌟v12変更: 閾値を400→560pxに引き上げ。スマホ実機（幅390px前後）ではカード内の
+     実効幅が約330pxしかなく、2列にすると1列160px程度でiOSのdate入力が収まらない。
+     横並びは十分に広いときだけにして、スマホでは必ず縦積みにする */
+  @media (max-width:560px) {
+    .set-row { flex-direction:column; gap:10px; }
+    .set-row .fld { flex:1 1 auto; width:100%; min-width:0; }
+  }
+  /* 念のため: カードから中身がはみ出しても横スクロールを起こさない */
+  .card { overflow:hidden; }
   .addrow { display:flex; gap:8px; margin-top:4px; }
   .addrow input { flex:1; }
   .btn { padding:13px 16px; border:none; border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; white-space:nowrap; }
@@ -1382,6 +1411,19 @@ ${MK_MENU_CSS}
   .photo-row { display:flex; gap:8px; }
   .photo-row .btn.photo { flex:1; width:auto; min-width:0; }
   .btn.photo.img { background:#fff0f5; color:#c2185b; border-color:#f8bbd0; }
+  /* 🌟v14追加: 手帳QRボタン（鑑別と同じ3ボタン並び）。3つ入るので文字を少し詰める */
+  .btn.photo.qr { background:#f3e5f5; color:#6a1b9a; border-color:#ce93d8; }
+  .photo-row .btn.photo { font-size:13px; padding:13px 4px; }
+  /* 🌟v14追加: QRスキャナ（鑑別からの移植） */
+  #qrOverlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); display:none; z-index:4000; flex-direction:column; justify-content:center; align-items:center; padding:16px; box-sizing:border-box; }
+  #qrVideoWrap { position:relative; width:100%; max-width:360px; aspect-ratio:1/1; background:#000; border-radius:16px; overflow:hidden; }
+  #qrVideo { width:100%; height:100%; object-fit:cover; }
+  #qrFrame { position:absolute; inset:12%; border:3px solid #fff; border-radius:12px; pointer-events:none; }
+  #qrCount { color:#fff; font-weight:bold; font-size:15px; margin:14px 0 4px; text-align:center; }
+  #qrHint { color:#ddd; font-size:12px; text-align:center; margin-bottom:14px; }
+  .qr-btn { width:100%; max-width:360px; padding:14px; border:none; border-radius:12px; font-weight:bold; font-size:15px; cursor:pointer; margin-top:8px; }
+  .qr-btn.go { background:var(--pink); color:#fff; }
+  .qr-btn.cancel { background:#555; color:#fff; }
   .btn.print { width:100%; margin-top:6px; background:#00838f; color:#fff; padding:15px; font-size:15px; border-radius:12px; }
   .btn.ghost { background:#f4f4f4; color:#666; font-size:12px; padding:9px 12px; border-radius:10px; }
   #status { text-align:center; font-size:13px; color:#888; margin:8px 0; min-height:18px; }
@@ -1421,6 +1463,17 @@ ${MK_MENU_CSS}
   .j-none { color:#999; }
   .j-unknown { color:#b8860b; }
   .rdel { background:#f2f2f2; border:none; border-radius:50%; width:26px; height:26px; font-size:15px; color:#888; cursor:pointer; flex-shrink:0; }
+  /* 🌟v11追加: ℹ️ お薬情報ボタンとポップアップ（鑑別と同じ作り） */
+  .rinfo { background:none; border:none; color:#0d6efd; font-size:16px; cursor:pointer; padding:3px; line-height:1; flex-shrink:0; }
+  .cinfo-btn { flex-shrink:0; background:#eaf3ff; border:1px solid #b8d8ff; color:#0d6efd; font-size:11px; font-weight:bold; border-radius:8px; padding:6px 9px; cursor:pointer; white-space:nowrap; margin-right:6px; }
+  .cinfo-btn:active { background:#d6e9ff; }
+  #infoOverlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.55); backdrop-filter:blur(3px); display:none; z-index:3500; justify-content:center; align-items:center; }
+  #infoOverlay .info-modal { background:#fff; border-radius:16px; padding:18px; width:90%; max-width:440px; max-height:88vh; overflow-y:auto; position:relative; }
+  #infoOverlay .info-close { position:absolute; top:10px; right:12px; background:none; border:none; font-size:22px; color:#bbb; cursor:pointer; line-height:1; }
+  .tag { display:inline-block; font-size:11px; padding:3px 8px; border-radius:6px; border:1px solid #ddd; background:#fafafa; color:#666; }
+  .tag.blue { background:#e3f2fd; border-color:#bbdefb; color:#0056b3; }
+  .tag.green { background:#e8f5e9; border-color:#a5d6a7; color:#2e7d32; }
+  .tag.red { background:#ffebee; border-color:#ffcdd2; color:#c62828; }
   /* 🌟追加: 備考欄と定型文パレット */
   textarea { width:100%; padding:12px; font-size:15px; border:1.5px solid #ddd; border-radius:12px; outline:none; font-family:inherit; min-height:80px; line-height:1.6; resize:vertical; }
   textarea:focus { border-color:var(--pink); }
@@ -1506,7 +1559,14 @@ ${mkHelpHtml(helpHtml)}
         <div class="fld"><label>分類（術式・検査）</label><select id="catSel" onchange="onCatChange()"></select></div>
         <div class="fld"><label>手術予定日</label><input type="date" id="opDate" onchange="renderList()"></div>
       </div>
-      <div class="fld" style="margin-top:10px;"><label>患者名・ID（任意・帳票用）</label><input type="text" id="ptName" placeholder="空欄でもOK" autocomplete="off"></div>
+      <!-- 🌟v15変更: 患者名・IDをQRからも入れられるようにした -->
+      <div class="fld" style="margin-top:10px;"><label>患者名・ID（任意・帳票用）</label>
+        <div class="addrow" style="margin-top:0;">
+          <input type="text" id="ptName" placeholder="空欄でもOK" autocomplete="off">
+          <button class="btn photo qr" style="width:auto; margin-top:0; padding:12px 14px; font-size:13px;" onclick="openQrScanner('patient')">📱 QR</button>
+        </div>
+        <div style="font-size:11px; color:#aaa; margin-top:5px;">お薬手帳や院内帳票のQRからも入れられますカニ🦀</div>
+      </div>
     </div>
 
     <div class="card">
@@ -1515,14 +1575,26 @@ ${mkHelpHtml(helpHtml)}
         <input type="text" id="nameInput" placeholder="薬の名前・成分名（例：ワーファリン／アスピリン）" autocomplete="off">
         <button class="btn pink" onclick="doSearch()">🔍 検索</button>
       </div>
-      <!-- 🌟v8変更: 鑑別と同じく「カメラ即起動」と「画像を選ぶ」を分離 -->
+      <!-- 🌟v14変更: 鑑別と同じ「手帳写真／手帳画像／手帳QR」の3ボタン -->
       <div class="photo-row">
-        <button class="btn photo" onclick="document.getElementById('photoFile').click()">📷 写真を撮る</button>
-        <button class="btn photo img" onclick="document.getElementById('photoFileImg').click()">🖼️ 画像を選ぶ</button>
+        <button class="btn photo" onclick="document.getElementById('photoFile').click()">📷 手帳写真</button>
+        <button class="btn photo img" onclick="document.getElementById('photoFileImg').click()">🖼️ 手帳画像</button>
+        <button class="btn photo qr" onclick="openQrScanner()">📱 手帳QR</button>
       </div>
       <div style="font-size:11px; color:#aaa; text-align:center; margin-top:6px;">お薬手帳・薬情を読み取って薬名の候補を出しますカニ🦀</div>
       <input type="file" id="photoFile" accept="image/*" capture="environment" style="display:none">
       <input type="file" id="photoFileImg" accept="image/*" style="display:none">
+      <!-- 🌟v14追加: 手帳QRスキャナ ここから -->
+      <div id="qrOverlay">
+        <div id="qrVideoWrap"><video id="qrVideo" playsinline muted></video><div id="qrFrame"></div></div>
+        <div id="qrCount">お薬手帳のQRを枠に合わせてね🦀</div>
+        <div id="qrHint">QRが複数あるときは1個ずつ順番にかざしてください</div>
+        <button class="qr-btn go" id="qrGoBtn" onclick="analyzeQr()" style="display:none;">この内容で解析する</button>
+        <input type="file" id="qrImgFile" accept="image/*" style="display:none">
+        <button class="qr-btn" style="background:#0d6efd; color:#fff;" onclick="document.getElementById('qrImgFile').click()">🖼️ QRを写真から読む</button>
+        <button class="qr-btn cancel" onclick="closeQrScanner()">閉じる</button>
+      </div>
+      <!-- 🌟v14追加: 手帳QRスキャナ ここまで -->
     </div>
 
     <div class="card" id="chipBox">
@@ -1551,6 +1623,12 @@ ${mkHelpHtml(helpHtml)}
       <!-- 🌟追加: 件数表示とリストの全削除ボタン -->
       <div class="card-ttl"><span>💊 薬リストと休薬判定</span><span class="cnt" id="listCount"></span><button class="btn-clear" onclick="clearList()">🗑️ すべてクリア</button></div>
       <div id="list"><div class="empty">まだ薬がありません。検索か写真で追加してくださいカニ🦀</div></div>
+      <!-- 🌟v11追加: ℹ️ お薬情報ポップアップ ここから -->
+      <div id="infoOverlay"><div class="info-modal" onclick="event.stopPropagation()">
+        <button class="info-close" onclick="closeInfo()">×</button>
+        <div id="infoBody"></div>
+      </div></div>
+      <!-- 🌟v11追加: ℹ️ お薬情報ポップアップ ここまで -->
       <div class="notice">「リスト対象外」は休薬マスタの対象外という意味で、継続してよいかを保証するものではありませんカニ🦀 最終判断は必ず処方医・薬剤師へ。</div>
     </div>
 
@@ -1632,6 +1710,115 @@ function computeStop(days){
   return (d.getMonth()+1) + '/' + d.getDate() + '（' + w + '）から';
 }
 
+// ===== 🌟v11追加: ℹ️ お薬情報ポップアップ ここから =====
+// 鑑別（kanbetsu）と同じ内容を休薬チェッカーでも見られるようにする。
+// 薬価キー(key)があればそれで、無ければYJコードで /api/detail に問い合わせる。
+// v9 で pmdaSummaryByYj を足してあるので、YJ指定でも効能・用法・禁忌が返る。
+function closeInfo(){ document.getElementById('infoOverlay').style.display = 'none'; }
+
+function kyuFormEmoji(key){
+  if (!key) return '💊';
+  if (key.indexOf('[注]') !== -1) return '💉';
+  if (key.indexOf('[外]') !== -1) return '🧴';
+  return '💊';
+}
+function kyuImageSearch(name){
+  window.open('https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(name + ' 錠剤'),
+              'kyu_img', 'width=900,height=700,scrollbars=yes');
+}
+
+// 薬リストの行から
+function openInfoFor(id){
+  const it = LIST.filter(function(x){ return x.id === id; })[0];
+  if (!it) return;
+  openInfo({ key: it.key || '', yj: it.yj || '', spec: it.spec || '', name: it.name || '' });
+}
+// 検索候補から
+function openInfoRes(i){
+  const r = RESULTS[i];
+  if (!r) return;
+  openInfo({ key: r.key || '', yj: r.yj || '', spec: r.spec || '', name: r.name || '' });
+}
+
+async function openInfo(opt){
+  opt = opt || {};
+  const ov = document.getElementById('infoOverlay');
+  const body = document.getElementById('infoBody');
+  body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">お薬情報を読み込み中...🦀</div>';
+  ov.style.display = 'flex';
+  if (!opt.key && !opt.yj){
+    body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">この薬は手がかり（薬価キー・YJコード）が無いため情報を出せませんカニ🦀💦</div>';
+    return;
+  }
+  const q = opt.key
+    ? ('key=' + encodeURIComponent(opt.key))
+    : ('yj=' + encodeURIComponent(opt.yj || '') + '&spec=' + encodeURIComponent(opt.spec || ''));
+  try {
+    const res = await fetch('/api/detail?' + q + '&h=' + encodeURIComponent(HID));
+    const d = await res.json();
+    if (!d || d.error){ body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">お薬情報を取得できませんでしたカニ🦀💦</div>'; return; }
+
+    const nm = d.fullName || opt.name || '';
+    const yj = d.yj || opt.yj || '';
+    let html = '';
+    html += '<div style="font-weight:bold; font-size:16px; color:#0056b3; line-height:1.4; margin-bottom:6px; padding-right:26px;">'
+          + kyuFormEmoji(d.label || d.key || opt.key || '') + ' ' + esc(nm) + '</div>';
+    if (opt.spec) html += '<div style="font-size:12px; color:#888; margin-bottom:8px;">📦 ' + esc(opt.spec) + '</div>';
+
+    // 🌟この画面ならではの表示: いまの処置分類での休薬判定を先頭に出す
+    const jd = judge({ yj: yj, name: nm });
+    html += '<div class="mtag ' + jd.cls + '" style="display:block; margin-bottom:10px;">🩸 いまの分類での判定：'
+          + esc(jd.label) + (jd.stopDate ? '（' + esc(jd.stopDate) + '）' : '')
+          + (jd.comp ? '　［' + esc(jd.comp) + '］' : '') + '</div>';
+    if (jd.comment) html += '<div style="background:#fff8f0; border:1px solid #ffe0c0; border-radius:8px; padding:9px 11px; font-size:12px; line-height:1.6; margin-bottom:10px;">' + esc(jd.comment) + '</div>';
+
+    html += '<div style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:12px;">'
+      + (d.isBrand ? '<span class="tag blue">先</span>' : '')
+      + (d.price && d.price !== '-' ? '<span class="tag" style="background:#fff3cd;color:#333;border:1px solid #ffe69c;"><span style="color:#e65100;">￥</span>' + esc(d.price) + '</span>' : '')
+      + (yj && yj.indexOf('8') === 0 ? '<span class="tag red">麻</span>' : '')
+      + (d.isAdopted ? '<span class="tag green">🏥 採用</span>' : '')
+      + '</div>';
+
+    if (d.comment){
+      html += '<div style="background:#fff5f7; border-left:5px solid #ff8da1; border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:12px; white-space:pre-wrap;">📝 ' + esc(d.comment) + '</div>';
+    }
+
+    if (d.pmdaEfficacy || d.pmdaUsage || d.pmdaContra){
+      html += '<div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:12px; padding:15px; margin-bottom:12px; font-size:13px; line-height:1.6; color:#333;">';
+      if (d.pmdaEfficacy){
+        html += '<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:4px;">'
+              + '<div style="color:#0056b3; font-weight:bold;">💊 効能・効果</div>'
+              + (d.pmdaLastUpdated ? '<div style="font-size:11px; color:#888;">🗒️最終更新日：' + esc(d.pmdaLastUpdated) + '</div>' : '')
+              + '</div><div style="margin-bottom:12px;">' + d.pmdaEfficacy + '</div>';
+      }
+      if (d.pmdaUsage)  html += '<div style="color:#28a745; font-weight:bold; margin-bottom:4px;">🕒 用法・用量</div><div style="margin-bottom:12px;">' + d.pmdaUsage + '</div>';
+      if (d.pmdaContra) html += '<div style="color:#d63384; font-weight:bold; margin-bottom:4px;">🚫 禁忌</div><div>' + d.pmdaContra + '</div>';
+      html += '</div>';
+      html += '<div style="background:#fff8e1; border:1px solid #ffe082; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:11px; line-height:1.5; color:#8a6d3b;">⚠️ 本要約はAIが生成した参考情報であり、正確性を保証するものではありません。実際の使用にあたっては、必ず最新の添付文書をご確認ください。</div>';
+    } else {
+      html += '<div style="background:#f8f9fa; border:1px solid #dee2e6; border-radius:12px; padding:15px; margin-bottom:12px; font-size:12px; color:#888; text-align:center; line-height:1.6;">この薬の効能・用法・禁忌の要約は登録されていませんでしたカニ🦀<br>下のボタンからPMDAの添付文書をご確認ください。</div>';
+    }
+
+    html += '<button class="btn-img" data-name="' + esc(nm) + '" style="width:100%; padding:12px; margin-bottom:8px; font-size:13px; background:#f0fafd; color:#00838f; border:1.5px dashed #4dd0e1; border-radius:12px; font-weight:bold; cursor:pointer;">🖼️ この薬の画像を検索する</button>';
+    if (yj && yj !== 'NONE'){
+      html += '<a href="https://www.pmda.go.jp/PmdaSearch/rdSearch/02/' + esc(yj) + '?user=1" target="_blank" style="display:flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:14px; background:#fff0f5; border:2px solid #d63384; color:#d63384; border-radius:12px; text-decoration:none; font-weight:bold; font-size:14px; box-sizing:border-box; margin-bottom:10px;">📄 添付文書等のお薬詳細を見る 🔍</a>';
+    }
+    html += '<button class="info-close-btn" style="width:100%; padding:12px; font-size:13px; font-weight:bold; background:#eceff1; color:#555; border:none; border-radius:12px; cursor:pointer;">閉じる</button>';
+
+    body.innerHTML = html;
+  } catch(e){
+    body.innerHTML = '<div style="text-align:center; padding:30px; color:#888;">通信エラーが発生したカニ🦀💦</div>';
+  }
+}
+
+document.getElementById('infoOverlay').addEventListener('click', closeInfo);
+document.getElementById('infoBody').addEventListener('click', function(e){
+  if (e.target.closest('.info-close-btn')){ closeInfo(); return; }
+  const b = e.target.closest('.btn-img');
+  if (b){ kyuImageSearch(b.getAttribute('data-name') || ''); return; }
+});
+// ===== 🌟v11追加: ℹ️ お薬情報ポップアップ ここまで =====
+
 function judge(item){
   if (!item.yj) return { label:'⚠️ 薬を特定できず', cls:'j-unknown', comp:'', comment:'', stopDate:'' };
   const comp = compOf(item.yj);
@@ -1699,6 +1886,8 @@ function renderResults(q){
       +   (r.spec ? '<div class="cspec">📦 ' + esc(r.spec) + '</div>' : '')
       +   tag
       + '</div>'
+      // 🌟v11追加: 追加する前に中身を確認できる ℹ️。誤って追加しないよう伝播を止める
+      + '<button class="cinfo-btn" onclick="event.stopPropagation(); openInfoRes(' + i + ')">ℹ️ 情報</button>'
       + '<div class="cadd">＋追加</div>'
       + '</div>';
   }).join('');
@@ -1708,7 +1897,7 @@ function addFromResult(i){
   const r = RESULTS[i];
   if (!r) return;
   seq++;
-  LIST.push({ id:seq, name:r.name, yj:r.yj||'', spec:r.spec||'' });
+  LIST.push({ id:seq, name:r.name, yj:r.yj||'', spec:r.spec||'', key:r.key||'' });
   document.getElementById('status').textContent = '✅「' + r.name + '」を追加しましたカニ🦀';
   document.getElementById('nameInput').value = '';
   closeResults();
@@ -1769,6 +1958,189 @@ async function handleKyuPhoto(e){
 document.getElementById('photoFile').addEventListener('change', handleKyuPhoto);
 document.getElementById('photoFileImg').addEventListener('change', handleKyuPhoto);
 
+/* ===== 🌟v14追加: 手帳QR（JAHIS規格） ここから =====
+   鑑別ページと同じ作り。1個ずつスキャンして貯め、/api/techo-qr で 201=薬品/301=用法を
+   パースしてもらい、写真OCRと同じ「チップ」に流し込む（この画面の流れは変えない）。 */
+var qrStream = null, qrScanning = false, qrTexts = [], qrSeen = null, qrLibLoading = null;
+var qrMode = 'techo';   // 🌟v15追加: 'techo'=お薬手帳QR / 'patient'=患者名・IDのQR
+
+// 🌟v15追加: 患者QRの中身から「患者名・ID欄に入れる文字列」を作る（鑑別と同じ実装）。
+// お薬手帳のQR（JAHIS）は先頭行が JAHISTC04,... で、レコード種別 1 が患者情報。
+//   例) 1,テスト　トリ1,19881201,,,,,,,テスト　トリ
+//   → 2番目の項目が氏名なのでそれを使う（3番目は生年月日）。
+// JAHIS以外（院内帳票のQRなど）は中身をそのまま入れる。
+// ※改行の正規表現はテンプレートリテラルに壊されるので fromCharCode を使う
+function parsePatientQr(text){
+  var LF = String.fromCharCode(10), CR = String.fromCharCode(13);
+  var t = String(text == null ? '' : text);
+  var lines = t.split(CR).join(LF).split(LF);
+  var head = (lines[0] || '').toUpperCase();
+  if (head.indexOf('JAHIS') === 0){
+    for (var i = 1; i < lines.length; i++){
+      var f = lines[i].split(',');
+      if ((f[0] || '').trim() === '1'){
+        var nm = (f[1] || '').trim();
+        if (nm) return nm;
+      }
+    }
+    return '';
+  }
+  var flat = [];
+  for (var k = 0; k < lines.length; k++){
+    var v = lines[k].trim();
+    if (v) flat.push(v);
+  }
+  return flat.join(' ').slice(0, 120);
+}
+
+function applyPatientQr(text){
+  var val = parsePatientQr(text);
+  if (!val){
+    document.getElementById('qrCount').textContent = '📭 このQRからは患者情報を取り出せませんでしたカニ🦀';
+    return false;
+  }
+  document.getElementById('ptName').value = val;
+  closeQrScanner();
+  document.getElementById('status').textContent = '✅ 患者名・IDに「' + val + '」を入れましたカニ🦀';
+  return true;
+}
+
+function loadJsQR(){
+  if (window.jsQR) return Promise.resolve();
+  if (qrLibLoading) return qrLibLoading;
+  qrLibLoading = new Promise(function(resolve, reject){
+    var sc = document.createElement('script');
+    sc.src = '/vendor/jsqr.js';
+    sc.onload = resolve;
+    sc.onerror = function(){ reject(new Error('QRライブラリの読み込みに失敗')); };
+    document.head.appendChild(sc);
+  });
+  return qrLibLoading;
+}
+
+async function openQrScanner(mode){
+  qrMode = (mode === 'patient') ? 'patient' : 'techo';   // 🌟v15追加
+  const ov = document.getElementById('qrOverlay');
+  qrTexts = []; qrSeen = {};
+  document.getElementById('qrGoBtn').style.display = 'none';
+  document.getElementById('qrHint').textContent = (qrMode === 'patient')
+    ? '患者情報のQR（お薬手帳の1枚目・院内帳票など）をかざしてください'
+    : 'QRが複数あるときは1個ずつ順番にかざしてください';
+  document.getElementById('qrCount').textContent = 'カメラを起動中...🦀';
+  ov.style.display = 'flex';
+  try {
+    await loadJsQR();
+    qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    const v = document.getElementById('qrVideo');
+    v.srcObject = qrStream; v.setAttribute('playsinline',''); await v.play();
+    document.getElementById('qrCount').textContent = 'QRを枠に合わせてね🦀';
+    qrScanning = true;
+    requestAnimationFrame(qrTick);
+  } catch(e){
+    document.getElementById('qrCount').textContent = '⚠️ カメラを起動できませんでした（' + (e && e.message ? e.message : e) + '）';
+  }
+}
+
+function decodeImageData(dat){
+  if (!window.jsQR || !dat) return null;
+  try { return window.jsQR(dat.data, dat.width, dat.height, { inversionAttempts:'attemptBoth' }); }
+  catch(e){ return null; }
+}
+
+function registerQrText(code){
+  if (!code) return false;
+  var text = '';
+  try { text = new TextDecoder('shift-jis').decode(new Uint8Array(code.binaryData)); }
+  catch(e){ text = code.data || ''; }
+  // 🌟v15追加: 患者QRモードのときは貯めずに、その場で患者名・ID欄へ入れて閉じる
+  if (qrMode === 'patient'){
+    if (!text) return false;
+    if (navigator.vibrate) navigator.vibrate(60);
+    return applyPatientQr(text);
+  }
+  const key = text.slice(0,40) + '|' + text.length;
+  if (text && !qrSeen[key]){
+    qrSeen[key] = 1; qrTexts.push(text);
+    document.getElementById('qrCount').textContent = '✅ ' + qrTexts.length + '個 読み取り済み';
+    document.getElementById('qrGoBtn').style.display = 'block';
+    if (navigator.vibrate) navigator.vibrate(60);
+    return true;
+  }
+  return false;
+}
+
+function qrTick(){
+  if (!qrScanning) return;
+  const v = document.getElementById('qrVideo');
+  if (v && v.readyState === v.HAVE_ENOUGH_DATA && window.jsQR){
+    const cv = document.createElement('canvas');
+    cv.width = v.videoWidth; cv.height = v.videoHeight;
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(v, 0, 0, cv.width, cv.height);
+    let code = decodeImageData(ctx.getImageData(0, 0, cv.width, cv.height));
+    if (!code){
+      const cw = Math.max(1, Math.round(cv.width*0.6)), ch = Math.max(1, Math.round(cv.height*0.6));
+      const cx = Math.round((cv.width-cw)/2), cy = Math.round((cv.height-ch)/2);
+      try { code = decodeImageData(ctx.getImageData(cx, cy, cw, ch)); } catch(e){}
+    }
+    registerQrText(code);
+  }
+  requestAnimationFrame(qrTick);
+}
+
+async function qrFromImageFile(file){
+  if (!file) return;
+  const st = document.getElementById('qrCount');
+  try { await loadJsQR(); } catch(e){ st.textContent = '⚠️ QRライブラリを読み込めませんでした'; return; }
+  const dataUrl = await new Promise(function(res, rej){ const fr = new FileReader(); fr.onload = function(){ res(fr.result); }; fr.onerror = rej; fr.readAsDataURL(file); });
+  const im = await new Promise(function(res, rej){ const x = new Image(); x.onload = function(){ res(x); }; x.onerror = rej; x.src = dataUrl; });
+  let found = 0;
+  for (const dim of [1600, 1100, 2200, 800]){
+    let w = im.width, h = im.height;
+    if (Math.max(w,h) > dim){ const sc = dim/Math.max(w,h); w = Math.round(w*sc); h = Math.round(h*sc); }
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d'); ctx.drawImage(im, 0, 0, w, h);
+    if (registerQrText(decodeImageData(ctx.getImageData(0, 0, w, h)))) found++;
+  }
+  st.textContent = found ? ('✅ ' + qrTexts.length + '個 読み取り済み（写真から）') : '📭 写真からQRを読み取れませんでした。もっと大きく・平らに写してね🦀';
+}
+
+function stopQrCamera(){
+  qrScanning = false;
+  if (qrStream){ qrStream.getTracks().forEach(function(t){ t.stop(); }); qrStream = null; }
+}
+function closeQrScanner(){
+  stopQrCamera();
+  document.getElementById('qrOverlay').style.display = 'none';
+}
+document.getElementById('qrImgFile').addEventListener('change', function(e){
+  const f = (e.target.files||[])[0]; e.target.value = ''; qrFromImageFile(f);
+});
+
+async function analyzeQr(){
+  if (!qrTexts.length) return;
+  stopQrCamera();
+  document.getElementById('qrOverlay').style.display = 'none';
+  const st = document.getElementById('status');
+  st.textContent = '📱 手帳QRを解析中...🦀';
+  try {
+    const r = await fetch('/api/techo-qr', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ h: HID, texts: qrTexts })
+    });
+    const data = await r.json();
+    if (data.error){ st.textContent = '⚠️ 解析エラー: ' + data.error; return; }
+    if (!data.drugs || !data.drugs.length){ st.textContent = '📭 QRから薬を読み取れませんでしたカニ🦀💦 QRが全部揃っているか確認してね'; return; }
+    data.drugs.forEach(function(dd){ CHIPS.push({ name: dd.name, usage: dd.usage || '', used:false }); });
+    st.textContent = '✅ 手帳QRから ' + data.drugs.length + '件の薬名を取り込みましたカニ🦀 タップして検索→確定してね';
+    renderChips();
+    document.getElementById('chipBox').scrollIntoView({ behavior:'smooth', block:'center' });
+  } catch(e){
+    st.textContent = '⚠️ 通信エラーが発生したカニ🦀💦 もう一度お試しください。';
+  }
+}
+/* ===== 🌟v14追加: 手帳QR ここまで ===== */
+
 function renderChips(){
   const box = document.getElementById('chipBox');
   if (!CHIPS.length){ box.style.display = 'none'; return; }
@@ -1804,6 +2176,8 @@ function renderList(){
     return '<div class="row">'
       + '<div class="rname">' + esc(it.name) + (j.comp ? '<span class="sub2">' + esc(j.comp) + '</span>' : '') + '</div>'
       + '<div class="rjudge ' + j.cls + '">' + esc(j.label) + (j.stopDate ? '<span class="sd">→ ' + esc(j.stopDate) + '</span>' : '') + '</div>'
+      // 🌟v11追加: ℹ️ お薬情報（薬効・用法・禁忌）
+      + '<button class="rinfo" title="お薬情報" onclick="openInfoFor(' + it.id + ')">ℹ️</button>'
       + '<button class="rdel" onclick="removeItem(' + it.id + ')">×</button>'
       + '</div>';
   }).join('');
@@ -2062,6 +2436,16 @@ function kanbetsuPage(hId, hospitalName, helpHtml) {
   .alt-item.adopted:active { background: #e2ffe2; }
   /* ▼ 持参薬鑑別(開発版) 追加分 */
   .ocr-row { display:flex; gap:8px; margin-top:12px; }
+  /* 🌟v15追加: 休薬チェッカーに寄せた「患者情報」「備考」カード */
+  .meta-card { background:#fff; border:1.5px solid #ffe0ea; border-radius:16px; padding:15px; margin-bottom:14px; }
+  .meta-ttl { font-size:14px; font-weight:bold; color:#d63384; margin-bottom:10px; }
+  .meta-lb { display:block; font-size:12px; color:#666; margin-bottom:4px; font-weight:bold; }
+  .meta-row { display:flex; gap:8px; }
+  .meta-row input { flex:1; min-width:0; padding:12px; font-size:16px; border:1.5px solid #ddd; border-radius:12px; outline:none; box-sizing:border-box; }
+  .meta-row input:focus { border-color:var(--pink); }
+  .meta-qr { flex-shrink:0; padding:12px 14px; background:#f3e5f5; color:#6a1b9a; border:1.5px solid #ce93d8; border-radius:12px; font-weight:bold; font-size:13px; cursor:pointer; white-space:nowrap; }
+  .meta-card textarea { width:100%; min-height:88px; padding:12px; font-size:15px; border:1.5px solid #ddd; border-radius:12px; outline:none; box-sizing:border-box; font-family:inherit; line-height:1.6; resize:vertical; }
+  .meta-card textarea:focus { border-color:var(--pink); }
   .btn-ocr { flex:1; padding:14px 10px; background:#d63384; color:#fff; border:none; border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; }
   .btn-ocr:active { transform:scale(0.97); }
   .btn-phone { flex:1; padding:14px 10px; background:#e9ecef; color:#adb5bd; border:1px solid #dee2e6; border-radius:12px; font-weight:bold; font-size:13px; cursor:not-allowed; }
@@ -2079,6 +2463,18 @@ function kanbetsuPage(hId, hospitalName, helpHtml) {
   .qr-btn.cancel { background:#555; color:#fff; }
   /* ▼ 💊裸錠まとめ撮り→刻印OCR 追加分 */
   .btn-kokuin { width:100%; margin-top:8px; padding:14px 10px; background:#fff; color:var(--pink); border:2px solid var(--pink); border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer; }
+  /* 🌟v10追加: 刻印OCRと錠数カウントを横並びに */
+  .kokuin-row { display:flex; gap:8px; }
+  .kokuin-row .btn-kokuin { flex:1; width:auto; min-width:0; font-size:13px; padding:14px 6px; }
+  .btn-kokuin.count { color:#00838f; border-color:#4dd0e1; background:#f0fafd; }
+  /* 🌟v10追加: 錠数カウントのモーダル */
+  #tcOverlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.55); display:none; z-index:3600; justify-content:center; align-items:center; }
+  #tcOverlay .tc-modal { background:#fff; border-radius:16px; padding:18px; width:90%; max-width:420px; max-height:88vh; overflow-y:auto; position:relative; }
+  .tc-cnt { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .tc-cnt button { width:38px; height:38px; border:1.5px solid var(--pink); background:#fff; color:var(--pink); border-radius:10px; font-size:18px; font-weight:bold; cursor:pointer; flex-shrink:0; }
+  .tc-cnt input { flex:1; min-width:0; text-align:center; font-size:18px; font-weight:bold; padding:8px; border:1.5px solid #ddd; border-radius:10px; }
+  .tc-cnt .u { font-size:13px; color:#666; flex-shrink:0; }
+  .tc-out { background:#fff8f0; border:1.5px solid #ffe0c0; border-radius:12px; padding:12px; font-size:15px; font-weight:bold; color:#333; line-height:1.7; margin-top:10px; white-space:pre-wrap; }
   .btn-kokuin:active { transform:scale(0.97); }
   #kokuinChips { display:none; flex-wrap:wrap; gap:8px; margin-top:12px; }
   .kchip { display:inline-block; background:#fff; border:1.5px solid var(--pink); color:var(--pink); border-radius:20px; padding:9px 14px; font-size:14px; font-weight:bold; cursor:pointer; line-height:1.2; }
@@ -2245,6 +2641,16 @@ ${mkHelpHtml(helpHtml)}
     ${facilityBadge}
   </div>
   <div class="container">
+    <!-- 🌟v15追加: 患者情報（休薬チェッカーと同じく最初の画面に置く） -->
+    <div class="meta-card">
+      <div class="meta-ttl">🆔 患者情報（任意・報告書用）</div>
+      <label class="meta-lb">患者名・ID</label>
+      <div class="meta-row">
+        <input type="text" id="ptName" placeholder="空欄でもOK" autocomplete="off" oninput="syncPtName()">
+        <button class="meta-qr" onclick="openQrScanner('patient')">📱 QR</button>
+      </div>
+      <div style="font-size:11px; color:#aaa; margin-top:6px;">お薬手帳や院内帳票のQRからも入れられますカニ🦀</div>
+    </div>
     <div class="search-box">
       <div class="search-row">
         <input type="text" id="kokuin" placeholder="刻印を入力（例：HP211、TA 111）" autocomplete="off" inputmode="latin">
@@ -2263,8 +2669,13 @@ ${mkHelpHtml(helpHtml)}
     </div>
     <input type="file" id="ocrFile" accept="image/*" capture="environment" style="display:none">
     <input type="file" id="ocrFileImg" accept="image/*" style="display:none">
-    <button class="btn-kokuin" onclick="document.getElementById('kokuinFile').click()">💊 裸錠の刻印OCR（試験中）</button>
+    <!-- 🌟v10変更: 刻印OCRの右に「錠数カウント」を並べた -->
+    <div class="kokuin-row">
+      <button class="btn-kokuin" onclick="document.getElementById('kokuinFile').click()">💊 裸錠の刻印OCR（試験中）</button>
+      <button class="btn-kokuin count" onclick="document.getElementById('countFile').click()">🔢 錠数カウント（試験中）</button>
+    </div>
     <input type="file" id="kokuinFile" accept="image/*" capture="environment" style="display:none">
+    <input type="file" id="countFile" accept="image/*" capture="environment" style="display:none">
     <div id="kokuinChips"></div>
     <!-- 🌟撤去: ➕お薬名で検索して追加 → 検索窓の「🔍 薬名」に統合。openPickerForAdd() は刻印なしチップから使うので関数は残す -->
     <div id="ocrStatus" style="text-align:center; font-size:13px; color:#888; margin-top:10px;"></div>
@@ -2285,6 +2696,15 @@ ${mkHelpHtml(helpHtml)}
       <div id="jlist"></div>
       <button class="btn-report" onclick="openReport()">📄 メディカニ鑑別結果を作成する 🦀</button>
     </div>
+    <!-- 🌟v15追加: 備考（報告書に印刷される）＋定型文パレット -->
+    <div class="meta-card">
+      <div class="meta-ttl">📝 備考（報告書に印刷されます）</div>
+      <textarea id="bikoInput" placeholder="申し送り事項などを入力できます（空欄でもOK）" oninput="syncBiko()"></textarea>
+      <div id="kanBikoPalette" style="display:none;">
+        <div class="bp-ttl">定型文（タップで貼り付け）</div>
+        <div id="kanBikoPresetList"></div>
+      </div>
+    </div>
     <div class="notice">
       ⚠️ 本ツールはお薬手帳のOCRや添付文書の識別コード情報をもとに候補を絞り込む<b>補助ツール</b>です。<b>最終的な同定は必ず現物・添付文書でご確認ください。</b>
     </div>
@@ -2304,6 +2724,37 @@ ${mkHelpHtml(helpHtml)}
     <div id="infoBody"></div>
   </div></div>
   <!-- 🌟v7追加: お薬情報ポップアップ ここまで -->
+
+  <!-- 🌟v10追加: 錠数カウント ここから -->
+  <div id="tcOverlay"><div class="tc-modal" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeTc()">×</button>
+    <div style="font-weight:bold; font-size:15px; color:#00838f; margin-bottom:4px;">🔢 錠数カウント（試験中）</div>
+    <div style="font-size:11px; color:#c62828; background:#fff5f5; border:1px solid #ffcdd2; border-radius:8px; padding:8px 10px; margin-bottom:12px; line-height:1.6;">
+      ⚠️ 自動検出は<b>数え間違いが起こります</b>。赤い点の付き方を見て、足りない分はタップで足し、余分な点はタップで消してから使ってくださいカニ🦀<br>錠剤が<b>重なって積み上がっている</b>と分けられません。無地の紙の上に平らに並べて撮ってねカニ🦀
+    </div>
+    <div style="position:relative; width:100%; background:#111; border-radius:12px; overflow:hidden; margin-bottom:8px;">
+      <canvas id="tcCanvas" style="width:100%; display:block; touch-action:manipulation;"></canvas>
+    </div>
+    <div style="font-size:11px; color:#888; text-align:center; margin-bottom:10px;">
+      画像をタップ → 点を追加／点をタップ → 削除
+    </div>
+    <div class="tc-cnt">
+      <button onclick="tcAdjust(-1)">−</button>
+      <input id="tcTotal" type="number" inputmode="numeric" min="0" value="0" oninput="tcSetTotal(this.value)">
+      <button onclick="tcAdjust(1)">＋</button>
+      <span class="u">錠</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px; margin-top:12px;">
+      <label style="font-size:12px; color:#666; font-weight:bold; white-space:nowrap;">1日の服用錠数</label>
+      <select id="tcPerDay" onchange="renderTcOut()" style="flex:1; min-width:0; padding:10px; font-size:15px; border:1.5px solid #ddd; border-radius:10px;"></select>
+    </div>
+    <div id="tcOut" class="tc-out"></div>
+    <div style="display:flex; gap:8px; margin-top:12px;">
+      <button onclick="copyTc()" style="flex:1; padding:13px; background:#00838f; color:#fff; border:none; border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer;">📋 テキストをコピー</button>
+      <button onclick="closeTc()" style="padding:13px 16px; background:#eceff1; color:#555; border:none; border-radius:12px; font-weight:bold; font-size:14px; cursor:pointer;">閉じる</button>
+    </div>
+  </div></div>
+  <!-- 🌟v10追加: 錠数カウント ここまで -->
 
   <div id="editModalOverlay"><div class="edit-modal" onclick="event.stopPropagation()">
     <div id="editModalTitle" style="font-weight:bold; font-size:14px; color:#555; margin-bottom:10px;">✏️ 編集</div>
@@ -2850,6 +3301,52 @@ ${MK_MENU_JS}
     // 画像を長辺1600pxのJPEGに圧縮（通信量とOCRコストの節約）
     // ===== 📱 手帳QR（JAHIS規格）: 1個ずつスキャンして貯める =====
     var qrStream = null, qrScanning = false, qrTexts = [], qrSeen = null, qrLibLoading = null;
+    var qrMode = 'techo';   // 🌟v15追加: 'techo'=お薬手帳QR / 'patient'=患者名・IDのQR
+
+    // 🌟v15追加: 患者QRの中身から「患者名・ID欄に入れる文字列」を作る。
+    // お薬手帳のQR（JAHIS）は先頭行が JAHISTC04,... で、レコード種別 1 が患者情報。
+    //   例) 1,テスト　トリ1,19881201,,,,,,,テスト　トリ
+    //   → 2番目の項目が氏名なのでそれを使う（3番目は生年月日）。
+    // JAHIS以外（院内帳票のQRなど）は中身をそのまま入れる。
+    // ※ここで改行の正規表現を書くとテンプレートリテラルに壊されるので fromCharCode を使う
+    function parsePatientQr(text){
+      var LF = String.fromCharCode(10), CR = String.fromCharCode(13);
+      var t = String(text == null ? '' : text);
+      var norm = t.split(CR).join(LF);
+      var lines = norm.split(LF);
+      var head = (lines[0] || '').toUpperCase();
+      if (head.indexOf('JAHIS') === 0){
+        for (var i = 1; i < lines.length; i++){
+          var f = lines[i].split(',');
+          if ((f[0] || '').trim() === '1'){
+            var nm = (f[1] || '').trim();
+            if (nm) return nm;
+          }
+        }
+        return '';
+      }
+      var flat = [];
+      for (var k = 0; k < lines.length; k++){
+        var v = lines[k].trim();
+        if (v) flat.push(v);
+      }
+      return flat.join(' ').slice(0, 120);
+    }
+
+    function applyPatientQr(text){
+      var val = parsePatientQr(text);
+      var st = document.getElementById('ocrStatus');
+      if (!val){
+        document.getElementById('qrCount').textContent = '📭 このQRからは患者情報を取り出せませんでしたカニ🦀';
+        return false;
+      }
+      var inp = document.getElementById('ptName');
+      inp.value = val;
+      syncPtName();
+      closeQrScanner();
+      st.textContent = '✅ 患者名・IDに「' + val + '」を入れましたカニ🦀';
+      return true;
+    }
 
     function loadJsQR() {
       if (window.jsQR) return Promise.resolve();
@@ -2864,10 +3361,14 @@ ${MK_MENU_JS}
       return qrLibLoading;
     }
 
-    async function openQrScanner() {
+    async function openQrScanner(mode) {
+      qrMode = (mode === 'patient') ? 'patient' : 'techo';   // 🌟v15追加
       const ov = document.getElementById('qrOverlay');
       qrTexts = []; qrSeen = {};
       document.getElementById('qrGoBtn').style.display = 'none';
+      document.getElementById('qrHint').textContent = (qrMode === 'patient')
+        ? '患者情報のQR（お薬手帳の1枚目・院内帳票など）をかざしてください'
+        : 'QRが複数あるときは1個ずつ順番にかざしてください';
       document.getElementById('qrCount').textContent = 'カメラを起動中...🦀';
       ov.style.display = 'flex';
       try {
@@ -2894,6 +3395,12 @@ ${MK_MENU_JS}
       var text = '';
       try { text = new TextDecoder('shift-jis').decode(new Uint8Array(code.binaryData)); }
       catch (e) { text = code.data || ''; }
+      // 🌟v15追加: 患者QRモードのときは貯めずに、その場で患者名・ID欄へ入れて閉じる
+      if (qrMode === 'patient'){
+        if (!text) return false;
+        if (navigator.vibrate) navigator.vibrate(60);
+        return applyPatientQr(text);
+      }
       const key = text.slice(0, 40) + '|' + text.length;
       if (text && !qrSeen[key]) {
         qrSeen[key] = 1; qrTexts.push(text);
@@ -3030,6 +3537,596 @@ ${MK_MENU_JS}
         fr.readAsDataURL(file);
       });
     }
+
+    // ===== 🌟v16: 錠数カウント（端末内の画像処理版・Watershed） ここから =====
+    // v10ではAI(vision)に個数を聞いていたが、位置が分からないので丸を描けず
+    // 数も外しやすかった。v14で二値化＋連結成分にしたが、触れ合った錠剤を
+    // 分けられずに数が合わなかった。v16では OpenCV と同じ流れを素のJSで実装した。
+    //   ①縮小・グレースケール ②照明ムラ補正 ③ぼかし ④大津の二値化
+    //   ⑤オープニング ⑥橋渡し（割線対策）⑦穴埋め ⑧距離変換
+    //   ⑨山の高さで併合しながら領域分け（Watershed）⑩面積・形でふるい分け
+    // opencv.js は約9MBあり初回読み込みが重すぎるので採用していない
+    // （jsQRは30KB弱だったから中継できたが規模が違う）。
+    // 通信もAPI課金も無し・900x700で概ね0.3〜0.7秒。複数種類の区別はしない。
+    var tcImg = null, tcW = 0, tcH = 0, tcMarks = [], tcBaseR = 14, tcOverride = null;
+
+    function closeTc(){ document.getElementById('tcOverlay').style.display = 'none'; }
+
+    function tcSum(){
+      var n = 0;
+      for (var i = 0; i < tcMarks.length; i++) n += tcMarks[i].n;
+      return n;
+    }
+    function tcTotal(){ return (tcOverride === null) ? tcSum() : tcOverride; }
+
+    function tcOtsu(hist, total){
+      var sum = 0, i;
+      for (i = 0; i < 256; i++) sum += i * hist[i];
+      var sumB = 0, wB = 0, best = -1, bMB = 0, bMF = 255;
+      for (i = 0; i < 256; i++){
+        wB += hist[i];
+        if (!wB) continue;
+        var wF = total - wB;
+        if (wF <= 0) break;
+        sumB += i * hist[i];
+        var mB = sumB / wB, mF = (sum - sumB) / wF;
+        var v = wB * wF * (mB - mF) * (mB - mF);
+        if (v > best){ best = v; bMB = mB; bMF = mF; }
+      }
+      var thr = Math.round((bMB + bMF) / 2);
+      return Math.max(1, Math.min(254, thr));
+    }
+
+    function tcBoxBlur(src, w, h, r){
+      if (r < 1) { var c = new Float32Array(w*h); c.set(src); return c; }
+      var tmp = new Float32Array(w * h), out = new Float32Array(w * h);
+      var win = 2 * r + 1, x, y, i, sum, base, xi, yi, a, b;
+      for (y = 0; y < h; y++){
+        base = y * w; sum = 0;
+        for (i = -r; i <= r; i++){ xi = i < 0 ? 0 : (i >= w ? w - 1 : i); sum += src[base + xi]; }
+        for (x = 0; x < w; x++){
+          tmp[base + x] = sum / win;
+          a = x - r; a = a < 0 ? 0 : (a >= w ? w - 1 : a);
+          b = x + r + 1; b = b < 0 ? 0 : (b >= w ? w - 1 : b);
+          sum += src[base + b] - src[base + a];
+        }
+      }
+      for (x = 0; x < w; x++){
+        sum = 0;
+        for (i = -r; i <= r; i++){ yi = i < 0 ? 0 : (i >= h ? h - 1 : i); sum += tmp[yi * w + x]; }
+        for (y = 0; y < h; y++){
+          out[y * w + x] = sum / win;
+          a = y - r; a = a < 0 ? 0 : (a >= h ? h - 1 : a);
+          b = y + r + 1; b = b < 0 ? 0 : (b >= h ? h - 1 : b);
+          sum += tmp[b * w + x] - tmp[a * w + x];
+        }
+      }
+      return out;
+    }
+
+    // 3x3 の最大値/最小値フィルタ（膨張・収縮）
+    function tcMorph(bin, w, h, isDilate){
+      var out = new Uint8Array(w * h), x, y, p, v;
+      for (y = 0; y < h; y++){
+        for (x = 0; x < w; x++){
+          p = y * w + x;
+          v = isDilate ? 0 : 1;
+          for (var dy = -1; dy <= 1; dy++){
+            var ny = y + dy; if (ny < 0 || ny >= h) { if (!isDilate) v = 0; continue; }
+            for (var dx = -1; dx <= 1; dx++){
+              var nx = x + dx; if (nx < 0 || nx >= w) { if (!isDilate) v = 0; continue; }
+              var q = bin[ny * w + nx];
+              if (isDilate){ if (q) { v = 1; } } else { if (!q) { v = 0; } }
+            }
+          }
+          out[p] = v;
+        }
+      }
+      return out;
+    }
+
+    // チャンファー3-4 の距離変換（前景画素→最寄りの背景までの距離×3）
+    function tcDist(bin, w, h){
+      var n = w * h, INF = 1 << 28, d = new Int32Array(n), i, x, y, p, m;
+      for (i = 0; i < n; i++) d[i] = bin[i] ? INF : 0;
+      for (y = 0; y < h; y++){
+        for (x = 0; x < w; x++){
+          p = y * w + x; if (!d[p]) continue;
+          m = d[p];
+          if (y > 0){
+            if (d[p - w] + 3 < m) m = d[p - w] + 3;
+            if (x > 0 && d[p - w - 1] + 4 < m) m = d[p - w - 1] + 4;
+            if (x < w - 1 && d[p - w + 1] + 4 < m) m = d[p - w + 1] + 4;
+          } else { m = 3; }
+          if (x > 0){ if (d[p - 1] + 3 < m) m = d[p - 1] + 3; } else { if (3 < m) m = 3; }
+          d[p] = m;
+        }
+      }
+      for (y = h - 1; y >= 0; y--){
+        for (x = w - 1; x >= 0; x--){
+          p = y * w + x; if (!d[p]) continue;
+          m = d[p];
+          if (y < h - 1){
+            if (d[p + w] + 3 < m) m = d[p + w] + 3;
+            if (x > 0 && d[p + w - 1] + 4 < m) m = d[p + w - 1] + 4;
+            if (x < w - 1 && d[p + w + 1] + 4 < m) m = d[p + w + 1] + 4;
+          } else { if (3 < m) m = 3; }
+          if (x < w - 1){ if (d[p + 1] + 3 < m) m = d[p + 1] + 3; } else { if (3 < m) m = 3; }
+          d[p] = m;
+        }
+      }
+      return d;
+    }
+
+    // 連結成分ラベリング（8近傍）
+    function tcLabel(bin, w, h){
+      var n = w * h, lab = new Int32Array(n), stack = new Int32Array(n), blobs = [], i;
+      for (i = 0; i < n; i++) lab[i] = -1;
+      for (i = 0; i < n; i++){
+        if (!bin[i] || lab[i] >= 0) continue;
+        var id = blobs.length, sp = 0, area = 0;
+        var minX = 1e9, maxX = -1, minY = 1e9, maxY = -1;
+        stack[sp++] = i; lab[i] = id;
+        while (sp){
+          var q = stack[--sp], qx = q % w, qy = (q / w) | 0;
+          area++;
+          if (qx < minX) minX = qx; if (qx > maxX) maxX = qx;
+          if (qy < minY) minY = qy; if (qy > maxY) maxY = qy;
+          for (var dy = -1; dy <= 1; dy++){
+            var ny = qy + dy; if (ny < 0 || ny >= h) continue;
+            for (var dx = -1; dx <= 1; dx++){
+              var nx = qx + dx; if (nx < 0 || nx >= w) continue;
+              var r2 = ny * w + nx;
+              if (bin[r2] && lab[r2] < 0){ lab[r2] = id; stack[sp++] = r2; }
+            }
+          }
+        }
+        blobs.push({ id: id, area: area, minX: minX, maxX: maxX, minY: minY, maxY: maxY, maxD: 0 });
+      }
+      return { lab: lab, blobs: blobs };
+    }
+
+    // 割線などで切れた錠剤を繋ぐ。ふつうのクロージングをそのまま使うと、
+    // すでに接触している錠剤どうしの「くびれ」まで太らせてしまい、塊を
+    // 分けられなくなる。そこでクロージングで増えた部分をひとかたまりずつ見て、
+    // 【別々の塊を2つ以上つないでいるもの】だけを残す。
+    // 繋ぐ働きだけが残り、太らせる働きは消える。
+    function tcBridge(bin, w, h, r){
+      var n = w * h, L = tcLabel(bin, w, h), lab = L.lab, i;
+      if (L.blobs.length < 2) return bin;
+      var cl = bin;
+      for (i = 0; i < r; i++) cl = tcMorph(cl, w, h, true);
+      for (i = 0; i < r; i++) cl = tcMorph(cl, w, h, false);
+      var add = new Uint8Array(n);
+      for (i = 0; i < n; i++) add[i] = (cl[i] && !bin[i]) ? 1 : 0;
+      var A = tcLabel(add, w, h), alab = A.lab;
+      var first = new Int32Array(A.blobs.length), multi = new Uint8Array(A.blobs.length);
+      for (i = 0; i < first.length; i++) first[i] = -1;
+      var x, y, dx, dy, nx, ny;
+      for (y = 0; y < h; y++){
+        for (x = 0; x < w; x++){
+          var p = y * w + x, g = alab[p];
+          if (g < 0 || multi[g]) continue;
+          for (dy = -1; dy <= 1; dy++){
+            ny = y + dy; if (ny < 0 || ny >= h) continue;
+            for (dx = -1; dx <= 1; dx++){
+              nx = x + dx; if (nx < 0 || nx >= w) continue;
+              var m = lab[ny * w + nx];
+              if (m < 0) continue;
+              if (first[g] < 0) first[g] = m;
+              else if (m !== first[g]) multi[g] = 1;
+            }
+          }
+        }
+      }
+      var out = new Uint8Array(n); out.set(bin);
+      for (i = 0; i < n; i++){
+        var g2 = alab[i];
+        if (g2 >= 0 && multi[g2]) out[i] = 1;
+      }
+      return out;
+    }
+
+    // 穴埋め（サイズ制限つき）。外周につながっていない背景の島だけを、
+    // 小さいものに限って前景に変える。無制限にやると錠剤が囲む中央のすき間まで
+    // 埋まって塊が繋がってしまう。
+    function tcFillHoles(bin, w, h, maxArea){
+      var n = w * h, inv = new Uint8Array(n), i;
+      for (i = 0; i < n; i++) inv[i] = bin[i] ? 0 : 1;
+      var r = tcLabel(inv, w, h), lab = r.lab, blobs = r.blobs;
+      var touch = new Uint8Array(blobs.length), x, y;
+      for (x = 0; x < w; x++){ if (lab[x] >= 0) touch[lab[x]] = 1; if (lab[(h-1)*w+x] >= 0) touch[lab[(h-1)*w+x]] = 1; }
+      for (y = 0; y < h; y++){ if (lab[y*w] >= 0) touch[lab[y*w]] = 1; if (lab[y*w+w-1] >= 0) touch[lab[y*w+w-1]] = 1; }
+      var out = new Uint8Array(n); out.set(bin);
+      for (i = 0; i < n; i++){
+        var L = lab[i];
+        if (L >= 0 && !touch[L] && blobs[L].area <= maxArea) out[i] = 1;
+      }
+      return out;
+    }
+
+    // 距離マップの「山」を高い順に成長させながら、隣り合う山を併合するか
+    // 分けるかを決める（Watershed＋dynamics）。
+    // 種を距離のしきい値で作るとくびれが飲み込まれて2錠が1個に潰れる。
+    // 逆に極大点をそのまま種にすると、カプセルのような細長い形では稜線上に
+    // 種が並んで1個が2個に割れる。そこで「弱いほうの山の高さ－合流点の高さ」
+    // （＝山の独立性）が hThr 未満なら同じ錠剤とみなして併合する。
+    function tcDynFlood(bin, dist, w, h, hThr){
+      var n = w * h, i;
+      var lab = new Int32Array(n);
+      for (i = 0; i < n; i++) lab[i] = -1;
+      var maxD = 0;
+      for (i = 0; i < n; i++) if (bin[i] && dist[i] > maxD) maxD = dist[i];
+      if (!maxD) return { lab: lab, roots: [], find: function(a){ return a; } };
+      var buckets = new Array(maxD + 1);
+      for (i = 0; i < n; i++){
+        if (!bin[i] || dist[i] <= 0) continue;
+        var v = dist[i];
+        if (!buckets[v]) buckets[v] = [];
+        buckets[v].push(i);
+      }
+      var parent = [], peak = [], peakPos = [];
+      function find(a){ while (parent[a] !== a){ parent[a] = parent[parent[a]]; a = parent[a]; } return a; }
+      var queue = new Int32Array(n), qh, qt, p, q, x, y, dx, dy, nx, ny, r, r0, k;
+      var roots = [];
+      for (var v2 = maxD; v2 >= 1; v2--){
+        var b = buckets[v2];
+        if (!b || !b.length) continue;
+        // (1) すでにラベルの付いた画素から、この高さの画素へ広げる
+        qh = 0; qt = 0;
+        for (k = 0; k < b.length; k++){
+          p = b[k];
+          if (lab[p] >= 0) continue;
+          x = p % w; y = (p / w) | 0;
+          var touch = 0;
+          for (dy = -1; dy <= 1 && !touch; dy++){
+            ny = y + dy; if (ny < 0 || ny >= h) continue;
+            for (dx = -1; dx <= 1; dx++){
+              nx = x + dx; if (nx < 0 || nx >= w) continue;
+              if (lab[ny * w + nx] >= 0){ touch = 1; break; }
+            }
+          }
+          if (touch) queue[qt++] = p;
+        }
+        while (qh < qt){
+          p = queue[qh++];
+          if (lab[p] >= 0) continue;
+          x = p % w; y = (p / w) | 0;
+          r0 = -1;
+          for (dy = -1; dy <= 1; dy++){
+            ny = y + dy; if (ny < 0 || ny >= h) continue;
+            for (dx = -1; dx <= 1; dx++){
+              nx = x + dx; if (nx < 0 || nx >= w) continue;
+              var L = lab[ny * w + nx];
+              if (L < 0) continue;
+              r = find(L);
+              if (r0 < 0){ r0 = r; continue; }
+              if (r === r0) continue;
+              if (peak[r] > peak[r0]){ var t = r0; r0 = r; r = t; }
+              // 弱いほうの山の独立性が低ければ同じ錠剤として併合する
+              if (peak[r] - v2 < hThr){ parent[r] = r0; }
+              else if (peak[r0] - v2 < hThr){ parent[r] = r0; }
+            }
+          }
+          if (r0 < 0) continue;
+          lab[p] = r0;
+          for (dy = -1; dy <= 1; dy++){
+            ny = y + dy; if (ny < 0 || ny >= h) continue;
+            for (dx = -1; dx <= 1; dx++){
+              nx = x + dx; if (nx < 0 || nx >= w) continue;
+              q = ny * w + nx;
+              if (lab[q] < 0 && bin[q] && dist[q] === v2) queue[qt++] = q;
+            }
+          }
+        }
+        // (2) この高さで新しく現れた山（＝新しい極大）を登録する
+        for (k = 0; k < b.length; k++){
+          p = b[k];
+          if (lab[p] >= 0) continue;
+          var id = parent.length;
+          parent.push(id); peak.push(v2); peakPos.push(p);
+          roots.push(id);
+          lab[p] = id;
+          qh = 0; qt = 0; queue[qt++] = p;
+          while (qh < qt){
+            var s = queue[qh++];
+            x = s % w; y = (s / w) | 0;
+            for (dy = -1; dy <= 1; dy++){
+              ny = y + dy; if (ny < 0 || ny >= h) continue;
+              for (dx = -1; dx <= 1; dx++){
+                nx = x + dx; if (nx < 0 || nx >= w) continue;
+                q = ny * w + nx;
+                if (lab[q] < 0 && bin[q] && dist[q] === v2){ lab[q] = id; queue[qt++] = q; }
+              }
+            }
+          }
+        }
+      }
+      var out = [];
+      for (i = 0; i < roots.length; i++){
+        if (find(roots[i]) === roots[i]) out.push({ id: roots[i], peak: peak[roots[i]], p: peakPos[roots[i]] });
+      }
+      return { lab: lab, roots: out, find: find };
+    }
+
+    // ===== 本体 =====
+    function tcAnalyze(gray, w, h){
+      var n = w * h, i, x, y;
+
+      // (1) 補正なしで一度二値化し、錠剤のおおよその半径をつかむ。
+      //     照明ムラ補正のぼかし半径を固定にすると、大きい錠剤は中身まで
+      //     背景扱いされて輪郭だけのドーナツになってしまうため。
+      var hist0 = new Float64Array(256);
+      for (i = 0; i < n; i++) hist0[gray[i]]++;
+      var thr0 = tcOtsu(hist0, n);
+      var bs = 0, bc = 0;
+      for (x = 0; x < w; x++){ bs += gray[x] + gray[(h - 1) * w + x]; bc += 2; }
+      for (y = 0; y < h; y++){ bs += gray[y * w] + gray[y * w + w - 1]; bc += 2; }
+      var fgBright0 = (bs / bc) < thr0;
+      var bin0 = new Uint8Array(n);
+      for (i = 0; i < n; i++) bin0[i] = (fgBright0 ? (gray[i] > thr0) : (gray[i] < thr0)) ? 1 : 0;
+      var d0 = tcDist(bin0, w, h), maxD0 = 0;
+      for (i = 0; i < n; i++) if (d0[i] > maxD0) maxD0 = d0[i];
+      var R0 = Math.max(4, maxD0 / 3);
+
+      // (2) 照明ムラ補正：大きくぼかした背景を引いて 128 を基準に揃える
+      var bgR = Math.round(Math.min(Math.max(R0 * 4, 12), Math.min(w, h) / 2));
+      var bg = tcBoxBlur(gray, w, h, bgR);
+      var flat = new Float32Array(n);
+      for (i = 0; i < n; i++){
+        var v = gray[i] - bg[i] + 128;
+        flat[i] = v < 0 ? 0 : (v > 255 ? 255 : v);
+      }
+
+      // (3) 軽いぼかしを3回（ノイズと網点をならす）
+      var sm = flat;
+      for (var k = 0; k < 3; k++) sm = tcBoxBlur(sm, w, h, 1);
+
+      // (4) 大津の二値化。補正後は背景が 128 に寄るので、
+      //     しきい値が 128 より上なら「前景は明るい側」と判定できる。
+      var g2 = new Uint8Array(n), hist = new Float64Array(256);
+      for (i = 0; i < n; i++){ var q = sm[i] | 0; g2[i] = q; hist[q]++; }
+      var thr = tcOtsu(hist, n);
+      var fgBright = thr > 128;
+      var bin = new Uint8Array(n);
+      for (i = 0; i < n; i++) bin[i] = (fgBright ? (g2[i] > thr) : (g2[i] < thr)) ? 1 : 0;
+
+      // (5) オープニング（ゴミ取り）→ 橋渡し（割線などの細い切れ目を繋ぐ）
+      //     半径は錠剤の大きさに合わせる（0.13R・上限5）。
+      var cr = Math.max(1, Math.min(5, Math.round(R0 * 0.13)));
+      bin = tcMorph(bin, w, h, false);
+      bin = tcMorph(bin, w, h, true);
+      bin = tcBridge(bin, w, h, cr);
+
+      // (6) 穴埋め（半径 0.15R 相当まで）
+      var holeMax = Math.max(9, Math.round(Math.PI * (0.15 * R0) * (0.15 * R0)));
+      bin = tcFillHoles(bin, w, h, holeMax);
+
+      // (7) 距離変換
+      var dist = tcDist(bin, w, h);
+
+      // (8) 塊ごとに最大距離を持たせ、細長い影や小さなゴミを落とす
+      var L = tcLabel(bin, w, h), lab = L.lab, blobs = L.blobs;
+      if (!blobs.length) return { marks: [], baseR: Math.max(9, R0) };
+      for (i = 0; i < n; i++){
+        var id = lab[i];
+        if (id >= 0 && dist[i] > blobs[id].maxD) blobs[id].maxD = dist[i];
+      }
+      var maxBlobD = 0;
+      for (i = 0; i < blobs.length; i++) if (blobs[i].maxD > maxBlobD) maxBlobD = blobs[i].maxD;
+      var minArea = Math.max(30, Math.round(n * 0.00025));
+      var okBlob = new Uint8Array(blobs.length);
+      for (i = 0; i < blobs.length; i++){
+        var b = blobs[i];
+        okBlob[i] = (b.area >= minArea && b.maxD >= Math.max(6, maxBlobD * 0.3)) ? 1 : 0;
+      }
+      var keep = new Uint8Array(n);
+      for (i = 0; i < n; i++) keep[i] = (lab[i] >= 0 && okBlob[lab[i]]) ? 1 : 0;
+      for (i = 0; i < n; i++) if (!keep[i]) dist[i] = 0;
+
+      // (9) 山の高さで併合しながら領域分け。しきい値は2段階で決める。
+      //     1回目は塊の最大距離を基準に大まかに分け、そこで得た山の高さの
+      //     【中央値】から1錠の半径を推定して2回目に反映する。
+      //     最大距離から直接取ると、団子状にくっついた塊で過大になる。
+      var f1 = tcDynFlood(keep, dist, w, h, Math.max(6, Math.round(maxBlobD * 0.25)));
+      if (!f1.roots.length) return { marks: [], baseR: Math.max(9, R0) };
+      var pk = f1.roots.map(function(r){ return r.peak; }).sort(function(a, b2){ return a - b2; });
+      var medPeak = pk[Math.floor(pk.length / 2)];
+      var Rmed = Math.max(3, medPeak / 3);
+      var f2 = tcDynFlood(keep, dist, w, h, Math.max(6, Math.round(medPeak * 0.32)));
+      var lab2 = f2.lab, find2 = f2.find, roots2 = f2.roots;
+      if (!roots2.length) return { marks: [], baseR: Math.max(9, R0) };
+
+      // (10) 領域ごとの面積・重心・外接枠を集める
+      var idx = {}, cnt = roots2.length;
+      for (i = 0; i < cnt; i++) idx[roots2[i].id] = i;
+      var sumA = new Float64Array(cnt), sx = new Float64Array(cnt), sy = new Float64Array(cnt);
+      var bxMin = new Float64Array(cnt), bxMax = new Float64Array(cnt), byMin = new Float64Array(cnt), byMax = new Float64Array(cnt);
+      for (i = 0; i < cnt; i++){ bxMin[i] = 1e9; byMin[i] = 1e9; bxMax[i] = -1; byMax[i] = -1; }
+      for (i = 0; i < n; i++){
+        if (lab2[i] < 0 || !keep[i]) continue;
+        var g3 = idx[find2(lab2[i])];
+        if (g3 === undefined) continue;
+        var gx = i % w, gy = (i / w) | 0;
+        sumA[g3]++; sx[g3] += gx; sy[g3] += gy;
+        if (gx < bxMin[g3]) bxMin[g3] = gx; if (gx > bxMax[g3]) bxMax[g3] = gx;
+        if (gy < byMin[g3]) byMin[g3] = gy; if (gy > byMax[g3]) byMax[g3] = gy;
+      }
+      var areas = [];
+      for (i = 0; i < cnt; i++) if (sumA[i] > 0) areas.push(sumA[i]);
+      areas.sort(function(a, b2){ return a - b2; });
+      var medA = areas.length ? areas[Math.floor(areas.length / 2)] : 0;
+
+      // (11) 面積・縦横比・充填率でふるいにかける
+      var marks = [];
+      for (i = 0; i < cnt; i++){
+        var a = sumA[i]; if (!a) continue;
+        var bw = bxMax[i] - bxMin[i] + 1, bh = byMax[i] - byMin[i] + 1;
+        var asp = Math.max(bw, bh) / Math.max(1, Math.min(bw, bh));
+        var fill = a / (bw * bh);
+        if (a < Math.max(minArea, medA * 0.28)) continue;
+        if (asp > 5) continue;
+        if (fill < 0.26) continue;
+        marks.push({ x: sx[i] / a, y: sy[i] / a, r: Rmed, n: 1 });
+      }
+      return { marks: marks, baseR: Math.max(6, Rmed) };
+    }
+
+    // --- 画像から錠剤の位置と個数を検出する
+    function tcDetect(img){
+      var maxDim = 900;
+      var w = img.width, h = img.height;
+      if (Math.max(w, h) > maxDim){ var sc = maxDim / Math.max(w, h); w = Math.round(w * sc); h = Math.round(h * sc); }
+      var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      var ctx = cv.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
+      var d = ctx.getImageData(0, 0, w, h).data;
+      var n = w * h, gray = new Uint8Array(n);
+      for (var i = 0; i < n; i++){
+        gray[i] = (d[i*4] * 299 + d[i*4+1] * 587 + d[i*4+2] * 114) / 1000 | 0;
+      }
+      var r = tcAnalyze(gray, w, h);
+      return { w: w, h: h, marks: r.marks, baseR: r.baseR };
+    }
+
+
+    // 🌟v16変更: 検出した錠剤は「重心のドット」で示す。輪郭に沿った丸だと
+    // 隣とくっついたときに見分けづらいため、中心の点＋薄い輪の二段にした。
+    function tcDraw(){
+      var cv = document.getElementById('tcCanvas');
+      if (!cv || !tcImg) return;
+      cv.width = tcW; cv.height = tcH;
+      var ctx = cv.getContext('2d');
+      ctx.drawImage(tcImg, 0, 0, tcW, tcH);
+      var lw = Math.max(2, Math.round(tcW / 320));
+      for (var i = 0; i < tcMarks.length; i++){
+        var m = tcMarks[i];
+        var dot = Math.max(4, Math.round(m.r * 0.30));
+        ctx.beginPath(); ctx.arc(m.x, m.y, m.r * 0.92, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = lw + 2; ctx.stroke();
+        ctx.beginPath(); ctx.arc(m.x, m.y, m.r * 0.92, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,235,59,0.9)'; ctx.lineWidth = lw; ctx.stroke();
+        ctx.beginPath(); ctx.arc(m.x, m.y, dot + 2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fill();
+        ctx.beginPath(); ctx.arc(m.x, m.y, dot, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff5252'; ctx.fill();
+        if (m.n > 1){
+          var fs = Math.max(11, Math.round(m.r * 0.9));
+          ctx.font = 'bold ' + fs + 'px sans-serif';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+          ctx.strokeText('x' + m.n, m.x, m.y);
+          ctx.fillStyle = '#fff'; ctx.fillText('x' + m.n, m.x, m.y);
+        }
+      }
+    }
+
+    function tcTap(ev){
+      var cv = document.getElementById('tcCanvas');
+      if (!cv || !tcImg) return;
+      var rect = cv.getBoundingClientRect();
+      var cx = ev.clientX, cy = ev.clientY;
+      if (cx === undefined && ev.touches && ev.touches[0]){ cx = ev.touches[0].clientX; cy = ev.touches[0].clientY; }
+      var x = (cx - rect.left) * (cv.width / rect.width);
+      var y = (cy - rect.top) * (cv.height / rect.height);
+      for (var i = 0; i < tcMarks.length; i++){
+        var m = tcMarks[i];
+        var ddx = x - m.x, ddy = y - m.y;
+        if (ddx * ddx + ddy * ddy <= m.r * m.r){
+          tcMarks.splice(i, 1); tcOverride = null; tcDraw(); renderTcOut(); return;
+        }
+      }
+      tcMarks.push({ x: x, y: y, r: tcBaseR, n: 1 });
+      tcOverride = null; tcDraw(); renderTcOut();
+    }
+
+    function tcAdjust(dd){
+      tcOverride = Math.max(0, tcTotal() + dd);
+      renderTcOut();
+    }
+    function tcSetTotal(v){
+      var num = parseInt(v, 10);
+      tcOverride = isNaN(num) ? 0 : Math.max(0, num);
+      renderTcOut();   // 入力中は再描画しない（カーソルが飛ぶため）
+    }
+
+    function tcText(){
+      var per = parseFloat(document.getElementById('tcPerDay').value) || 1;
+      var total = tcTotal();
+      var days = Math.floor(total / per);
+      var rest = Math.round((total - days * per) * 10) / 10;
+      return total + '錠 ÷ 1日' + per + '錠 ＝ ' + days + '日分'
+           + (rest > 0 ? '（余り ' + rest + '錠）' : '（余りなし）');
+    }
+
+    function renderTcOut(){
+      var inp = document.getElementById('tcTotal');
+      if (inp && document.activeElement !== inp) inp.value = tcTotal();
+      document.getElementById('tcOut').textContent = tcText();
+    }
+
+    function openTc(){
+      var sel = document.getElementById('tcPerDay');
+      if (!sel.options.length){
+        var opts = [0.5, 1, 1.5, 2, 3, 4, 5, 6, 8];
+        sel.innerHTML = opts.map(function(v){
+          return '<option value="' + v + '"' + (v === 1 ? ' selected' : '') + '>1日 ' + v + ' 錠</option>';
+        }).join('');
+      }
+      document.getElementById('tcOverlay').style.display = 'flex';
+      tcDraw();
+      renderTcOut();
+    }
+
+    function copyTc(){
+      var t = tcText();
+      function done(ok){
+        document.getElementById('ocrStatus').textContent =
+          ok ? '📋 コピーしましたカニ🦀' : '⚠️ コピーできませんでした。長押しで選択してねカニ🦀';
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(t).then(function(){ done(true); }, function(){ done(false); });
+      } else {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta); ta.select();
+          document.execCommand('copy'); document.body.removeChild(ta); done(true);
+        } catch(e){ done(false); }
+      }
+    }
+
+    document.getElementById('tcOverlay').addEventListener('click', closeTc);
+    document.getElementById('tcCanvas').addEventListener('click', tcTap);
+
+    document.getElementById('countFile').addEventListener('change', function(e){
+      var f = (e.target.files || [])[0];
+      e.target.value = '';
+      if (!f) return;
+      var st = document.getElementById('ocrStatus');
+      st.textContent = '🔢 錠剤を数えています...🦀';
+      var fr = new FileReader();
+      fr.onload = function(){
+        var im = new Image();
+        im.onload = function(){
+          try {
+            var res = tcDetect(im);
+            tcImg = im; tcW = res.w; tcH = res.h;
+            tcMarks = res.marks; tcBaseR = res.baseR; tcOverride = null;
+            openTc();
+            st.textContent = tcMarks.length
+              ? ('✅ ' + tcTotal() + '錠を検出したカニ🦀 赤い点を見て、足りない分はタップで足してね')
+              : '📭 錠剤を見つけられませんでした。無地の紙の上に、重ならないように並べて撮ってみてカニ🦀';
+          } catch(err){
+            st.textContent = '⚠️ 解析でエラーが出ましたカニ🦀💦 ' + (err && err.message ? err.message : err);
+          }
+        };
+        im.onerror = function(){ st.textContent = '⚠️ 画像を読み込めませんでしたカニ🦀'; };
+        im.src = fr.result;
+      };
+      fr.onerror = function(){ st.textContent = '⚠️ 画像を読み込めませんでしたカニ🦀'; };
+      fr.readAsDataURL(f);
+    });
+    // ===== 🌟v16: 錠数カウント ここまで =====
 
     document.getElementById('kokuinFile').addEventListener('change', async function(e){
       const files = Array.from(e.target.files || []);
@@ -3399,6 +4496,40 @@ ${MK_MENU_JS}
     // ===== 🌟フェーズ3: 持参薬鑑別報告書 =====
     let reportMemo = '';
     let reportBiko = '';
+
+    // 🌟v15追加: 最初の画面に置いた「患者名・ID」「備考」と、報告書のフィールドをつなぐ。
+    // 画面で打てば報告書に載り、報告書側でタップ編集すれば画面の欄にも戻る（双方向）。
+    function syncPtName(){ reportMemo = document.getElementById('ptName').value; }
+    function syncBiko(){ reportBiko = document.getElementById('bikoInput').value; }
+    function pullMetaToInputs(){
+      const p = document.getElementById('ptName'); if (p) p.value = reportMemo || '';
+      const b = document.getElementById('bikoInput'); if (b) b.value = reportBiko || '';
+    }
+    // 備考の定型文パレット（最初の画面のほう）。タップで末尾に改行して差し込む。
+    function renderKanBikoPalette(){
+      const box = document.getElementById('kanBikoPalette');
+      const list = document.getElementById('kanBikoPresetList');
+      if (!box || !list) return;
+      const presets = (YOHO_CFG && Array.isArray(YOHO_CFG.bikoPresets)) ? YOHO_CFG.bikoPresets : [];
+      if (!presets.length){ box.style.display = 'none'; list.innerHTML = ''; return; }
+      box.style.display = 'block';
+      list.innerHTML = presets.map(function(p, i){
+        return '<button type="button" class="bp-item" data-kbp="' + i + '">' + escHtml(p) + '</button>';
+      }).join('');
+    }
+    document.addEventListener('click', function(e){
+      const b = e.target.closest ? e.target.closest('[data-kbp]') : null;
+      if (!b) return;
+      const presets = (YOHO_CFG && YOHO_CFG.bikoPresets) ? YOHO_CFG.bikoPresets : [];
+      const txt = presets[Number(b.getAttribute('data-kbp'))];
+      if (!txt) return;
+      const ta = document.getElementById('bikoInput');
+      const cur = ta.value;
+      ta.value = cur.trim() ? (cur + String.fromCharCode(10) + txt) : txt;
+      syncBiko();
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = ta.value.length;
+    });
     let reportDate = '';
     let reportTmpl = null;   // 🌟追加: 定型テキスト（nullのうちは設定値で初期化される）
     let reportSign = null;   // 🌟追加: 定型署名
@@ -3802,6 +4933,7 @@ ${MK_MENU_JS}
         else if (editTarget.field === 'rbiko') reportBiko = val;
         else if (editTarget.field === 'rtmpl') reportTmpl = val;   // 🌟追加
         else reportSign = val;                                      // 🌟追加
+        pullMetaToInputs();   // 🌟v15追加: 報告書で編集した内容を最初の画面の欄にも戻す
         closeEditModal();
         renderReport();
         return;
@@ -3928,7 +5060,7 @@ ${MK_MENU_JS}
     });
 
     // 🌟追加: 用法マスタ・単位・定型文を読み込む（管理画面 /kanbetsu-admin で設定した内容）
-    loadKanbetsuCfg();
+    loadKanbetsuCfg().then(function(){ renderKanBikoPalette(); }, function(){ renderKanBikoPalette(); });
   </script>
 </body></html>`;
 }
@@ -5595,8 +6727,11 @@ export default {
         const hId = body.h || "";
         const isSuperQ = hId === (env.SUPER_ADMIN_HID || "HPTEST1");
         if (!isSuperQ) {
+          // 🌟v14変更: 休薬チェッカー（_KYプラン）からも手帳QRを使えるようにする。
+          // 以前は鑑別の _jisan フラグだけを見ていたため、休薬オプションのみの施設が403になっていた。
           const flag = (hId ? await env.MEDI_KV.get(`${hId}_jisan`) : "") || "";
-          if (flag !== "1") {
+          const planQ = (hId ? await env.MEDI_KV.get(`${hId}_plan`) : "") || "";
+          if (flag !== "1" && !planQ.endsWith("_KY")) {
             return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
           }
         }
@@ -5743,6 +6878,103 @@ export default {
       }
     }
     // === 🦀持参薬鑑別: 裸錠刻印OCR API (ここまで) ===
+
+    // === 🌟v10追加: 錠数カウント API POST /api/tablet-count (ここから) ===
+    // 裸錠の写真から「同じ見た目の錠剤が何錠あるか」を数えて返す。
+    // 薬剤の特定はしない。計数は外れうるので、画面側で必ず手直しできるようにしてある。
+    if (request.method === "POST" && url.pathname.includes("/api/tablet-count")) {
+      try {
+        const body = await request.json();
+        const hId = body.h || "";
+        const isSuperTc = hId === (env.SUPER_ADMIN_HID || "HPTEST1");
+        if (!isSuperTc) {
+          const flag = (hId ? await env.MEDI_KV.get(`${hId}_jisan`) : "") || "";
+          if (flag !== "1") {
+            return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+          }
+        }
+        const image = body.image || "";
+        if (!image.startsWith("data:image/")) {
+          return new Response(JSON.stringify({ error: "画像データがありません" }), { status: 400, headers: { "Content-Type": "application/json" } });
+        }
+        if (image.length > 6000000) {
+          return new Response(JSON.stringify({ error: "画像が大きすぎます。撮り直してください" }), { status: 400, headers: { "Content-Type": "application/json" } });
+        }
+        if (!env.OPENAI_API_KEY) {
+          return new Response(JSON.stringify({ error: "OPENAI_API_KEY未設定" }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+
+        const countPrompt = "あなたは写真に写っている裸錠（PTPシートから出した錠剤・カプセル）の【数を数える】アシスタントです。\n【厳守ルール】\n1. まず見た目（色・形・大きさ・割線・刻印）が同じものごとにグループ分けし、グループごとに何個あるかを数える。\n2. 数は必ず実際に写っているものだけを数える。写っていない錠剤を足さない（ハルシネーション禁止）。\n3. 薬の名前や成分を推測しない。label には見た目の説明だけを書く。例:「白色の円形錠（刻印 KW 123）」「淡赤色のカプセル」。\n4. 錠剤が重なっている・見切れている・ぼやけて数えきれない場合は、無理に多く見積もらず、数えられた分だけを count にして confidence を「低」にし、note にその理由を書く。\n5. グループが1種類だけなら要素も1つでよい。\n6. 錠剤が写っていない場合は groups を空配列にする。";
+        const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "user", content: [
+                { type: "text", text: countPrompt },
+                { type: "image_url", image_url: { url: image, detail: "high" } }
+              ] }
+            ],
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: "tablet_count_result",
+                strict: true,
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    groups: {
+                      type: "array",
+                      description: "見た目が同じ錠剤ごとのまとまり",
+                      items: {
+                        type: "object",
+                        additionalProperties: false,
+                        properties: {
+                          label: { type: "string", description: "見た目の説明。色・形・刻印など。薬名は書かない" },
+                          count: { type: "integer", description: "そのグループの個数" },
+                          kind: { type: "string", enum: ["錠剤", "カプセル", "その他"], description: "剤形の見た目" },
+                          confidence: { type: "string", enum: ["高", "中", "低"], description: "数えた自信度" },
+                          note: { type: "string", description: "重なり・見切れ等の補足。無ければ空文字" }
+                        },
+                        required: ["label", "count", "kind", "confidence", "note"]
+                      }
+                    }
+                  },
+                  required: ["groups"]
+                }
+              }
+            },
+            temperature: 0.0,
+            max_tokens: 1200
+          })
+        });
+        if (!aiRes.ok) {
+          const errText = await aiRes.text();
+          return new Response(JSON.stringify({ error: "カウントAPIエラー: " + errText.slice(0, 200) }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+        const aiData = await aiRes.json();
+        let groups = [];
+        try {
+          const parsed = JSON.parse(aiData.choices[0].message.content);
+          groups = Array.isArray(parsed.groups) ? parsed.groups : [];
+        } catch (e) { groups = []; }
+        // 整形: 最大10グループ・1グループ999錠まで
+        groups = groups.slice(0, 10).map(g => ({
+          label: String(g.label || "錠剤").trim().slice(0, 60),
+          count: Math.max(0, Math.min(999, parseInt(g.count, 10) || 0)),
+          kind: g.kind || "その他",
+          confidence: g.confidence || "中",
+          note: String(g.note || "").trim().slice(0, 80)
+        })).filter(g => g.count > 0);
+
+        return new Response(JSON.stringify({ groups: groups }), { headers: { "Content-Type": "application/json" } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+    }
+    // === 🌟v10追加: 錠数カウント API (ここまで) ===
 
     if (request.method === "POST" && url.pathname.includes("/api/report")) {
       try {
@@ -7469,6 +8701,24 @@ if (ayj && ayj.substring(0, 7) === yj7) {
         let adoptedDisplayCount = 0;
         let currentAdoptedCat = '';
 
+        // 🌟v10追加: 採用薬の3ボタンを一覧の【上】にも出す。
+        // これまで3ボタンは #results の中（#defaultDisplay）にあり、
+        // loadAdoptedList が resDiv.innerHTML='' で消していたため、
+        // 内服を見たあと外用・注射に移るには一度ホームに戻る必要があった。
+        function adoptedTabsHtml() {
+          const defs = [['[内]', '採用💊 内服'], ['[外]', '採用🩹 外用'], ['[注]', '採用💉 注射']];
+          return '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:12px;">'
+            + defs.map(function(d){
+                const on = (d[0] === currentAdoptedCat);
+                return '<button onclick="loadAdoptedList(\\'' + d[0] + '\\')" style="padding:8px 4px;'
+                  + (on ? 'background:#00838f; border:1.5px solid #00838f; color:#fff;'
+                        : 'background:#f0fafd; border:1.5px dashed #4dd0e1; color:#00838f;')
+                  + ' border-radius:10px; font-size:11px; font-weight:bold; cursor:pointer; outline:none;">'
+                  + d[1] + '</button>';
+              }).join('')
+            + '</div>';
+        }
+
         async function loadAdoptedList(cat) {
           document.getElementById('q').value = ''; // 検索窓に入っている文字を綺麗にする
           currentAdoptedCat = cat;
@@ -7483,7 +8733,8 @@ if (ayj && ayj.substring(0, 7) === yj7) {
             adoptedDisplayCount = 0;
             
             if (adoptedFullList.length === 0) {
-              resDiv.innerHTML = '<div class="no-results">📭 該当する採用薬が登録されていませんカニ🦀</div>';
+              // 🌟v10変更: 0件でも3ボタンは残す（他の区分に移れるように）
+              resDiv.innerHTML = adoptedTabsHtml() + '<div class="no-results">📭 該当する採用薬が登録されていませんカニ🦀</div>';
               return;
             }
             renderAdoptedMore(true); // 最初の50件を描画
@@ -7523,7 +8774,8 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           }).join('');
 
           if (isFirst) {
-            resDiv.innerHTML = html;
+            // 🌟v10変更: 一覧の先頭に3ボタンを付けて、内服⇄外用⇄注射を行き来できるようにする
+            resDiv.innerHTML = adoptedTabsHtml() + html;
           } else {
             // 2回目以降（追加読み込み）は、スクロール位置を崩さず一番下にお薬を継ぎ足す
             resDiv.insertAdjacentHTML('beforeend', html);
