@@ -1644,7 +1644,7 @@ ${mkHelpHtml(helpHtml)}
 
     <button class="btn print" onclick="printReport()">🖨️ 休薬チェッカー確認票を印刷 🦀</button>
     <div class="footer">
-      🦀 メディカニ 休薬チェッカー（β）<br>© 2026 🐔トリの巣ワークス メディカニ運営事務局
+      🦀 メディカニ 休薬チェッカー（β）<br>© 2026 🐔メディカニ運営
     </div>
   </div>
 
@@ -2710,7 +2710,7 @@ ${mkHelpHtml(helpHtml)}
     </div>
   </div>
   <div class="footer">
-    🦀 メディカニ 鑑別（β）<br>© 2026 🐔トリの巣ワークス メディカニ運営事務局
+    🦀 メディカニ 鑑別（β）<br>© 2026 🐔メディカニ運営
   </div>
 
   <div id="modalOverlay"><div class="modal" onclick="event.stopPropagation()">
@@ -5211,7 +5211,7 @@ function kanbetsuAdminPage(hId, isSuper) {
 
     <div class="msg" id="msg"></div>
     <div style="text-align:center; font-size:11px; color:#bbb; padding:10px 0 20px;">
-      🦀 メディカニ鑑別 マスタ管理<br>© 2026 🐔トリの巣ワークス メディカニ運営事務局
+      🦀 メディカニ鑑別 マスタ管理<br>© 2026 🐔メディカニ運営
     </div>
   </div>
 
@@ -8686,7 +8686,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           🦀 メディカニ 医薬品検索
         </div>
         <div style="font-size:11px; color:#aa8899; line-height:1.9;">
-          © 2026 🐔トリの巣ワークス  メディカニ運営事務局
+          © 2026 🐔メディカニ運営
         </div>
         </footer>
       <!-- ===== 🌟追加: フッター ここまで ===== -->
