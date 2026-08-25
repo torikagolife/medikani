@@ -707,7 +707,12 @@ function kyuyakuAdminPage(hId, isSuper) {
     <h1>🦀 休薬マスタ管理</h1>
     <div class="sub">施設ID: ${hId} ${isSuper ? "／👑 共通デフォルト編集権限あり" : ""}</div>
   </div>
-  <a href="/${hId}/kyuyaku" style="flex-shrink:0; background:rgba(255,255,255,.2); border:1px solid rgba(255,255,255,.65); color:#fff; text-decoration:none; font-size:12px; font-weight:bold; padding:9px 13px; border-radius:10px; white-space:nowrap;">↩️ 戻る</a>
+  <!-- 🌟v18追加: マニュアルへのリンク（メディカニ・プラス管理画面と同じ体裁） -->
+  <div style="flex-shrink:0; display:flex; gap:8px; align-items:center;">
+    <a href="https://medikani.pages.dev/manual_kyuyaku/" target="_blank" rel="noopener"
+       style="background:#e3f2fd; border:1px solid #bbdefb; color:#0056b3; text-decoration:none; font-size:12px; font-weight:bold; padding:9px 13px; border-radius:10px; white-space:nowrap;">📘 マニュアル</a>
+    <a href="/${hId}/kyuyaku" style="background:rgba(255,255,255,.2); border:1px solid rgba(255,255,255,.65); color:#fff; text-decoration:none; font-size:12px; font-weight:bold; padding:9px 13px; border-radius:10px; white-space:nowrap;">↩️ 戻る</a>
+  </div>
 </div>
 <!-- 🌟v7追加: ヘッダー右上に「戻る」ボタン ここまで -->
 
@@ -5129,7 +5134,12 @@ function kanbetsuAdminPage(hId, isSuper) {
       <h1>🦀 メディカニ鑑別 マスタ管理</h1>
       <div class="sub">用法マスタ・追加刻印・帳票の定型文を設定できますカニ🦀</div>
     </div>
-    <a href="/${hId}/kanbetsu" style="flex-shrink:0; background:rgba(255,255,255,.2); border:1px solid rgba(255,255,255,.65); color:#fff; text-decoration:none; font-size:12px; font-weight:bold; padding:9px 13px; border-radius:10px; white-space:nowrap;">↩️ 戻る</a>
+    <!-- 🌟v18追加: マニュアルへのリンク（メディカニ・プラス管理画面と同じ体裁） -->
+    <div style="flex-shrink:0; display:flex; gap:8px; align-items:center;">
+      <a href="https://medikani.pages.dev/manual_kanbetsu/" target="_blank" rel="noopener"
+         style="background:#e3f2fd; border:1px solid #bbdefb; color:#0056b3; text-decoration:none; font-size:12px; font-weight:bold; padding:9px 13px; border-radius:10px; white-space:nowrap;">📘 マニュアル</a>
+      <a href="/${hId}/kanbetsu" style="background:rgba(255,255,255,.2); border:1px solid rgba(255,255,255,.65); color:#fff; text-decoration:none; font-size:12px; font-weight:bold; padding:9px 13px; border-radius:10px; white-space:nowrap;">↩️ 戻る</a>
+    </div>
   </div>
   <!-- 🌟v7追加: ヘッダー右上に「戻る」ボタン ここまで -->
   <div class="wrap">
@@ -5638,8 +5648,11 @@ export default {
       // プランゲート: {hId}_plan の末尾が "_KY" の施設だけ利用可（スーパー管理は常に可）
       // 例: PLUS_0_KY, PLUS_H1M_KY ○ ／ PLUS_K1Y（その他・年払い）は × で衝突しない
       if (!isSuper) {
+        // 🌟v17: 休薬オプションは {hId}_kyuyaku === "1" で判定する。
+        //   旧方式の {hId}_plan（末尾 "_KY"）も当分は見る（移行中の互換）。
+        const kyuFlag = await env.MEDI_KV.get(`${hospitalId}_kyuyaku`) || "";
         const plan = await env.MEDI_KV.get(`${hospitalId}_plan`) || "";
-        if (!plan.endsWith("_KY")) {
+        if (kyuFlag !== "1" && !plan.endsWith("_KY")) {
           return new Response("休薬チェッカーオプションが有効ではありませんカニ🦀", {
             status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" }
           });
@@ -5655,8 +5668,11 @@ export default {
     if (hospitalId && pathParts[1] === "kyuyaku") {
       const isSuper = hospitalId === (env.SUPER_ADMIN_HID || "HPTEST1");
       if (!isSuper) {
+        // 🌟v17: 休薬オプションは {hId}_kyuyaku === "1" で判定する。
+        //   旧方式の {hId}_plan（末尾 "_KY"）も当分は見る（移行中の互換）。
+        const kyuFlag = await env.MEDI_KV.get(`${hospitalId}_kyuyaku`) || "";
         const plan = await env.MEDI_KV.get(`${hospitalId}_plan`) || "";
-        if (!plan.endsWith("_KY")) {
+        if (kyuFlag !== "1" && !plan.endsWith("_KY")) {
           return new Response("休薬チェッカーオプションが有効ではありませんカニ🦀", {
             status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" }
           });
@@ -5897,6 +5913,9 @@ export default {
       async function kyuyakuPlanOk(hId) {
         if (!hId) return false;
         if (hId === (env.SUPER_ADMIN_HID || "HPTEST1")) return true;
+        // 🌟v17: {hId}_kyuyaku を優先し、旧方式の {hId}_plan も見る
+        const kyuFlag = await env.MEDI_KV.get(`${hId}_kyuyaku`) || "";
+        if (kyuFlag === "1") return true;
         const plan = await env.MEDI_KV.get(`${hId}_plan`) || "";
         return plan.endsWith("_KY");
       }
@@ -6467,8 +6486,10 @@ export default {
           if (hId === (env.SUPER_ADMIN_HID || "HPTEST1")) {
             planOk = true;
           } else {
+            // 🌟v17: {hId}_kyuyaku を優先し、旧方式の {hId}_plan も見る
+            const kyuFlag = (await env.MEDI_KV.get(`${hId}_kyuyaku`)) || "";
             const plan = (await env.MEDI_KV.get(`${hId}_plan`)) || "";
-            planOk = plan.endsWith("_KY");
+            planOk = (kyuFlag === "1") || plan.endsWith("_KY");
           }
         }
         if (!planOk) {
@@ -6498,8 +6519,10 @@ export default {
           if (hId === (env.SUPER_ADMIN_HID || "HPTEST1")) {
             planOk = true;
           } else {
+            // 🌟v17: {hId}_kyuyaku を優先し、旧方式の {hId}_plan も見る
+            const kyuFlag = (await env.MEDI_KV.get(`${hId}_kyuyaku`)) || "";
             const plan = (await env.MEDI_KV.get(`${hId}_plan`)) || "";
-            planOk = plan.endsWith("_KY");
+            planOk = (kyuFlag === "1") || plan.endsWith("_KY");
           }
         }
         if (!planOk) {
@@ -6730,8 +6753,10 @@ export default {
           // 🌟v14変更: 休薬チェッカー（_KYプラン）からも手帳QRを使えるようにする。
           // 以前は鑑別の _jisan フラグだけを見ていたため、休薬オプションのみの施設が403になっていた。
           const flag = (hId ? await env.MEDI_KV.get(`${hId}_jisan`) : "") || "";
+          // 🌟v17: {hId}_kyuyaku を優先し、旧方式の {hId}_plan も見る
+          const kyuQ = (hId ? await env.MEDI_KV.get(`${hId}_kyuyaku`) : "") || "";
           const planQ = (hId ? await env.MEDI_KV.get(`${hId}_plan`) : "") || "";
-          if (flag !== "1" && !planQ.endsWith("_KY")) {
+          if (flag !== "1" && kyuQ !== "1" && !planQ.endsWith("_KY")) {
             return new Response(JSON.stringify({ error: "option_disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
           }
         }
