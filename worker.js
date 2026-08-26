@@ -1649,7 +1649,7 @@ ${mkHelpHtml(helpHtml)}
 
     <button class="btn print" onclick="printReport()">🖨️ 休薬チェッカー確認票を印刷 🦀</button>
     <div class="footer">
-      🦀 メディカニ 休薬チェッカー（β）<br>© 2026 🐔メディカニ運営
+      🦀 メディカニ 休薬チェッカー（β）<br>© 2026 🐔メディカニ運営事務局
     </div>
   </div>
 
@@ -1889,6 +1889,8 @@ function renderResults(q){
       +     (r.component ? '<span class="bd comp">🧬 ' + esc(r.component) + '</span>' : '')
       +   '</div>'
       +   (r.spec ? '<div class="cspec">📦 ' + esc(r.spec) + '</div>' : '')
+      // 🌟v19追加: 別名索引で見つかったときの表示
+      +   (r.aliasFrom ? '<div class="cspec" style="color:#7b1fa2;">🔀 「' + esc(r.aliasFrom) + '」の販売名で一致</div>' : '')
       +   tag
       + '</div>'
       // 🌟v11追加: 追加する前に中身を確認できる ℹ️。誤って追加しないよう伝播を止める
@@ -2715,7 +2717,7 @@ ${mkHelpHtml(helpHtml)}
     </div>
   </div>
   <div class="footer">
-    🦀 メディカニ 鑑別（β）<br>© 2026 🐔メディカニ運営
+    🦀 メディカニ 鑑別（β）<br>© 2026 🐔メディカニ運営事務局
   </div>
 
   <div id="modalOverlay"><div class="modal" onclick="event.stopPropagation()">
@@ -2986,6 +2988,8 @@ ${MK_MENU_JS}
           + '</div>'
         + '</div>'
         + (i.spec ? '<div style="font-size:12px; color:#888; margin-top:8px;">📦 ' + escHtml(i.spec) + ' ' + (i.type ? '/ ' + escHtml(i.type) : '') + '</div>' : '')
+        // 🌟v19追加: 別名索引で見つかったときは、どの販売名で当たったかを必ず見せる
+        + (i.aliasFrom ? '<div style="font-size:11px; color:#7b1fa2; background:#f3e5f5; border:1px solid #e1bee7; border-radius:6px; padding:4px 8px; margin-top:6px;">🔀 「' + escHtml(i.aliasFrom) + '」の販売名で一致（薬価基準では統一名で収載）</div>' : '')
         + '<div class="code-row">' + chip + '<button class="btn-img" data-name="' + escHtml(nameForImg) + '">🖼️ 画像検索</button></div>'
         + '<div class="card-actions"><button class="btn-add" data-add="' + idx + '">➕ 鑑別リストに追加</button></div>'
         + (i.key
@@ -5221,7 +5225,7 @@ function kanbetsuAdminPage(hId, isSuper) {
 
     <div class="msg" id="msg"></div>
     <div style="text-align:center; font-size:11px; color:#bbb; padding:10px 0 20px;">
-      🦀 メディカニ鑑別 マスタ管理<br>© 2026 🐔メディカニ運営
+      🦀 メディカニ鑑別 マスタ管理<br>© 2026 🐔 メディカニ運営事務局
     </div>
   </div>
 
@@ -6158,6 +6162,29 @@ export default {
           }
           // ===== 🌟修正: 全角/半角のズレで必ず0件になっていた不具合の対応 (ここまで) =====
 
+          // ===== 🌟v19追加: 0件のときだけ別名索引を引く (ここから) =====
+          // 統一名収載で販売名が薬価リストに無い薬を救う。
+          // 持参薬はお薬手帳の販売名で入ってくるため、休薬チェッカーではここが効く。
+          //   例) ワルファリンK錠1mg「NP」→ 薬価リストは「ワルファリンカリウム錠1mg」
+          let aliasMatchedName = "";
+          if (finalKeys.length === 0) {
+            const al = await this.lookupAlias(rawQ, env);
+            if (al.codes.length) {
+              const codeSet = new Set(al.codes);
+              const seen2 = new Set();
+              // 採用薬が先に積まれている索引なので、順番をそのまま活かす
+              for (const e of IDX) {
+                const t = String(e.k).split("_").pop();
+                if (!t || !codeSet.has(t) || seen2.has(t)) continue;
+                seen2.add(t);
+                finalKeys.push(e.k);
+                if (finalKeys.length >= 40) break;
+              }
+              if (finalKeys.length) aliasMatchedName = al.hit;
+            }
+          }
+          // ===== 🌟v19追加: 0件のときだけ別名索引を引く (ここまで) =====
+
           const built = await Promise.all(finalKeys.map(async (key) => {
             const val = await env.MEDI_KV.get(key);
             if (!val) return null;
@@ -6187,7 +6214,8 @@ export default {
               yj: yj,
               isAdopted: isAdopted,
               isBrand: isBrand,
-              component: getComponentPart(key)
+              component: getComponentPart(key),
+              aliasFrom: aliasMatchedName || ""
             };
           }));
 
@@ -8048,6 +8076,101 @@ export default {
     } catch (e) { return "通信エラーが発生しましたカニ🦀"; }
   },
 
+  // ===== 🌟v19追加: 別名索引（統一名収載で販売名が薬価リストに無い薬）(ここから) =====
+  //
+  // 薬価基準収載品目リストには【統一名収載品】があり、先発品名が1行も載っていない。
+  //   例) バイアスピリン錠100mg → リストには「アスピリン100mg腸溶錠」しかない
+  // このため販売名で検索しても永久にヒットしなかった。該当は5,493件あり、
+  // ワルファリンK錠「NP」のようなジェネリックの販売名も引けていなかった。
+  //
+  // alias_scan.py が作った _ALIAS_INDEX（販売名 → 薬価コードの配列）を、
+  // 【通常検索が0件のときだけ】引いて薬価リストの行に橋を架ける。
+  // 通常の検索経路には一切手を入れていないので、既存の挙動は変わらない。
+
+  // 索引はモジュールスコープで持ち回す（同じisolateなら再取得しない）
+  _aliasIdx: null,
+  _aliasAt: 0,
+
+  // 索引のキーと同じ正規化。
+  //   ・NFKC、空白除去、大文字化
+  //   ・ダッシュ類だけ1種類に寄せる（PMDAは U+2212、薬価リストは U+FF0D を使う）
+  //   ・長音「ー」は【触らない】。ラボナール等の名前が壊れるため
+  normAliasName(s) {
+    return String(s || "")
+      .normalize("NFKC")
+      .replace(/[\s\u3000]/g, "")
+      .toUpperCase()
+      .replace(/[\u2212\u2013\u2014\u2015\u2010\u2011\uFF0D\uFF70]/g, "-");
+  },
+
+  async loadAliasIndex(env) {
+    const now = Date.now();
+    if (this._aliasIdx && (now - this._aliasAt) < 3600000) return this._aliasIdx;
+    try {
+      const raw = await env.MEDI_KV.get("_ALIAS_INDEX", { cacheTtl: 3600 });
+      if (!raw) { this._aliasIdx = {}; this._aliasAt = now; return this._aliasIdx; }
+      const obj = JSON.parse(raw);
+      // { 正規化済み販売名: { name, kana, targets:[薬価コード...] } }
+      const flat = [];
+      for (const k in obj) {
+        const t = obj[k] && obj[k].targets;
+        if (t && t.length) {
+          // よみがなも検索対象にする。PMDAが持っているので入力の手間はゼロ。
+          // 索引の78%に入っている
+          const kana = String((obj[k] && obj[k].kana) || "").replace(/[\s\u3000]/g, "");
+          flat.push([k, t, obj[k].name || "", kana]);
+        }
+      }
+      this._aliasIdx = flat;
+      this._aliasAt = now;
+      return flat;
+    } catch (e) {
+      this._aliasIdx = [];
+      this._aliasAt = now;
+      return this._aliasIdx;
+    }
+  },
+
+  // カタカナをひらがなに寄せる（よみがな照合用）
+  kataToHira(s) {
+    return String(s || "").replace(/[\u30A1-\u30F6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+  },
+
+  // 入力語から薬価コードの集合を返す。
+  // 探す順は 販売名の前方一致 → 販売名の部分一致 → よみがなの前方一致 → よみがなの部分一致。
+  async lookupAlias(query, env) {
+    const q = this.normAliasName(query);
+    if (q.length < 2) return { codes: [], hit: "" };
+    const idx = await this.loadAliasIndex(env);
+    if (!idx || !idx.length) return { codes: [], hit: "" };
+
+    // よみがな照合用（ひらがなに寄せる。カタカナで打たれても拾えるように）
+    const qk = this.kataToHira(String(query || "").replace(/[\s\u3000]/g, ""));
+
+    const head = [], part = [], kHead = [], kPart = [];
+    for (let i = 0; i < idx.length; i++) {
+      const k = idx[i][0];
+      if (k.indexOf(q) === 0) head.push(idx[i]);
+      else if (k.indexOf(q) >= 0) part.push(idx[i]);
+      else if (qk.length >= 3 && idx[i][3]) {
+        const kn = idx[i][3];
+        if (kn.indexOf(qk) === 0) kHead.push(idx[i]);
+        else if (kn.indexOf(qk) >= 0) kPart.push(idx[i]);
+      }
+      if (head.length > 60) break;
+    }
+    const use = head.length ? head : (part.length ? part : (kHead.length ? kHead : kPart));
+    if (!use.length) return { codes: [], hit: "" };
+
+    const codes = [];
+    for (let i = 0; i < use.length && i < 60; i++) {
+      const t = use[i][1];
+      for (let j = 0; j < t.length; j++) if (codes.indexOf(t[j]) < 0) codes.push(t[j]);
+    }
+    return { codes: codes, hit: use[0][2] || "" };
+  },
+  // ===== 🌟v19追加: 別名索引 (ここまで) =====
+
   async handleWebSearch(query, category, hospitalId, env) {
     let normalizedQuery = query.replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).trim();
     
@@ -8177,6 +8300,24 @@ export default {
       finalKeys = matchedMaster.slice(0, (category === "all" || category === "[一般名]") ? 100 : 30);
     }
 
+    // ===== 🌟v19追加: 0件のときだけ別名索引を引く (ここから) =====
+    // 統一名収載で販売名が薬価リストに無い薬（バイアスピリン、ワルファリンK錠「NP」等）を救う。
+    // ここに来るのは通常検索が空振りしたときだけなので、既存の検索結果は一切変わらない。
+    let aliasMatchedName = "";
+    if (finalKeys.length === 0 && !isTsumuraYj && category !== "[一般名]") {
+      const al = await this.lookupAlias(query, env);
+      if (al.codes.length) {
+        const codeSet = new Set(al.codes);
+        const tailYj = (k) => String(k).split("_").pop();
+        const aHit = adoptedKeys.filter(k => codeSet.has(tailYj(k)));
+        const aYjs = new Set(aHit.map(tailYj));
+        const mHit = masterKeys.filter(k => codeSet.has(tailYj(k)) && !aYjs.has(tailYj(k)));
+        finalKeys = [...aHit, ...mHit].slice(0, 30);
+        if (finalKeys.length) aliasMatchedName = al.hit;
+      }
+    }
+    // ===== 🌟v19追加: 0件のときだけ別名索引を引く (ここまで) =====
+
     const results = await Promise.all(finalKeys.map(async (key) => {
       const val = await env.MEDI_KV.get(key);
       if (!val) return null;
@@ -8214,13 +8355,16 @@ export default {
       const compName = getComponentPart(key);
       
       // 👇修正: component: compName を結果の最後に追加
-      return { key, name: extracted.name, spec: extracted.spec, type: cleanType, yj: yj, isAdopted: isAdopted, isBrand: isBrand, price: extracted.price, component: compName };
+      // 🌟v19: 別名索引でヒットしたときは、どの販売名で当たったかを添える
+      return { key, name: extracted.name, spec: extracted.spec, type: cleanType, yj: yj, isAdopted: isAdopted, isBrand: isBrand, price: extracted.price, component: compName, aliasFrom: aliasMatchedName || "" };
     }));
     
     // ===== 🌟修正: 採用薬を優先しつつ、前方一致をさらに優先して並び替え =====
     return results.filter(r => r !== null).sort((a, b) => {
       // 1. まずは採用薬かどうかで分ける（採用薬が上）
       if (b.isAdopted !== a.isAdopted) return b.isAdopted - a.isAdopted;
+      // 🌟v19: 別名でヒットした場合は入力語が薬品名に含まれないので、前方一致の判定はしない
+      if (aliasMatchedName) return 0;
       // 2. 採用状況が同じなら、前方一致を上にする（ここでも薬品名部分だけを見るように統一）
       const aIsPrefix = getDrugNamePart(a.key).includes(']' + hiraQuery) ? 1 : 0;
       const bIsPrefix = getDrugNamePart(b.key).includes(']' + hiraQuery) ? 1 : 0;
@@ -8711,7 +8855,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           🦀 メディカニ 医薬品検索
         </div>
         <div style="font-size:11px; color:#aa8899; line-height:1.9;">
-          © 2026 🐔メディカニ運営
+          © 2026 🐔 メディカニ運営事務局
         </div>
         </footer>
       <!-- ===== 🌟追加: フッター ここまで ===== -->
