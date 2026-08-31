@@ -506,6 +506,11 @@ async function resolveAdminPwd(hId, env) {
   return pwd;
 }
 
+// 🌟v21: 追加刻印の保存上限。件数ではなくサイズで守る。
+//   検索のたびに {hId}_kokuin_json を全件読んで走査するため青天井にはしない。
+const KOKUIN_MAX_BYTES = 4 * 1024 * 1024;   // 4MB（KVの値上限は25MB）
+const KOKUIN_MAX_ITEMS = 50000;             // 暴走よけの保険
+
 async function loadKokuinOvr(hId, env) {
   if (!hId) return { items: [] };
   try {
@@ -1649,7 +1654,7 @@ ${mkHelpHtml(helpHtml)}
 
     <button class="btn print" onclick="printReport()">🖨️ 休薬チェッカー確認票を印刷 🦀</button>
     <div class="footer">
-      🦀 メディカニ 休薬チェッカー（β）<br>© 2026 🐔メディカニ運営事務局
+      🦀 メディカニ 休薬チェッカー（β）<br>© 2026 メディカニ運営事務局
     </div>
   </div>
 
@@ -2717,7 +2722,7 @@ ${mkHelpHtml(helpHtml)}
     </div>
   </div>
   <div class="footer">
-    🦀 メディカニ 鑑別（β）<br>© 2026 🐔メディカニ運営事務局
+    🦀 メディカニ 鑑別（β）<br>© 2026 メディカニ運営事務局
   </div>
 
   <div id="modalOverlay"><div class="modal" onclick="event.stopPropagation()">
@@ -5198,6 +5203,45 @@ function kanbetsuAdminPage(hId, isSuper) {
       </div>
     </div>
 
+    <!-- 🌟v21追加: ③-2 採用薬の刻印一覧 -->
+    <div class="card">
+      <h2>📋 採用薬の刻印一覧・CSV</h2>
+      <div class="desc">
+        採用薬（錠・カプセル）を並べて、<b>刻印がまだ無い薬</b>がひと目で分かるようにしています。<br>
+        散剤・液剤・外用は刻印そのものが無いので最初から除いています。CSVで書き出してExcelでまとめて記入し、貼り戻せます。
+      </div>
+
+      <div id="klStat" style="font-size:12px; color:#666; margin:8px 0 10px;">読み込み中…🦀</div>
+
+      <div class="row" style="gap:6px; flex-wrap:wrap; align-items:center;">
+        <button class="btn small" data-klf="none" onclick="klSetFilter(this)">刻印なし</button>
+        <button class="btn small gray" data-klf="done" onclick="klSetFilter(this)">追加済み</button>
+        <button class="btn small gray" data-klf="all" onclick="klSetFilter(this)">すべて</button>
+        <div class="fld" style="min-width:170px;"><input type="text" id="klQ" placeholder="薬名でしぼり込み" oninput="klRender()"></div>
+      </div>
+
+      <div id="klBody" style="margin-top:10px;"></div>
+      <div id="klMore" style="text-align:center; margin-top:8px;"></div>
+
+      <div style="border-top:1px dashed #e8d0dc; margin-top:14px; padding-top:12px;">
+        <label>CSVでまとめて登録</label>
+        <div style="font-size:11px; color:#999; margin-bottom:8px;">
+          ①「CSVを書き出す」→ ②Excelで<b>追加刻印</b>の列に記入（複数は <b>|</b> 区切り）→ ③下の欄に貼り付けて取り込む<br>
+          ※<b>空欄の行は変更しません</b>。消したいときだけ半角ハイフン <b>-</b> を入れてください。
+        </div>
+        <div class="row" style="gap:6px; flex-wrap:wrap;">
+          <button class="btn small" onclick="klExport(false)">⬇️ CSVを書き出す</button>
+          <button class="btn small gray" onclick="klExport(true)">⬇️ 刻印なしだけ</button>
+        </div>
+        <textarea id="klPaste" style="min-height:100px; margin-top:8px;" placeholder="ここにCSVを貼り付け（1行目の見出しはそのままでOK）"></textarea>
+        <div class="row" style="gap:6px; margin-top:6px; flex-wrap:wrap;">
+          <button class="btn small green" onclick="klPreview()">🔍 取り込む内容を確認</button>
+          <button class="btn small" id="klApplyBtn" style="display:none;" onclick="klApply()">✅ この内容で取り込む</button>
+        </div>
+        <div id="klPrev" style="font-size:12px; margin-top:8px;"></div>
+      </div>
+    </div>
+
     <!-- ④ 定型テキスト -->
     <div class="card">
       <h2>💬 帳票の定型テキスト</h2>
@@ -5225,7 +5269,7 @@ function kanbetsuAdminPage(hId, isSuper) {
 
     <div class="msg" id="msg"></div>
     <div style="text-align:center; font-size:11px; color:#bbb; padding:10px 0 20px;">
-      🦀 メディカニ鑑別 マスタ管理<br>© 2026 🐔 メディカニ運営事務局
+      🦀 メディカニ鑑別 マスタ管理<br>© 2026 メディカニ運営事務局
     </div>
   </div>
 
@@ -5275,6 +5319,14 @@ async function load(){
     ADOPTED = await r2.json();
     renderDrugs();
   } catch(e){ ADOPTED = []; }
+
+  // 🌟v21追加: PMDA索引を YJ→刻印 に逆引きして、採用薬の刻印一覧を作る
+  try {
+    const r3 = await fetch('/api/kanbetsu-admin/kokuin-map?h=' + encodeURIComponent(HID));
+    const j3 = await r3.json();
+    KMAP = (j3 && j3.map) ? j3.map : {};
+  } catch(e){ KMAP = {}; }
+  klRender();
 }
 
 /* ===== 用法マスタ ===== */
@@ -5468,7 +5520,251 @@ function delKokuin(yj){
   setMsg('削除しました（まだ保存されていません）');
 }
 
+/* ===== 🌟v21追加: 採用薬の刻印一覧・CSV ===== */
+var KMAP = {};            // YJ -> PMDA刻印[]
+var KL_FILTER = 'none';   // none | done | all
+var KL_LIMIT = 100;
+var KL_PENDING = null;    // CSV取り込みの確認待ち
+
+/* 錠・カプセルだけを対象にする。散剤や液剤は刻印そのものが無いので、
+   混ぜると「刻印なし」が永久に消えないノイズになってしまう。 */
+function klIsTablet(name){
+  var n = String(name || '');
+  if (/(散|顆粒|細粒|シロップ|ドライ|内用液|懸濁|ゼリー|吸入|注|液)/.test(n)) return false;
+  return /(錠|カプセル|ｶﾌﾟｾﾙ)/.test(n);
+}
+
+function klTargets(){
+  return ADOPTED.filter(function(d){
+    return String(d.cat || '') === '[内]' && klIsTablet(d.name);
+  });
+}
+
+function klOwn(yj){
+  var items = (KOKUIN && KOKUIN.items) ? KOKUIN.items : [];
+  for (var i = 0; i < items.length; i++){
+    if (String(items[i].yj) === String(yj)) return items[i].codes || [];
+  }
+  return [];
+}
+function klPmda(yj){
+  var y = String(yj || '');
+  if (KMAP[y]) return KMAP[y];
+  return [];
+}
+
+function klSetFilter(btn){
+  KL_FILTER = btn.getAttribute('data-klf');
+  KL_LIMIT = 100;
+  var all = document.querySelectorAll('[data-klf]');
+  for (var i = 0; i < all.length; i++){
+    all[i].className = 'btn small' + (all[i].getAttribute('data-klf') === KL_FILTER ? '' : ' gray');
+  }
+  klRender();
+}
+
+function klRows(){
+  var el = document.getElementById('klQ');
+  var q = el ? el.value.trim() : '';
+  return klTargets().filter(function(d){
+    var own = klOwn(d.yj), pm = klPmda(d.yj);
+    if (KL_FILTER === 'none' && (pm.length || own.length)) return false;
+    if (KL_FILTER === 'done' && !own.length) return false;
+    if (q && String(d.name || '').indexOf(q) === -1 && String(d.component || '').indexOf(q) === -1) return false;
+    return true;
+  });
+}
+
+function klRender(){
+  var box = document.getElementById('klBody');
+  if (!box) return;
+  var tg = klTargets();
+  var noCode = 0, added = 0;
+  for (var i = 0; i < tg.length; i++){
+    var o = klOwn(tg[i].yj), p = klPmda(tg[i].yj);
+    if (!o.length && !p.length) noCode++;
+    if (o.length) added++;
+  }
+  document.getElementById('klStat').innerHTML =
+    '採用薬の錠・カプセル <b>' + tg.length + '</b> 件　／　刻印なし <b style="color:#c0392b;">' + noCode + '</b> 件'
+    + '　／　追加済み <b style="color:#0b7a55;">' + added + '</b> 件';
+
+  var rows = klRows();
+  if (!rows.length){
+    box.innerHTML = '<div style="font-size:12px; color:#bbb; padding:10px 0;">該当なしカニ🦀</div>';
+    document.getElementById('klMore').innerHTML = '';
+    return;
+  }
+  var show = rows.slice(0, KL_LIMIT), html = '';
+  for (var j = 0; j < show.length; j++){
+    var d = show[j], pm = klPmda(d.yj), own = klOwn(d.yj);
+    var pmHtml = pm.length
+      ? pm.map(function(c){ return '<span class="chip">' + esc(c) + '</span>'; }).join('')
+      : '<span style="font-size:11px; color:#c0392b;">なし</span>';
+    var ownHtml = own.length
+      ? own.map(function(c){ return '<span class="chip" style="background:#e7f7f0;">' + esc(c) + '</span>'; }).join('')
+      : '<span style="font-size:11px; color:#bbb;">—</span>';
+    html += '<div class="yrow" style="align-items:flex-start;">'
+      + '<span class="nm"><b style="font-size:12.5px;">' + esc(d.name) + '</b>'
+      + '<br><span style="font-size:11px; color:#999;">' + esc(d.spec || '') + ' ／ ' + esc(d.component || '') + '</span>'
+      + '<br><span style="font-size:11px; color:#666;">PMDA: </span>' + pmHtml
+      + '<br><span style="font-size:11px; color:#666;">追加: </span>' + ownHtml
+      + '</span>'
+      + '<span class="acts"><button class="btn small" data-klyj="' + esc(d.yj) + '" onclick="klEdit(this)">✏️ 編集</button></span>'
+      + '</div>';
+  }
+  box.innerHTML = html;
+  document.getElementById('klMore').innerHTML = (rows.length > show.length)
+    ? '<button class="btn small gray" onclick="KL_LIMIT+=200; klRender();">もっと見る（残り ' + (rows.length - show.length) + ' 件）</button>'
+    : '';
+}
+
+/* 一覧の「編集」は既存の追加刻印エディタをそのまま開く */
+function klEdit(btn){
+  pickDrug(btn.getAttribute('data-klyj'));
+  var el = document.getElementById('kokuinEdit');
+  if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+}
+
+/* ===== CSV ===== */
+function klCsvCell(v){
+  var t = String(v === null || v === undefined ? '' : v);
+  return (t.indexOf(',') >= 0 || t.indexOf('"') >= 0) ? '"' + t.replace(/"/g, '""') + '"' : t;
+}
+
+function klExport(onlyNone){
+  var tg = klTargets().filter(function(d){
+    return onlyNone ? (!klPmda(d.yj).length && !klOwn(d.yj).length) : true;
+  });
+  var NL = String.fromCharCode(13) + String.fromCharCode(10);
+  var lines = ['薬品名,YJコード,規格,成分名,PMDA刻印,追加刻印'];
+  for (var i = 0; i < tg.length; i++){
+    var d = tg[i];
+    lines.push([klCsvCell(d.name), klCsvCell(d.yj), klCsvCell(d.spec || ''), klCsvCell(d.component || ''),
+                klCsvCell(klPmda(d.yj).join(' | ')), klCsvCell(klOwn(d.yj).join(' | '))].join(','));
+  }
+  // Excelで文字化けしないようBOMを付ける
+  var blob = new Blob([String.fromCharCode(0xFEFF) + lines.join(NL)], { type: 'text/csv;charset=utf-8;' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'kokuin_' + HID + (onlyNone ? '_todo' : '') + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+  setMsg('CSVを書き出しましたカニ🦀 (' + tg.length + '件)');
+}
+
+/* ダブルクォート対応の簡易CSVパーサ */
+function klParseCsv(text){
+  var LF = String.fromCharCode(10), CR = String.fromCharCode(13);
+  var rows = [], row = [], cell = '', q = false;
+  text = String(text || '').split(CR).join('');
+  for (var i = 0; i < text.length; i++){
+    var ch = text.charAt(i);
+    if (q){
+      if (ch === '"'){ if (text.charAt(i + 1) === '"'){ cell += '"'; i++; } else { q = false; } }
+      else { cell += ch; }
+    } else {
+      if (ch === '"'){ q = true; }
+      else if (ch === ','){ row.push(cell); cell = ''; }
+      else if (ch === LF){ row.push(cell); rows.push(row); row = []; cell = ''; }
+      else { cell += ch; }
+    }
+  }
+  if (cell !== '' || row.length){ row.push(cell); rows.push(row); }
+  return rows.filter(function(r){ return r.join('').trim() !== ''; });
+}
+
+function klPreview(){
+  var raw = document.getElementById('klPaste').value;
+  var box = document.getElementById('klPrev');
+  document.getElementById('klApplyBtn').style.display = 'none';
+  KL_PENDING = null;
+  if (!raw.trim()){ box.innerHTML = '<span style="color:#c0392b;">CSVを貼り付けてくださいカニ🦀</span>'; return; }
+
+  var rows = klParseCsv(raw);
+  if (rows.length < 2){ box.innerHTML = '<span style="color:#c0392b;">読み取れませんでした</span>'; return; }
+
+  var head = rows[0].map(function(x){ return String(x).replace(/[\s　"\uFEFF]/g, ''); });
+  var iYj = -1, iCode = -1, iName = -1;
+  for (var h = 0; h < head.length; h++){
+    if (iYj < 0 && head[h].indexOf('YJ') >= 0) iYj = h;
+    if (iCode < 0 && head[h].indexOf('追加刻印') >= 0) iCode = h;
+    if (iName < 0 && head[h].indexOf('薬品名') >= 0) iName = h;
+  }
+  if (iYj < 0 || iCode < 0){
+    box.innerHTML = '<span style="color:#c0392b;">見出しに「YJコード」と「追加刻印」が見つかりません。書き出したCSVの1行目をそのまま使ってくださいカニ🦀</span>';
+    return;
+  }
+
+  var byYj = {};
+  for (var a = 0; a < ADOPTED.length; a++) byYj[String(ADOPTED[a].yj)] = ADOPTED[a];
+
+  var add = [], chg = [], del = [], skip = 0, unknown = 0;
+  for (var r = 1; r < rows.length; r++){
+    var yj = String(rows[r][iYj] || '').replace(/[^a-zA-Z0-9]/g, '');
+    var val = String(rows[r][iCode] === undefined ? '' : rows[r][iCode]).trim();
+    if (!yj) continue;
+    if (val === ''){ skip++; continue; }                        // 空欄は変更しない
+    var nm = byYj[yj] ? byYj[yj].name : (iName >= 0 ? String(rows[r][iName] || '') : '');
+    if (!byYj[yj]) unknown++;
+    var before = klOwn(yj).join(' | ');
+    if (val === '-' || val === '\uFF0D' || val === '\u2212'){
+      if (before) del.push({ yj: yj, name: nm });
+      else skip++;
+      continue;
+    }
+    var codes = val.split(/[|\uFF5C]/).map(function(x){ return x.trim(); }).filter(function(x){ return x; });
+    if (!codes.length){ skip++; continue; }
+    if (!before) add.push({ yj: yj, name: nm, codes: codes });
+    else if (before !== codes.join(' | ')) chg.push({ yj: yj, name: nm, codes: codes });
+    else skip++;
+  }
+
+  KL_PENDING = { add: add, chg: chg, del: del };
+  var html = '<div style="background:#f7f7f9; border-radius:8px; padding:10px;">'
+    + '<b>新規 ' + add.length + ' 件</b>　／　<b>変更 ' + chg.length + ' 件</b>　／　<b>削除 ' + del.length + ' 件</b>'
+    + '　／　そのまま ' + skip + ' 件';
+  if (unknown) html += '<br><span style="color:#c0392b;">⚠️ 採用薬に無いYJが ' + unknown + ' 件あります（そのまま登録されます）</span>';
+  var sample = add.concat(chg).slice(0, 5);
+  if (sample.length){
+    html += '<div style="margin-top:6px; font-size:11px; color:#666;">例：'
+      + sample.map(function(x){ return esc(x.name || x.yj) + ' → ' + esc(x.codes.join(' | ')); }).join('／') + '</div>';
+  }
+  html += '</div>';
+  box.innerHTML = html;
+  if (add.length || chg.length || del.length) document.getElementById('klApplyBtn').style.display = '';
+}
+
+function klApply(){
+  if (!KL_PENDING) return;
+  KOKUIN.items = KOKUIN.items || [];
+  function put(yj, name, codes){
+    var it = null;
+    for (var i = 0; i < KOKUIN.items.length; i++){
+      if (String(KOKUIN.items[i].yj) === String(yj)){ it = KOKUIN.items[i]; break; }
+    }
+    if (!it){ it = { yj: String(yj), name: name || '', codes: [] }; KOKUIN.items.push(it); }
+    if (name) it.name = name;
+    it.codes = codes;
+  }
+  KL_PENDING.add.forEach(function(x){ put(x.yj, x.name, x.codes); });
+  KL_PENDING.chg.forEach(function(x){ put(x.yj, x.name, x.codes); });
+  KL_PENDING.del.forEach(function(x){
+    KOKUIN.items = KOKUIN.items.filter(function(y){ return String(y.yj) !== String(x.yj); });
+  });
+  var n = KL_PENDING.add.length + KL_PENDING.chg.length + KL_PENDING.del.length;
+  KL_PENDING = null;
+  document.getElementById('klApplyBtn').style.display = 'none';
+  document.getElementById('klPrev').innerHTML = '<span style="color:#0b7a55;">取り込みました。<b>まだ保存されていません</b>ので、下の「💾 保存」を押してくださいカニ🦀</span>';
+  document.getElementById('klPaste').value = '';
+  renderKokuinList();
+  renderKokuinEdit();
+  klRender();
+  setMsg(n + ' 件を取り込みました（まだ保存されていません）');
+}
+
 /* ===== 保存 ===== */
+
 function splitList(s){ return String(s||'').split(/[,\\u3001\\uFF0C]/).map(function(x){ return x.trim(); }).filter(function(x){ return x; }); }
 
 async function saveAll(scope){
@@ -5510,7 +5806,16 @@ async function saveAll(scope){
       body: JSON.stringify({ pwd: pwd, scope: scope, config: config, kokuin: KOKUIN })
     });
     const j = await res.json();
-    if (j.success){ setMsg('✅ 保存しましたカニ！🦀', true); if (scope === 'default') load(); }
+    if (j.success){
+      // 🌟v21追加: 入りきらなかった件数があれば黙って捨てずに知らせる
+      if (j.kokuinDropped > 0){
+        setMsg('⚠️ 保存しましたが、追加刻印が容量を超えたため ' + j.kokuinDropped + ' 件は保存できませんでした');
+        alert('追加刻印の保存上限に達しました。' + String.fromCharCode(10) + '保存 ' + j.kokuinSaved + ' 件 / 未保存 ' + j.kokuinDropped + ' 件');
+      } else {
+        setMsg('✅ 保存しましたカニ！🦀', true);
+      }
+      if (scope === 'default') load();
+    }
     else if (j.error === 'auth') setMsg('⚠️ パスワードが違いますカニ🦀💦');
     else if (j.error === 'forbidden') setMsg('⚠️ 共通デフォルトの保存はスーパー管理施設のみですカニ🦀');
     else setMsg('⚠️ 保存に失敗しましたカニ🦀💦 ' + (j.error || ''));
@@ -5869,6 +6174,42 @@ export default {
           return new Response(JSON.stringify(list), { headers: { "Content-Type": "application/json" } });
         } catch(e) { return new Response("[]", { status: 500 }); }
       }
+
+      // === 🌟v21追加: 採用薬の刻印一覧のための逆引きAPI (ここから) ===
+      // _IDCODE_INDEX は「刻印 → 薬」の向きなので「YJ → 刻印[]」に組み替えて返す。
+      // 索引は約0.5MBと小さく cacheTtl も効くので、毎回作り直しても軽い。
+      if (url.pathname.includes("/api/kanbetsu-admin/kokuin-map")) {
+        try {
+          const hIdK = url.searchParams.get("h") || "";
+          const isSuperK = hIdK === (env.SUPER_ADMIN_HID || "HPTEST1");
+          if (!isSuperK) {
+            const flagK = (hIdK ? await env.MEDI_KV.get(`${hIdK}_jisan`) : "") || "";
+            if (flagK !== "1") {
+              return new Response(JSON.stringify({ error: "option_disabled", map: {} }), { status: 403, headers: { "Content-Type": "application/json" } });
+            }
+          }
+          if (!env.PMDA_DB) {
+            return new Response(JSON.stringify({ error: "PMDA_DB未設定", map: {} }), { headers: { "Content-Type": "application/json" } });
+          }
+          const idxStr = await env.PMDA_DB.get("_IDCODE_INDEX", { cacheTtl: 3600 });
+          if (!idxStr) {
+            return new Response(JSON.stringify({ error: "index_not_found", map: {} }), { headers: { "Content-Type": "application/json" } });
+          }
+          const idxArr = JSON.parse(idxStr);
+          const kmap = {};
+          for (const e of idxArr) {
+            // e = [正規化刻印, 表示用刻印, 薬品名, YJコード]
+            const yjK = String(e[3] || ""), disp = String(e[1] || "");
+            if (!yjK || !disp) continue;
+            if (!kmap[yjK]) kmap[yjK] = [];
+            if (kmap[yjK].indexOf(disp) === -1) kmap[yjK].push(disp);
+          }
+          return new Response(JSON.stringify({ map: kmap, entries: idxArr.length }), { headers: { "Content-Type": "application/json" } });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: String(e), map: {} }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+      }
+      // === 🌟v21追加: 採用薬の刻印一覧のための逆引きAPI (ここまで) ===
 
       // === 🦀メディカニ鑑別: 用法マスタ等の設定API (ここから) ===
       // 鑑別ページ用。共通デフォルト＋施設の追加をマージ済みの設定を返す。
@@ -6636,6 +6977,7 @@ export default {
         }
 
         // 追加刻印は常に施設ごと（共通デフォルトには置かない）
+        let kokuinSaved = 0, kokuinDropped = 0;
         if (body.kokuin) {
           const items = Array.isArray(body.kokuin.items) ? body.kokuin.items : [];
           const clean = items
@@ -6645,11 +6987,29 @@ export default {
               codes: Array.isArray(it.codes) ? it.codes.map(c => String(c).slice(0, 40)).filter(c => c.trim()) : []
             }))
             .filter(it => it.yj && it.codes.length)
-            .slice(0, 500);
-          await env.MEDI_KV.put(`${hId}_kokuin_json`, JSON.stringify({ items: clean, updatedAt: stamp }));
+            .slice(0, KOKUIN_MAX_ITEMS);
+
+          // 🌟v21変更: 上限を「500件」から「保存サイズ」に変えた。
+          //   1件あたり150〜200バイト程度なので500件だと90KBしか使っておらず、
+          //   採用薬1,000件規模の一括登録に足りなかった。
+          //   ただし検索のたびに全件を読んで走査するため、無制限にはせず4MBで止める。
+          let kept = clean;
+          let payload = JSON.stringify({ items: kept, updatedAt: stamp });
+          const enc = new TextEncoder();
+          while (enc.encode(payload).length > KOKUIN_MAX_BYTES && kept.length > 1) {
+            const cut = Math.max(1, Math.floor(kept.length * 0.1));
+            kept = kept.slice(0, kept.length - cut);
+            payload = JSON.stringify({ items: kept, updatedAt: stamp });
+          }
+          kokuinSaved = kept.length;
+          kokuinDropped = items.length - kept.length;
+          await env.MEDI_KV.put(`${hId}_kokuin_json`, payload);
         }
 
-        return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json" } });
+        // 何件保存され、何件入りきらなかったかを返す（黙って切り捨てない）
+        return new Response(JSON.stringify({
+          success: true, kokuinSaved: kokuinSaved, kokuinDropped: kokuinDropped
+        }), { headers: { "Content-Type": "application/json" } });
       } catch (e) {
         return new Response(JSON.stringify({ success: false, error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
       }
@@ -8855,7 +9215,7 @@ if (ayj && ayj.substring(0, 7) === yj7) {
           🦀 メディカニ 医薬品検索
         </div>
         <div style="font-size:11px; color:#aa8899; line-height:1.9;">
-          © 2026 🐔 メディカニ運営事務局
+          © 2026 メディカニ運営事務局
         </div>
         </footer>
       <!-- ===== 🌟追加: フッター ここまで ===== -->
