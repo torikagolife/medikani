@@ -6709,6 +6709,79 @@ export default {
       }
 
       // === 新規追加: CSVダウンロード API (ここから) ===
+      // ===== 🌟v22追加: 施設データのバックアップ (ここから) =====
+      //
+      // KVに入っているだけだと、事故ったときに戻せない。
+      // 実際に GAS の同期でオプション列の「○」が {hId}_userpwd に書き込まれて
+      // 締め出された事例があり、刻印一覧のCSV一括登録で大量に壊せる状態にもなった。
+      // そこで施設ごとの設定をまとめてJSONで吐けるようにする。
+      //
+      // ★パスワードは【意図的に含めない】
+      //   平文のJSONが手元に残るのを避けるため。パスワードは顧客マスタの
+      //   スプレッドシート側にあるので、そちらが実質のバックアップになる。
+      if (url.pathname.includes("/api/admin/backup")) {
+        try {
+          const bHId = url.searchParams.get("h") || "";
+          if (!bHId) return new Response("Error", { status: 400 });
+
+          // 採用薬の一覧（{hId}_[内]...）は件数が多く、CSVダウンロードの口が別にある。
+          // ここでは設定系だけを対象にして、ファイルを軽く保つ。
+          const SKIP_SUFFIX = ["_pwd", "_userpwd"];
+          const SKIP_INCLUDE = ["COMP_", "_report_"];
+          const keys = [];
+          let bCursor = "";
+          do {
+            const list = await env.MEDI_KV.list({ prefix: `${bHId}_`, limit: 1000, cursor: bCursor || undefined });
+            for (const k of list.keys) {
+              const n = k.name;
+              // 薬のデータ（[内][注][外]）は採用薬CSVで別途落とせるので除く
+              if (/^[^_]+_\[(内|注|外)\]/.test(n)) continue;
+              if (SKIP_SUFFIX.some(x => n.endsWith(x))) continue;
+              if (SKIP_INCLUDE.some(x => n.includes(x))) continue;
+              keys.push(n);
+            }
+            bCursor = list.list_complete ? "" : list.cursor;
+          } while (bCursor);
+          keys.sort();
+
+          const data = {};
+          for (let i = 0; i < keys.length; i += 40) {
+            const chunk = keys.slice(i, i + 40);
+            const vals = await Promise.all(chunk.map(k => env.MEDI_KV.get(k)));
+            chunk.forEach((k, j) => { if (vals[j] !== null && vals[j] !== undefined) data[k] = vals[j]; });
+          }
+
+          const now = new Date();
+          const jst = new Date(now.getTime() + 9 * 3600 * 1000);
+          const stampB = jst.toISOString().slice(0, 19).replace("T", " ");
+          const fileStamp = jst.toISOString().slice(0, 10).replace(/-/g, "");
+
+          const out = {
+            _meta: {
+              type: "medikani-facility-backup",
+              version: 1,
+              hospitalId: bHId,
+              exportedAt: stampB + " (JST)",
+              keyCount: Object.keys(data).length,
+              note: "パスワード（_pwd / _userpwd）と薬データ（[内][注][外]）は含まれません。"
+                  + "パスワードは顧客マスタのスプレッドシート、採用薬は管理画面のCSVから復元してください。"
+            },
+            data: data
+          };
+
+          return new Response(JSON.stringify(out, null, 1), {
+            headers: {
+              "Content-Type": "application/json; charset=utf-8",
+              "Content-Disposition": `attachment; filename="medikani_backup_${bHId}_${fileStamp}.json"`
+            }
+          });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+      }
+
+      // ===== 🌟v22追加: 施設データのバックアップ (ここまで) =====
+
       if (url.pathname.includes("/api/admin/download")) {
         try {
           const dHId = url.searchParams.get("h") || "";
@@ -7788,6 +7861,39 @@ export default {
     }
 
     // パスワード変更 (管理画面内から) 【作戦A仕様に更新】＋【メール通知追加】
+    // バックアップの取り込み（復元）。
+    // ★安全装置: ①ファイル内の施設IDが一致しないと拒否 ②JSONにあるキーだけを書く
+    //   （ファイルに無いキーは消さない）③パスワードのキーは無視する
+    if (request.method === "POST" && url.pathname.includes("/api/admin/restore")) {
+      try {
+        const body = await request.json();
+        const rHIdB = String(body.hospitalId || "").trim();
+        const payload = body.payload || {};
+        const meta = payload._meta || {};
+        const data = payload.data || {};
+
+        if (!rHIdB) return new Response(JSON.stringify({ error: "施設IDがありません" }), { status: 400, headers: { "Content-Type": "application/json" } });
+        if (meta.type !== "medikani-facility-backup") {
+          return new Response(JSON.stringify({ error: "メディカニのバックアップファイルではありません" }), { status: 400, headers: { "Content-Type": "application/json" } });
+        }
+        if (String(meta.hospitalId || "") !== rHIdB) {
+          return new Response(JSON.stringify({ error: `別の施設のバックアップです（ファイル: ${meta.hospitalId} / いまの施設: ${rHIdB}）` }), { status: 400, headers: { "Content-Type": "application/json" } });
+        }
+
+        const wrote = [], skipped = [];
+        for (const k of Object.keys(data)) {
+          if (!k.startsWith(rHIdB + "_")) { skipped.push(k); continue; }   // 他施設のキーは書かない
+          if (k.endsWith("_pwd") || k.endsWith("_userpwd")) { skipped.push(k); continue; }
+          await env.MEDI_KV.put(k, String(data[k]));
+          wrote.push(k);
+        }
+        return new Response(JSON.stringify({ success: true, wrote: wrote.length, skipped: skipped.length, keys: wrote }), {
+          headers: { "Content-Type": "application/json" }
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+    }
     if (request.method === "POST" && url.pathname.includes("/api/admin/changepwd")) {
       try {
         const cpBody = await request.json();
@@ -10006,6 +10112,37 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
           <a href="/api/admin/download?h=${hospitalId}" class="btn" style="background:#17a2b8; margin-top:10px; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none;">⬇️ 現在の採用薬CSVをダウンロード</a>
         </div>
 
+        <!-- ===== 🌟v22追加: 設定のバックアップ ===== -->
+        <div class="card" style="border-top: 4px solid #6c757d;">
+          <h2>💾 設定のバックアップ</h2>
+          <p style="font-size:12px; color:#666; margin-bottom:10px;">
+            休薬マスタ・用法マスタ・追加刻印・定型文・院内メモなど、<b>この施設で設定した内容</b>をまとめて1つのファイルに保存します。<br>
+            設定を大きく変える前や、CSVでまとめて登録する前に取っておくと安心です。
+          </p>
+          <div style="font-size:11px; color:#999; background:#f8f9fa; border-radius:6px; padding:8px 10px; margin-bottom:12px;">
+            ・パスワードは<b>含まれません</b>（顧客マスタ側で管理しています）<br>
+            ・採用薬そのものは含まれません（上の「現在の採用薬CSV」をお使いください）
+          </div>
+          <a href="/api/admin/backup?h=${hospitalId}" class="btn" style="background:#6c757d; display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none;">⬇️ バックアップを保存する</a>
+
+          <details style="margin-top:14px;">
+            <summary style="cursor:pointer; font-size:13px; color:#666;">🔄 バックアップから戻す（上級者向け）</summary>
+            <div style="margin-top:10px;">
+              <p style="font-size:12px; color:#a03028; background:#ffeaea; border-radius:6px; padding:8px 10px;">
+                ⚠️ 保存した時点の設定で<b>今の設定を上書き</b>します。取り消せません。<br>
+                ファイルに入っていない設定は消えません。パスワードは変わりません。
+              </p>
+              <textarea id="restoreBox" placeholder="バックアップファイルの中身をここに貼り付け" style="width:100%; min-height:110px; font-size:12px; font-family:monospace; padding:8px; border:1px solid #ddd; border-radius:6px; box-sizing:border-box;"></textarea>
+              <div style="margin-top:8px;">
+                <label style="font-size:12px; color:#666;">確認のため施設IDを入力してください</label>
+                <input type="text" id="restoreConfirm" placeholder="${hospitalId}" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px; box-sizing:border-box; margin-top:4px;">
+              </div>
+              <button onclick="doRestore()" class="btn" style="background:#dc3545; margin-top:10px;">🔄 この内容で戻す</button>
+              <div id="restoreMsg" style="font-size:12px; margin-top:8px;"></div>
+            </div>
+          </details>
+        </div>
+
         <!-- ===== 🌟新規追加: メディカニレーダーのウィンドウ ===== -->
         <div class="card" style="border-top: 4px solid #8e44ad;">
           <h2>📡 メディカニレーダー</h2>
@@ -10203,6 +10340,49 @@ getDashboardHTML(env, hospitalId, hospitalName = "") {
       <script>
         const hId = "${hospitalId}";
         let currentEditKey = "";
+
+        // ===== 🌟v22追加: バックアップから戻す =====
+        async function doRestore(){
+          const box = document.getElementById('restoreBox');
+          const conf = document.getElementById('restoreConfirm');
+          const msg = document.getElementById('restoreMsg');
+          msg.style.color = '#a03028';
+
+          if (conf.value.trim() !== hId){
+            msg.textContent = '施設IDが一致しません。確認欄に ' + hId + ' と入力してください。';
+            return;
+          }
+          let payload;
+          try { payload = JSON.parse(box.value); }
+          catch(e){ msg.textContent = 'ファイルの中身を読み取れませんでした。全文を貼り付けてください。'; return; }
+
+          const meta = payload._meta || {};
+          const cnt = payload.data ? Object.keys(payload.data).length : 0;
+          if (!confirm('この施設の設定を、保存時点（' + (meta.exportedAt || '不明') + '）の内容で上書きします。\\n' +
+                       '対象 ' + cnt + ' 項目。取り消せません。よろしいですか？')) return;
+
+          msg.style.color = '#666';
+          msg.textContent = '戻しています…🦀';
+          try {
+            const res = await fetch('/api/admin/restore', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ hospitalId: hId, payload: payload })
+            });
+            const j = await res.json();
+            if (j.success){
+              msg.style.color = '#28a745';
+              msg.textContent = '✅ ' + j.wrote + ' 項目を戻しましたカニ🦀（対象外 ' + j.skipped + ' 項目）反映は最大5分です。';
+              box.value = ''; conf.value = '';
+            } else {
+              msg.style.color = '#a03028';
+              msg.textContent = '❌ ' + (j.error || '失敗しました');
+            }
+          } catch(e){
+            msg.style.color = '#a03028';
+            msg.textContent = '❌ 通信エラー: ' + e.message;
+          }
+        }
 
         // === 新規追加: ポスター印刷機能 ===
         function printPoster() {
