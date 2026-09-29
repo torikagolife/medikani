@@ -679,6 +679,8 @@ function kyuyakuAdminPage(hId, isSuper) {
   .cell .cat { font-size: 10px; color: #888; margin-bottom: 4px; }
   .cell .act { font-size: 13px; font-weight: bold; }
   .act.continue { color: #1e7e34; } .act.stop { color: #c0392b; } .act.consult { color: #b96b00; }
+  /* 🌟v24追加: 意図的にリスト対象外にする分類。既存の「リスト対象外」と同じ灰色にそろえる */
+  .act.out_of_scope { color: #999; }
   .cell .days { font-size: 11px; color: #555; }
   .cell .cmt { font-size: 10px; color: #999; margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .comp-foot { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
@@ -774,6 +776,8 @@ function kyuyakuAdminPage(hId, isSuper) {
         <option value="continue">継続可</option>
         <option value="stop">休薬</option>
         <option value="consult">処方元に照会</option>
+        <!-- 🌟v24追加: この分類は判定の対象から外す（薬が未登録のときと同じ扱いになる） -->
+        <option value="out_of_scope">リスト対象外にする</option>
       </select>
     </div>
     <div class="field"><label>休薬日数（「休薬」のとき。0=当日から）</label>
@@ -864,7 +868,12 @@ let ovrMap = {};     // id -> 施設カスタム成分
 let adoptedCache = null;
 let editingCompId = null, editingCatId = null;
 
-const ACT_LABEL = { continue: "継続可", stop: "休薬", consult: "処方元に照会" };
+// 🌟v24追加: out_of_scope
+//   その分類を意図的に判定の対象から外す状態。
+//   「継続可」と書くと施設が決めていないことを断定してしまい、
+//   「処方元に照会」にすると照会だらけで現場が回らないときに使う。
+//   表示は、薬が休薬マスタに未登録のときと同じ「リスト対象外」にそろえてある。
+const ACT_LABEL = { continue: "継続可", stop: "休薬", consult: "処方元に照会", out_of_scope: "リスト対象外" };
 
 // --- 起動：マスタ読み込み ---
 async function loadMaster() {
@@ -973,6 +982,10 @@ function mergedCategories() {
     seen[c.id] = 1; seen['L:' + c.label] = 1;
     out.push(Object.assign({}, c, { _facility: isFac }));
   };
+  // 🌟v25追加: 施設マスタが categories を持っていれば、その並び順を最優先する。
+  //   以前は共通デフォルトの並びしか見ていなかったため、施設マスタで
+  //   「大手術を先頭に」などと並べ替えても画面に反映されなかった。
+  ((OVR && Array.isArray(OVR.categories)) ? OVR.categories : []).forEach(function(c){ push(c, false); });
   facilityCats().forEach(function(c){ push(c, true); });
   (DEF.categories || []).forEach(function(c){ push(c, false); });
   return out;
@@ -1311,7 +1324,14 @@ async function saveMaster(scope) {
     data = { ...DEF, categories: catsAll, components: comps };
   } else {
     // 🌟v8追加: 施設で追加した処置分類（catAdd）も一緒に保存する
-    data = { version: 1, components: Object.values(ovrMap), catAdd: facilityCats() };
+    // 🌟v25変更: これまでは components と catAdd だけを書いていたため、
+    //   保存するたびに施設マスタの categories（分類の並び）・actionLabels・note が
+    //   消えていた。いまある施設マスタを土台にして、変更したところだけ上書きする。
+    data = Object.assign({}, OVR || {}, {
+      version: 1,
+      components: Object.values(ovrMap),
+      catAdd: facilityCats()
+    });
   }
   // 🌟追加: 備考の定型文（最大10件）を一緒に保存する
   data.bikoPresets = splitLines(document.getElementById('bikoPresetIn').value).slice(0, 10);
@@ -1470,6 +1490,7 @@ ${MK_MENU_CSS}
   .j-continue { color:#2e7d32; }
   .j-stop { color:#c62828; }
   .j-consult { color:#e65100; }
+  .j-out_of_scope { color:#999; }   /* 🌟v24追加: 既存の .j-none と同じ見た目にそろえる */
   .j-none { color:#999; }
   .j-unknown { color:#b8860b; }
   .rdel { background:#f2f2f2; border:none; border-radius:50%; width:26px; height:26px; font-size:15px; color:#888; cursor:pointer; flex-shrink:0; }
@@ -1529,6 +1550,8 @@ ${MK_MENU_CSS}
     #report .rp-jd.j-continue { background:#d1ffd1; color:#155724; }
     #report .rp-jd.j-stop { background:#ffe0e0; color:#c62828; }
     #report .rp-jd.j-consult { background:#ffe6cc; color:#b35900; }
+    /* 🌟v24追加: 帳票でも「リスト対象外」と同じ見た目にそろえる */
+    #report .rp-jd.j-out_of_scope { background:#eee; color:#777; font-weight:normal; }
     #report .rp-jd.j-none, #report .rp-jd.j-unknown { background:#eee; color:#777; font-weight:normal; }
     #report tr.r-stop td { background:#fffafa; }
     /* 定型テキスト・署名（鑑別の帳票と同じ並び）*/
@@ -1668,7 +1691,9 @@ const HOSP = "${hId}";
 const BIKO_PRESETS = ${JSON.stringify(Array.isArray(bikoPresets) ? bikoPresets.slice(0, 10) : [])};
 // 🌟追加: 帳票フッターに出す施設名（未設定なら表示しない）
 const HNAME = "${String(hospitalName || '').replace(/"/g, '')}";
-const ACT = { continue:"継続可", stop:"休薬", consult:"処方元に照会" };
+// 🌟v24追加: out_of_scope ＝ その分類を意図的に判定の対象から外した状態。
+//   薬が休薬マスタに未登録のとき（j-none）と同じ「リスト対象外」で表示する。
+const ACT = { continue:"継続可", stop:"休薬", consult:"処方元に照会", out_of_scope:"リスト対象外" };
 let MASTER = { cats:[], comps:[] };
 let YJ7IDX = {};
 let LIST = [];
@@ -1693,7 +1718,14 @@ async function loadMaster(){
     let comps = (DEF.components||[]).map(function(c){ return ovrMap[c.id] ? Object.assign({}, ovrMap[c.id]) : Object.assign({}, c); });
     (OVR.components||[]).forEach(function(c){ if(!defIds[c.id]) comps.push(Object.assign({}, c)); });
     // 🌟v8変更: 施設が追加した処置分類（catAdd）を先頭に並べる
-    MASTER.cats = (Array.isArray(OVR.catAdd) ? OVR.catAdd : []).concat(DEF.categories || []);
+    // 🌟v25追加: 施設マスタが categories を持っていれば、その並び順を最優先する。
+    //   プルダウンの先頭＝既定で開く分類になるので、施設ごとに変えられるようにする。
+    const catSeen = {}, cats = [];
+    const pushCat = function(c){ if (c && c.id && !catSeen[c.id]) { catSeen[c.id] = 1; cats.push(c); } };
+    (Array.isArray(OVR.categories) ? OVR.categories : []).forEach(pushCat);
+    (Array.isArray(OVR.catAdd) ? OVR.catAdd : []).forEach(pushCat);
+    (DEF.categories || []).forEach(pushCat);
+    MASTER.cats = cats;
     MASTER.comps = comps;
     YJ7IDX = {};
     comps.forEach(function(c){ (c.yj7List||[]).forEach(function(y){ YJ7IDX[String(y).slice(0,7)] = c; }); });
@@ -6787,12 +6819,20 @@ export default {
           const dHId = url.searchParams.get("h") || "";
           if (!dHId) return new Response("Error", { status: 400 });
 
+          // 🌟v26変更: 除外リスト方式をやめ、薬のキーだけを通す方式にした。
+          //   以前は「_pwd は除く」「_meta は除く」…と除外を並べていたため、
+          //   あとから増えた設定キー（_jisan / _kyuyaku / _kyuyaku_json /
+          //   _kanbetsu_json / _kokuin_json / _name / _plan など）が漏れて
+          //   採用薬CSVに休薬マスタの中身まで出力されていた。
+          //   薬のキーは必ず {施設ID}_[内] / [注] / [外] で始まるので、それだけを拾う。
+          const esc = dHId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const DRUG_KEY_RE = new RegExp("^" + esc + "_\\[(内|注|外)\\]");
+
           let keys = [];
           let cursor = "";
           do {
             const list = await env.MEDI_KV.list({ prefix: `${dHId}_`, limit: 1000, cursor: cursor || undefined });
-            // ダウンロード時は絶対に COMP_ ゴミデータを排除する
-            keys.push(...list.keys.map(k => k.name).filter(n => !n.endsWith("_meta") && !n.endsWith("_pwd") && !n.endsWith("_userpwd") && !n.endsWith("_email") && !n.endsWith("_board") && !n.includes("_report_") && !n.includes("COMP_") && !n.endsWith("_ranking")));
+            keys.push(...list.keys.map(k => k.name).filter(n => DRUG_KEY_RE.test(n)));
             cursor = list.list_complete ? "" : list.cursor;
           } while (cursor);
           keys.sort();
